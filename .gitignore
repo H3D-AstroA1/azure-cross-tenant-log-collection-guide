@@ -1,0 +1,19 @@
+# Sensitive files
+*.env
+*.env.local
+*.local.settings.json
+secrets.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
