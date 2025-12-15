@@ -294,17 +294,17 @@ Create a file named `lighthouse-delegation.parameters.json`:
                 {
                     "principalId": "<SECURITY-GROUP-OBJECT-ID>",
                     "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
+                    "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7"
                 },
                 {
                     "principalId": "<SECURITY-GROUP-OBJECT-ID>",
                     "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "92aaf0da-9dab-42b6-94a3-d43ce8d16293"
+                    "roleDefinitionId": "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
                 },
                 {
                     "principalId": "<SECURITY-GROUP-OBJECT-ID>",
                     "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                    "roleDefinitionId": "73c42c96-874c-492b-b04d-ab87d138a893"
                 }
             ]
         }
@@ -316,9 +316,12 @@ Create a file named `lighthouse-delegation.parameters.json`:
 
 | Role | Role Definition ID | Purpose |
 |------|-------------------|---------|
-| **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Manage resources and configure diagnostic settings |
-| **Log Analytics Contributor** | `92aaf0da-9dab-42b6-94a3-d43ce8d16293` | Configure log collection and manage Log Analytics |
-| **Monitoring Contributor** | `749f88d5-cbae-40b8-bcfc-e573ddc772fa` | Configure monitoring and diagnostic settings |
+| **Reader** | `acdd72a7-3385-48ef-bd42-f606fba81ae7` | Read access to resources for log collection visibility |
+| **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data and diagnostic settings |
+| **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Read Log Analytics data and query logs |
+
+> **Note:** If you need write access to configure diagnostic settings, you may also need:
+> | **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Full management access to resources |
 
 **Replace the placeholders:**
 - `<ATEVET12-TENANT-ID>`: Your Atevet12 tenant ID
@@ -1155,8 +1158,7 @@ Below is a generic policy template that can be adapted for any resource type. Sa
                     ]
                 },
                 "roleDefinitionIds": [
-                    "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa",
-                    "/providers/Microsoft.Authorization/roleDefinitions/92aaf0da-9dab-42b6-94a3-d43ce8d16293"
+                    "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
                 ],
                 "deployment": {
                     "properties": {
@@ -1335,7 +1337,7 @@ foreach ($resourceType in $resourceTypes.Keys) {
                         "equals" = "[parameters('logAnalyticsWorkspaceId')]"
                     }
                     "roleDefinitionIds" = @(
-                        "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                        "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
                     )
                     "deployment" = @{
                         "properties" = @{

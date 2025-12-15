@@ -1091,7 +1091,7 @@ Deploy an Azure Policy to automatically configure diagnostic settings for all ne
                     ]
                 },
                 "roleDefinitionIds": [
-                    "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                    "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
                 ],
                 "deployment": {
                     "properties": {
