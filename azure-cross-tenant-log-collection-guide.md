@@ -7,16 +7,17 @@
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [Prerequisites](#prerequisites)
-4. [Step 1: Prepare the Managing Tenant (Atevet12)](#step-1-prepare-the-managing-tenant-atevet12)
-5. [Step 2: Onboard Customer Tenant (Atevet17) to Azure Lighthouse](#step-2-onboard-customer-tenant-atevet17-to-azure-lighthouse)
-6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-7. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
-8. [Step 5: Configure Microsoft Entra ID (Azure AD) Logs](#step-5-configure-microsoft-entra-id-azure-ad-logs)
-9. [Step 6: Configure Microsoft 365 Audit Logs](#step-6-configure-microsoft-365-audit-logs)
-10. [Step 7: Centralize Logs in Log Analytics Workspace](#step-7-centralize-logs-in-log-analytics-workspace)
-11. [Step 8: Verify Log Collection](#step-8-verify-log-collection)
-12. [Alternative Approaches](#alternative-approaches)
-13. [Troubleshooting](#troubleshooting)
+4. [Step 0: Register Required Resource Providers](#step-0-register-required-resource-providers)
+5. [Step 1: Prepare the Managing Tenant (Atevet12)](#step-1-prepare-the-managing-tenant-atevet12)
+6. [Step 2: Onboard Customer Tenant (Atevet17) to Azure Lighthouse](#step-2-onboard-customer-tenant-atevet17-to-azure-lighthouse)
+7. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
+8. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
+9. [Step 5: Configure Microsoft Entra ID (Azure AD) Logs](#step-5-configure-microsoft-entra-id-azure-ad-logs)
+10. [Step 6: Configure Microsoft 365 Audit Logs](#step-6-configure-microsoft-365-audit-logs)
+11. [Step 7: Centralize Logs in Log Analytics Workspace](#step-7-centralize-logs-in-log-analytics-workspace)
+12. [Step 8: Verify Log Collection](#step-8-verify-log-collection)
+13. [Alternative Approaches](#alternative-approaches)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -112,6 +113,248 @@
 | **Owner Access** | Owner role on subscriptions to be delegated |
 | **Azure AD Permissions** | Ability to accept Lighthouse delegation |
 | **Resource Provider** | `Microsoft.ManagedServices` resource provider registered |
+
+---
+
+## Step 0: Register Required Resource Providers
+
+Before deploying Azure Lighthouse, you must ensure the `Microsoft.ManagedServices` resource provider is registered in the **customer tenant (Atevet17)**. This resource provider is required for Azure Lighthouse delegations to work.
+
+### 0.1 Check Resource Provider Registration Status
+
+**Using PowerShell:**
+
+```powershell
+# Connect to Atevet17 tenant
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# Set the subscription context
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# Check if Microsoft.ManagedServices is registered
+$provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+
+# Display registration status
+$provider | Select-Object ProviderNamespace, RegistrationState
+
+# Expected output if registered:
+# ProviderNamespace           RegistrationState
+# -----------------           -----------------
+# Microsoft.ManagedServices   Registered
+```
+
+**Using Azure CLI:**
+
+```bash
+# Login to Atevet17 tenant
+az login --tenant "<Atevet17-Tenant-ID>"
+
+# Set the subscription
+az account set --subscription "<Atevet17-Subscription-ID>"
+
+# Check registration status
+az provider show --namespace Microsoft.ManagedServices --query "registrationState" -o tsv
+
+# Expected output if registered: Registered
+```
+
+**Using Azure Portal:**
+
+1. Sign in to the **Azure Portal** in the **Atevet17** tenant
+2. Navigate to **Subscriptions** → Select your subscription
+3. Go to **Settings** → **Resource providers**
+4. Search for `Microsoft.ManagedServices`
+5. Check the **Status** column:
+   - ✅ **Registered** - Ready to use
+   - ⚠️ **NotRegistered** - Needs to be registered
+   - 🔄 **Registering** - Registration in progress
+
+### 0.2 Register the Resource Provider (If Not Registered)
+
+If the resource provider is not registered, you need to register it before proceeding with Azure Lighthouse deployment.
+
+**Using PowerShell:**
+
+```powershell
+# Connect to Atevet17 tenant (if not already connected)
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# Register the Microsoft.ManagedServices resource provider
+Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+
+# Wait for registration to complete (usually takes 1-2 minutes)
+Write-Host "Waiting for registration to complete..."
+
+do {
+    Start-Sleep -Seconds 10
+    $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+    $status = $provider.RegistrationState
+    Write-Host "Current status: $status"
+} while ($status -eq "Registering")
+
+if ($status -eq "Registered") {
+    Write-Host "✓ Microsoft.ManagedServices is now registered!" -ForegroundColor Green
+} else {
+    Write-Host "✗ Registration failed. Status: $status" -ForegroundColor Red
+}
+```
+
+**Using Azure CLI:**
+
+```bash
+# Login to Atevet17 tenant (if not already logged in)
+az login --tenant "<Atevet17-Tenant-ID>"
+az account set --subscription "<Atevet17-Subscription-ID>"
+
+# Register the resource provider
+az provider register --namespace Microsoft.ManagedServices
+
+# Wait for registration to complete
+echo "Waiting for registration to complete..."
+az provider show --namespace Microsoft.ManagedServices --query "registrationState" -o tsv
+
+# Poll until registered (optional - for scripting)
+while [ "$(az provider show --namespace Microsoft.ManagedServices --query 'registrationState' -o tsv)" != "Registered" ]; do
+    echo "Still registering..."
+    sleep 10
+done
+echo "✓ Microsoft.ManagedServices is now registered!"
+```
+
+**Using Azure Portal:**
+
+1. Sign in to the **Azure Portal** in the **Atevet17** tenant
+2. Navigate to **Subscriptions** → Select your subscription
+3. Go to **Settings** → **Resource providers**
+4. Search for `Microsoft.ManagedServices`
+5. Select the provider and click **Register**
+6. Wait for the status to change to **Registered** (refresh the page if needed)
+
+### 0.3 Verify Registration for All Subscriptions
+
+If you plan to delegate multiple subscriptions, you need to register the resource provider in **each subscription**:
+
+**PowerShell Script for Multiple Subscriptions:**
+
+```powershell
+# Connect to Atevet17 tenant
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# Get all subscriptions in the tenant
+$subscriptions = Get-AzSubscription -TenantId "<Atevet17-Tenant-ID>"
+
+foreach ($sub in $subscriptions) {
+    Write-Host "`nProcessing subscription: $($sub.Name) ($($sub.Id))" -ForegroundColor Cyan
+    
+    # Set context to this subscription
+    Set-AzContext -SubscriptionId $sub.Id
+    
+    # Check current status
+    $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+    
+    if ($provider.RegistrationState -eq "Registered") {
+        Write-Host "  ✓ Already registered" -ForegroundColor Green
+    } else {
+        Write-Host "  Registering..." -ForegroundColor Yellow
+        Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+        
+        # Wait for registration
+        do {
+            Start-Sleep -Seconds 5
+            $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+        } while ($provider.RegistrationState -eq "Registering")
+        
+        if ($provider.RegistrationState -eq "Registered") {
+            Write-Host "  ✓ Successfully registered" -ForegroundColor Green
+        } else {
+            Write-Host "  ✗ Failed to register: $($provider.RegistrationState)" -ForegroundColor Red
+        }
+    }
+}
+
+Write-Host "`n=== Summary ===" -ForegroundColor Cyan
+Write-Host "All subscriptions have been processed."
+```
+
+**Azure CLI Script for Multiple Subscriptions:**
+
+```bash
+#!/bin/bash
+
+# Login to Atevet17 tenant
+az login --tenant "<Atevet17-Tenant-ID>"
+
+# Get all subscriptions
+subscriptions=$(az account list --query "[].id" -o tsv)
+
+for sub in $subscriptions; do
+    echo ""
+    echo "Processing subscription: $sub"
+    az account set --subscription "$sub"
+    
+    status=$(az provider show --namespace Microsoft.ManagedServices --query "registrationState" -o tsv 2>/dev/null)
+    
+    if [ "$status" == "Registered" ]; then
+        echo "  ✓ Already registered"
+    else
+        echo "  Registering..."
+        az provider register --namespace Microsoft.ManagedServices
+        
+        # Wait for registration
+        while [ "$(az provider show --namespace Microsoft.ManagedServices --query 'registrationState' -o tsv)" != "Registered" ]; do
+            sleep 5
+        done
+        echo "  ✓ Successfully registered"
+    fi
+done
+
+echo ""
+echo "=== All subscriptions processed ==="
+```
+
+### 0.4 Required Permissions
+
+To register a resource provider, you need one of the following roles on the subscription:
+
+| Role | Can Register Resource Providers |
+|------|--------------------------------|
+| **Owner** | ✅ Yes |
+| **Contributor** | ✅ Yes |
+| **Custom Role** with `Microsoft.Resources/subscriptions/providers/register/action` | ✅ Yes |
+| **Reader** | ❌ No |
+
+### 0.5 Troubleshooting Resource Provider Registration
+
+**Issue: "The subscription is not registered to use namespace 'Microsoft.ManagedServices'"**
+
+This error occurs when deploying Azure Lighthouse before registering the resource provider.
+
+**Solution:**
+```powershell
+# Register the provider and wait
+Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+Start-Sleep -Seconds 60
+# Then retry the Lighthouse deployment
+```
+
+**Issue: Registration stuck in "Registering" state**
+
+If registration takes more than 10 minutes:
+
+```powershell
+# Check for any errors
+Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices" | Format-List *
+
+# Try unregistering and re-registering
+Unregister-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+Start-Sleep -Seconds 30
+Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+```
+
+**Issue: "AuthorizationFailed" when registering**
+
+You don't have sufficient permissions. Contact your subscription Owner or Contributor to register the provider, or request the necessary role assignment.
 
 ---
 
