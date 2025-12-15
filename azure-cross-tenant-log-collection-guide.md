@@ -2301,6 +2301,147 @@ You have now configured cross-tenant log collection from **Atevet17** to **Ateve
 
 ---
 
+## Appendix: Complete Azure Log Types Reference
+
+This appendix provides a comprehensive reference of all Azure log types that can be collected, their importance level, and whether they are covered in this guide.
+
+### Log Categories Overview
+
+| Log Category | Description | Priority | Covered in Guide |
+|--------------|-------------|----------|------------------|
+| **Subscription Activity Logs** | Control plane operations (ARM) | 🔴 Critical | ✅ Yes (Step 3) |
+| **Microsoft Entra ID Logs** | Identity and access events | 🔴 Critical | ✅ Yes (Step 5) |
+| **Resource Diagnostic Logs** | Data plane operations per resource | 🔴 Critical | ✅ Yes (Step 4) |
+| **Azure Platform Logs** | Azure platform-level events | 🟡 Important | ✅ Yes (via Activity Logs) |
+| **Microsoft Defender for Cloud** | Security alerts and recommendations | 🟡 Important | ⚠️ Partial |
+| **Azure Policy Logs** | Policy compliance events | 🟡 Important | ✅ Yes (via Activity Logs) |
+| **Microsoft 365 Audit Logs** | Office 365 activities | 🟡 Important | ❌ No (separate config) |
+| **Azure Service Health** | Service incidents and maintenance | 🟢 Optional | ✅ Yes (via Activity Logs) |
+| **Cost Management Logs** | Billing and cost data | 🟢 Optional | ❌ No |
+
+### Detailed Log Types Reference
+
+#### 🔴 Critical Logs (Must Enable)
+
+| Log Type | Source | Log Analytics Table | Priority | Notes |
+|----------|--------|---------------------|----------|-------|
+| Activity Logs | Subscription | `AzureActivity` | 🔴 Critical | All ARM operations |
+| Sign-in Logs | Entra ID | `SigninLogs` | 🔴 Critical | Requires P1/P2 license |
+| Audit Logs | Entra ID | `AuditLogs` | 🔴 Critical | Directory changes |
+| Non-Interactive Sign-ins | Entra ID | `AADNonInteractiveUserSignInLogs` | 🔴 Critical | Background authentications |
+| Service Principal Sign-ins | Entra ID | `AADServicePrincipalSignInLogs` | 🔴 Critical | App authentications |
+| Key Vault Audit | Key Vault | `AzureDiagnostics` | 🔴 Critical | Secret/key access |
+| Storage Account Logs | Storage | `StorageBlobLogs`, etc. | 🔴 Critical | Data access patterns |
+| NSG Flow Logs | Network | `AzureNetworkAnalytics_CL` | 🔴 Critical | Network traffic |
+| Firewall Logs | Azure Firewall | `AzureDiagnostics` | 🔴 Critical | Network security |
+
+#### 🟡 Important Logs (Should Enable)
+
+| Log Type | Source | Log Analytics Table | Priority | Notes |
+|----------|--------|---------------------|----------|-------|
+| Managed Identity Sign-ins | Entra ID | `AADManagedIdentitySignInLogs` | 🟡 Important | MI authentications |
+| Provisioning Logs | Entra ID | `AADProvisioningLogs` | 🟡 Important | User provisioning |
+| Risky Users | Entra ID | `AADRiskyUsers` | 🟡 Important | Requires P2 license |
+| User Risk Events | Entra ID | `AADUserRiskEvents` | 🟡 Important | Requires P2 license |
+| Graph API Activity | Entra ID | `MicrosoftGraphActivityLogs` | 🟡 Important | API calls |
+| SQL Audit Logs | SQL Database | `AzureDiagnostics` | 🟡 Important | Database access |
+| App Service Logs | App Service | `AppServiceHTTPLogs` | 🟡 Important | Web app access |
+| AKS Logs | Kubernetes | `AzureDiagnostics` | 🟡 Important | Container orchestration |
+| VM Performance | Virtual Machines | `Perf` | 🟡 Important | Resource utilization |
+| VM Security Events | Virtual Machines | `Event` | 🟡 Important | Windows Security log |
+| Defender Alerts | Defender for Cloud | `SecurityAlert` | 🟡 Important | Security threats |
+| Policy Compliance | Azure Policy | `AzureActivity` | 🟡 Important | Compliance state |
+
+#### 🟢 Optional Logs (Enable as Needed)
+
+| Log Type | Source | Log Analytics Table | Priority | Notes |
+|----------|--------|---------------------|----------|-------|
+| Service Health | Azure | `AzureActivity` | 🟢 Optional | Service incidents |
+| Advisor Recommendations | Azure Advisor | `AzureActivity` | 🟢 Optional | Best practices |
+| Autoscale Events | Various | `AzureActivity` | 🟢 Optional | Scaling operations |
+| Cosmos DB Logs | Cosmos DB | `AzureDiagnostics` | 🟢 Optional | Database operations |
+| Event Hub Logs | Event Hubs | `AzureDiagnostics` | 🟢 Optional | Messaging |
+| Service Bus Logs | Service Bus | `AzureDiagnostics` | 🟢 Optional | Messaging |
+| Logic App Logs | Logic Apps | `AzureDiagnostics` | 🟢 Optional | Workflow execution |
+| API Management Logs | APIM | `AzureDiagnostics` | 🟢 Optional | API gateway |
+| CDN Logs | Azure CDN | `AzureDiagnostics` | 🟢 Optional | Content delivery |
+| Front Door Logs | Front Door | `AzureDiagnostics` | 🟢 Optional | Global load balancing |
+
+### Additional Log Sources Not Covered in This Guide
+
+The following log sources require separate configuration and are not covered by Azure Lighthouse or standard diagnostic settings:
+
+| Log Source | Description | Configuration Method | Priority |
+|------------|-------------|---------------------|----------|
+| **Microsoft 365 Unified Audit Log** | Exchange, SharePoint, Teams, OneDrive activities | Microsoft 365 Compliance Center or Microsoft Sentinel connector | 🟡 Important |
+| **Microsoft Defender for Endpoint** | Endpoint detection and response | Microsoft 365 Defender portal or Sentinel connector | 🟡 Important |
+| **Microsoft Defender for Identity** | On-premises AD monitoring | Defender for Identity portal or Sentinel connector | 🟡 Important |
+| **Microsoft Defender for Cloud Apps** | Cloud app security (CASB) | Defender for Cloud Apps portal or Sentinel connector | 🟡 Important |
+| **Microsoft Intune** | Device management logs | Intune portal or Sentinel connector | 🟢 Optional |
+| **Azure DevOps** | CI/CD pipeline logs | Azure DevOps Auditing or Sentinel connector | 🟢 Optional |
+| **GitHub Enterprise** | Repository and action logs | GitHub audit log streaming | 🟢 Optional |
+| **Power Platform** | Power Apps, Power Automate logs | Power Platform admin center | 🟢 Optional |
+| **Dynamics 365** | CRM/ERP application logs | Dynamics 365 admin center | 🟢 Optional |
+
+### Microsoft Sentinel Data Connectors
+
+If using Microsoft Sentinel, these additional connectors can enhance log collection:
+
+| Connector | Log Types | Priority |
+|-----------|-----------|----------|
+| Azure Activity | Activity Logs | 🔴 Critical |
+| Microsoft Entra ID | Sign-in, Audit, Provisioning | 🔴 Critical |
+| Microsoft Entra ID Identity Protection | Risk events | 🟡 Important |
+| Microsoft 365 Defender | Incidents, alerts | 🟡 Important |
+| Microsoft Defender for Cloud | Security alerts | 🟡 Important |
+| Microsoft Defender for Endpoint | Device events | 🟡 Important |
+| Office 365 | Exchange, SharePoint, Teams | 🟡 Important |
+| Azure Key Vault | Vault access | 🔴 Critical |
+| Azure Firewall | Network logs | 🔴 Critical |
+| Azure WAF | Web application firewall | 🟡 Important |
+| DNS | DNS queries | 🟢 Optional |
+| Syslog | Linux system logs | 🟡 Important |
+| Windows Security Events | Windows event logs | 🟡 Important |
+| Common Event Format (CEF) | Third-party security devices | 🟢 Optional |
+
+### Log Retention Recommendations
+
+| Log Type | Minimum Retention | Recommended Retention | Compliance Requirement |
+|----------|-------------------|----------------------|------------------------|
+| Sign-in Logs | 30 days | 90-365 days | SOC 2, ISO 27001 |
+| Audit Logs | 30 days | 365 days | Most compliance frameworks |
+| Activity Logs | 90 days | 365 days | Azure default |
+| Security Logs | 90 days | 1-7 years | PCI-DSS, HIPAA |
+| Resource Logs | 30 days | 90 days | Varies by resource |
+
+### Quick Reference: What to Enable First
+
+**Phase 1 - Immediate (Security Critical):**
+1. ✅ Subscription Activity Logs
+2. ✅ Entra ID Sign-in Logs
+3. ✅ Entra ID Audit Logs
+4. ✅ Key Vault Diagnostic Logs
+5. ✅ NSG Flow Logs (if applicable)
+
+**Phase 2 - Short Term (Within 30 days):**
+1. ✅ All Entra ID log categories
+2. ✅ Storage Account Diagnostic Logs
+3. ✅ SQL/Database Audit Logs
+4. ✅ Azure Firewall Logs (if applicable)
+5. ✅ VM Security Event Logs
+
+**Phase 3 - Medium Term (Within 90 days):**
+1. ✅ All resource diagnostic logs via Azure Policy
+2. ✅ Microsoft Defender for Cloud integration
+3. ✅ Application-specific logs (App Service, AKS, etc.)
+
+**Phase 4 - Long Term (As needed):**
+1. ⬜ Microsoft 365 audit logs
+2. ⬜ Third-party security tool integration
+3. ⬜ Custom application logs
+
+---
+
 ## Additional Resources
 
 - [Azure Lighthouse Documentation](https://docs.microsoft.com/azure/lighthouse/)
