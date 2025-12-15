@@ -630,9 +630,174 @@ Create a file named `lighthouse-parameters-assignment.json`:
 
 **Replace the placeholders:**
 - `<ATEVET17-SUBSCRIPTION-ID>`: The subscription ID in Atevet17 where you deployed the definition
-- `<DEFINITION-GUID>`: The GUID from the output of the definition deployment (Step 2.5)
+- `<DEFINITION-GUID>`: The GUID from the output of the definition deployment (see section 2.5 for how to retrieve this value)
 
-### 2.5 Deploy the Registration Definition in Atevet17
+### 2.5 How to Get the registrationDefinitionId Value
+
+The `registrationDefinitionId` is required for the assignment parameters file. You can obtain this value in several ways:
+
+#### Method 1: From the Definition Deployment Output (Recommended)
+
+When you deploy the registration definition (Step 2.6), the deployment outputs the `registrationDefinitionId`. Capture this value immediately after deployment:
+
+**Using PowerShell:**
+
+```powershell
+# After deploying the definition, get the output
+$definitionDeployment = New-AzSubscriptionDeployment `
+    -Name "LighthouseDefinition" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-definition.json" `
+    -TemplateParameterFile "lighthouse-parameters-definition.json"
+
+# Extract the registrationDefinitionId from the output
+$registrationDefinitionId = $definitionDeployment.Outputs.registrationDefinitionId.Value
+Write-Host "Registration Definition ID: $registrationDefinitionId"
+
+# Example output:
+# /subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/providers/Microsoft.ManagedServices/registrationDefinitions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+```
+
+**Using Azure CLI:**
+
+```bash
+# Deploy the definition and capture the output
+az deployment sub create \
+    --name "LighthouseDefinition" \
+    --location "westus2" \
+    --template-file "lighthouse-template-definition.json" \
+    --parameters "lighthouse-parameters-definition.json" \
+    --query "properties.outputs.registrationDefinitionId.value" \
+    -o tsv
+
+# Or get it from an existing deployment
+DEFINITION_ID=$(az deployment sub show \
+    --name "LighthouseDefinition" \
+    --query "properties.outputs.registrationDefinitionId.value" \
+    -o tsv)
+
+echo "Registration Definition ID: $DEFINITION_ID"
+```
+
+#### Method 2: Query Existing Registration Definitions
+
+If you've already deployed the definition and need to retrieve the ID:
+
+**Using PowerShell:**
+
+```powershell
+# Connect to Atevet17 tenant
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# List all registration definitions
+$definitions = Get-AzManagedServicesDefinition
+
+# Display all definitions with their IDs
+$definitions | Format-Table Name, Id, @{
+    Label = "DisplayName"
+    Expression = { $_.Properties.RegistrationDefinitionName }
+}
+
+# Get a specific definition by display name
+$definition = $definitions | Where-Object {
+    $_.Properties.RegistrationDefinitionName -eq "Atevet12 Log Collection Delegation"
+}
+
+Write-Host "Registration Definition ID: $($definition.Id)"
+```
+
+**Using Azure CLI:**
+
+```bash
+# Login to Atevet17 tenant
+az login --tenant "<Atevet17-Tenant-ID>"
+az account set --subscription "<Atevet17-Subscription-ID>"
+
+# List all registration definitions
+az managedservices definition list --query "[].{Name:name, DisplayName:properties.registrationDefinitionName, Id:id}" -o table
+
+# Get the ID for a specific definition
+az managedservices definition list \
+    --query "[?properties.registrationDefinitionName=='Atevet12 Log Collection Delegation'].id" \
+    -o tsv
+```
+
+#### Method 3: Using Azure Portal
+
+1. Sign in to the **Azure Portal** in the **Atevet17** tenant
+2. Navigate to **Subscriptions** → Select your subscription
+3. Go to **Service providers** → **Service provider offers**
+4. Click on the registration definition you created
+5. In the **Overview** or **Properties** section, find the **Resource ID**
+6. The Resource ID is your `registrationDefinitionId`
+
+**Example Resource ID format:**
+```
+/subscriptions/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx/providers/Microsoft.ManagedServices/registrationDefinitions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+```
+
+#### Method 4: Construct the ID Manually
+
+If you know the subscription ID and the definition GUID, you can construct the ID manually:
+
+```
+/subscriptions/<SUBSCRIPTION-ID>/providers/Microsoft.ManagedServices/registrationDefinitions/<DEFINITION-GUID>
+```
+
+**To find the DEFINITION-GUID:**
+
+The GUID is generated deterministically based on the `managedByTenantId` and `registrationDefinitionName` parameters in the definition template. You can calculate it using:
+
+```powershell
+# The GUID is generated from this seed string
+$managedByTenantId = "<Atevet12-Tenant-ID>"
+$registrationDefinitionName = "Atevet12 Log Collection Delegation"
+$seedString = "$managedByTenantId-$registrationDefinitionName"
+
+# Generate the GUID (this matches the ARM template guid() function)
+# Note: This is for reference - the actual GUID is created during deployment
+```
+
+**Important:** The easiest and most reliable method is **Method 1** - capturing the output immediately after deploying the definition.
+
+#### Example: Complete Workflow
+
+Here's a complete example showing how to deploy the definition and immediately use the output for the assignment:
+
+```powershell
+# Step 1: Deploy the definition
+$defDeployment = New-AzSubscriptionDeployment `
+    -Name "LighthouseDefinition" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-definition.json" `
+    -TemplateParameterFile "lighthouse-parameters-definition.json"
+
+# Step 2: Get the registration definition ID
+$registrationDefinitionId = $defDeployment.Outputs.registrationDefinitionId.Value
+Write-Host "Definition ID: $registrationDefinitionId" -ForegroundColor Green
+
+# Step 3: Update the assignment parameters file (optional - you can also pass inline)
+$assignmentParams = Get-Content "lighthouse-parameters-assignment.json" | ConvertFrom-Json
+$assignmentParams.parameters.registrationDefinitionId.value = $registrationDefinitionId
+$assignmentParams | ConvertTo-Json -Depth 10 | Set-Content "lighthouse-parameters-assignment.json"
+
+# Step 4: Deploy the assignment
+New-AzSubscriptionDeployment `
+    -Name "LighthouseAssignment" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-assignment.json" `
+    -TemplateParameterFile "lighthouse-parameters-assignment.json"
+
+# Or deploy with inline parameter (skipping step 3)
+New-AzSubscriptionDeployment `
+    -Name "LighthouseAssignment" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-assignment.json" `
+    -registrationDefinitionId $registrationDefinitionId
+```
+
+### 2.6 Deploy the Registration Definition in Atevet17
 
 **Step A: Deploy the Definition**
 
@@ -676,11 +841,11 @@ Write-Host "Registration Definition ID: $registrationDefinitionId"
 
 **Important:** Note the `registrationDefinitionId` from the deployment output. You will need this for the assignment step.
 
-### 2.6 Deploy the Registration Assignment in Atevet17
+### 2.7 Deploy the Registration Assignment in Atevet17
 
 **Step B: Deploy the Assignment**
 
-First, update the `lighthouse-parameters-assignment.json` file with the `registrationDefinitionId` from Step 2.5.
+First, update the `lighthouse-parameters-assignment.json` file with the `registrationDefinitionId` from Step 2.6.
 
 **Using Azure CLI:**
 
@@ -734,7 +899,7 @@ az deployment sub create \
     --parameters registrationDefinitionId="$DEFINITION_ID"
 ```
 
-### 2.7 Using Azure Portal
+### 2.8 Using Azure Portal
 
 **Option: Deploy via Azure Portal**
 
@@ -752,7 +917,7 @@ az deployment sub create \
    - Enter the `registrationDefinitionId` from step 4
    - Click **Review + Create** → **Create**
 
-### 2.8 Repeat for Each Subscription
+### 2.9 Repeat for Each Subscription
 
 If you have multiple subscriptions in Atevet17:
 
@@ -801,7 +966,7 @@ foreach ($subId in $subscriptions) {
 Write-Host "`n=== All subscriptions processed ===" -ForegroundColor Cyan
 ```
 
-### 2.9 Verify Delegation
+### 2.10 Verify Delegation
 
 **In Atevet12 (Managing Tenant):**
 
@@ -833,7 +998,7 @@ Get-AzManagedServicesDefinition | Format-List
 Get-AzManagedServicesAssignment | Format-List
 ```
 
-### 2.10 File Summary
+### 2.11 File Summary
 
 Here's a summary of all the files you need to create:
 
