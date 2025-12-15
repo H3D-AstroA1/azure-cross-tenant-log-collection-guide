@@ -191,7 +191,7 @@ ATEVET12 (Destination):
 ├── Tenant ID: ________________________________
 ├── Subscription ID: __________________________
 ├── Resource Group Name: rg-eventhub-central
-├── Region: __________________________________ (e.g., eastus)
+├── Region: __________________________________ (e.g., westus2)
 └── Log Analytics Workspace Name: law-central-atevet12
 
 ATEVET17 (Source):
@@ -227,7 +227,7 @@ az account set --subscription "<Atevet12-Subscription-ID>"
 # Create resource group
 az group create \
     --name "rg-eventhub-central" \
-    --location "eastus"
+    --location "westus2"
 ```
 
 **PowerShell:**
@@ -241,7 +241,7 @@ Set-AzContext -SubscriptionId "<Atevet12-Subscription-ID>"
 # Create resource group
 New-AzResourceGroup `
     -Name "rg-eventhub-central" `
-    -Location "eastus"
+    -Location "westus2"
 ```
 
 ### 1.2 Create Event Hub Namespace
@@ -269,7 +269,7 @@ New-AzResourceGroup `
 az eventhubs namespace create \
     --name "eh-namespace-central-atevet12" \
     --resource-group "rg-eventhub-central" \
-    --location "eastus" \
+    --location "westus2" \
     --sku "Standard" \
     --capacity 1 \
     --enable-auto-inflate true \
@@ -282,7 +282,7 @@ az eventhubs namespace create \
 New-AzEventHubNamespace `
     -ResourceGroupName "rg-eventhub-central" `
     -Name "eh-namespace-central-atevet12" `
-    -Location "eastus" `
+    -Location "westus2" `
     -SkuName "Standard" `
     -SkuCapacity 1 `
     -EnableAutoInflate $true `
@@ -515,7 +515,7 @@ Write-Host "Connection String: $($keys.PrimaryConnectionString)"
 az keyvault create \
     --name "kv-eventhub-secrets" \
     --resource-group "rg-eventhub-central" \
-    --location "eastus"
+    --location "westus2"
 
 # Store the connection string as a secret
 CONNECTION_STRING=$(az eventhubs namespace authorization-rule keys list \
@@ -1182,7 +1182,7 @@ az policy assignment create \
         "eventHubName": "eh-activity-logs"
     }' \
     --assign-identity \
-    --location "eastus"
+    --location "westus2"
 ```
 
 ### 4.8 Configure Azure AD Sign-in and Audit Logs
@@ -1228,7 +1228,7 @@ az account set --subscription "<Atevet12-Subscription-ID>"
 az monitor log-analytics workspace create \
     --resource-group "rg-eventhub-central" \
     --workspace-name "law-central-atevet12" \
-    --location "eastus" \
+    --location "westus2" \
     --sku "PerGB2018" \
     --retention-time 90
 
@@ -1261,7 +1261,7 @@ The Azure Function acts as a bridge between Event Hub and Log Analytics, transfo
 az storage account create \
     --name "stfunceventhubproc" \
     --resource-group "rg-eventhub-central" \
-    --location "eastus" \
+    --location "westus2" \
     --sku "Standard_LRS"
 
 # Create Function App (Consumption Plan)
@@ -1269,7 +1269,7 @@ az functionapp create \
     --name "func-eventhub-processor" \
     --resource-group "rg-eventhub-central" \
     --storage-account "stfunceventhubproc" \
-    --consumption-plan-location "eastus" \
+    --consumption-plan-location "westus2" \
     --runtime "python" \
     --runtime-version "3.9" \
     --functions-version "4" \
@@ -1494,7 +1494,7 @@ az functionapp deployment source config-zip \
 az login --tenant "<Atevet17-Tenant-ID>"
 
 # Create a test resource group (generates Activity Log)
-az group create --name "test-logging-rg" --location "eastus"
+az group create --name "test-logging-rg" --location "westus2"
 
 # Delete the test resource group
 az group delete --name "test-logging-rg" --yes --no-wait

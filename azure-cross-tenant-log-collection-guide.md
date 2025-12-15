@@ -392,13 +392,13 @@ Write-Host "Security Group Object ID: $($group.ObjectId)"
 Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
 
 # Create Resource Group (if needed)
-New-AzResourceGroup -Name "rg-central-logging" -Location "eastus"
+New-AzResourceGroup -Name "rg-central-logging" -Location "westus2"
 
 # Create Log Analytics Workspace
 $workspace = New-AzOperationalInsightsWorkspace `
     -ResourceGroupName "rg-central-logging" `
     -Name "law-central-atevet12" `
-    -Location "eastus" `
+    -Location "westus2" `
     -Sku "PerGB2018"
 
 # Get Workspace ID and Key
@@ -587,7 +587,7 @@ az account set --subscription "<Atevet17-Subscription-ID>"
 # Deploy the template at subscription level
 az deployment sub create \
     --name "LighthouseDeployment" \
-    --location "eastus" \
+    --location "westus2" \
     --template-file "lighthouse-delegation.json" \
     --parameters "lighthouse-delegation.parameters.json"
 ```
@@ -604,7 +604,7 @@ Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
 # Deploy the template
 New-AzSubscriptionDeployment `
     -Name "LighthouseDeployment" `
-    -Location "eastus" `
+    -Location "westus2" `
     -TemplateFile "lighthouse-delegation.json" `
     -TemplateParameterFile "lighthouse-delegation.parameters.json"
 ```
@@ -724,7 +724,7 @@ Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
 $dcrParams = @{
     Name = "dcr-vm-logs-atevet17"
     ResourceGroupName = "rg-central-logging"
-    Location = "eastus"
+    Location = "westus2"
     DataFlow = @(
         @{
             Streams = @("Microsoft-Perf", "Microsoft-Event", "Microsoft-Syslog")
@@ -1300,7 +1300,7 @@ New-AzPolicyAssignment `
     -PolicyParameterObject @{
         "logAnalytics" = $workspaceResourceId
     } `
-    -Location "eastus" `
+    -Location "westus2" `
     -IdentityType "SystemAssigned"
 
 # Grant the managed identity the required permissions
@@ -1642,7 +1642,7 @@ foreach ($resourceType in $resourceTypes.Keys) {
             -PolicyParameterObject @{
                 "logAnalyticsWorkspaceId" = $workspaceResourceId
             } `
-            -Location "eastus" `
+            -Location "westus2" `
             -IdentityType "SystemAssigned"
         
         Write-Host "✓ Created and assigned policy for $resourceType" -ForegroundColor Green
@@ -2144,7 +2144,7 @@ For repeatable deployments, use this ARM template:
 # Deploy at tenant level (requires Global Administrator)
 az deployment tenant create \
     --name "EntraIDDiagnostics" \
-    --location "eastus" \
+    --location "westus2" \
     --template-file "entra-diagnostic-settings.json" \
     --parameters workspaceId="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
