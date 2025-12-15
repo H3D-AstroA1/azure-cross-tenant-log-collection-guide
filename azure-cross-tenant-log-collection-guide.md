@@ -12,10 +12,11 @@
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
 7. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
 8. [Step 5: Configure Microsoft Entra ID (Azure AD) Logs](#step-5-configure-microsoft-entra-id-azure-ad-logs)
-9. [Step 6: Centralize Logs in Log Analytics Workspace](#step-6-centralize-logs-in-log-analytics-workspace)
-10. [Step 7: Verify Log Collection](#step-7-verify-log-collection)
-11. [Alternative Approaches](#alternative-approaches)
-12. [Troubleshooting](#troubleshooting)
+9. [Step 6: Configure Microsoft 365 Audit Logs](#step-6-configure-microsoft-365-audit-logs)
+10. [Step 7: Centralize Logs in Log Analytics Workspace](#step-7-centralize-logs-in-log-analytics-workspace)
+11. [Step 8: Verify Log Collection](#step-8-verify-log-collection)
+12. [Alternative Approaches](#alternative-approaches)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1902,9 +1903,533 @@ az deployment tenant create \
 
 ---
 
-## Step 6: Centralize Logs in Log Analytics Workspace
+## Step 6: Configure Microsoft 365 Audit Logs
 
-### 6.1 Verify Log Tables
+Microsoft 365 (Office 365) Audit Logs capture user and admin activities across Microsoft 365 services including Exchange Online, SharePoint Online, OneDrive for Business, Microsoft Teams, Power Platform, and more. These logs are essential for security monitoring, compliance, and incident investigation.
+
+> **Important:** Microsoft 365 Audit Logs are separate from Azure resource logs and Microsoft Entra ID logs. They require configuration through the Microsoft 365 Compliance Center or Microsoft Sentinel, and cannot be configured via Azure Lighthouse delegation.
+
+### 6.1 Prerequisites for Microsoft 365 Audit Logs
+
+| Requirement | Description |
+|-------------|-------------|
+| **License** | Microsoft 365 E3/E5, Office 365 E3/E5, or standalone audit license |
+| **Permissions** | Global Administrator or Compliance Administrator in Atevet17 |
+| **Audit Logging** | Must be enabled in Microsoft 365 (enabled by default for most tenants) |
+| **Retention** | E3: 90 days, E5: 1 year (up to 10 years with add-on) |
+
+### 6.2 Available Microsoft 365 Log Categories
+
+| Service | Log Types | Description |
+|---------|-----------|-------------|
+| **Exchange Online** | Mailbox audit, Admin audit | Email access, mailbox changes, admin operations |
+| **SharePoint Online** | File operations, Sharing | Document access, sharing, site administration |
+| **OneDrive for Business** | File operations, Sync | File access, sync activities, sharing |
+| **Microsoft Teams** | Team operations, Channel, Chat | Team creation, membership, meetings, messaging |
+| **Azure AD** | User management, App consent | Directory changes (also in Entra ID logs) |
+| **Power Platform** | Power Apps, Power Automate | App usage, flow executions |
+| **Microsoft Defender** | Security alerts, Incidents | Threat detection, security events |
+| **eDiscovery** | Search, Export, Hold | Legal discovery activities |
+| **Data Loss Prevention** | Policy matches, Overrides | DLP policy violations |
+| **Information Protection** | Label changes, Access | Sensitivity label activities |
+| **Compliance Manager** | Assessment activities | Compliance score changes |
+
+### 6.3 Enable Microsoft 365 Audit Logging
+
+**Verify Audit Logging is Enabled:**
+
+```powershell
+# Connect to Exchange Online PowerShell
+Install-Module -Name ExchangeOnlineManagement -Force
+Connect-ExchangeOnline -UserPrincipalName admin@atevet17.onmicrosoft.com
+
+# Check if unified audit logging is enabled
+Get-AdminAuditLogConfig | Format-List UnifiedAuditLogIngestionEnabled
+
+# Enable if not already enabled
+Set-AdminAuditLogConfig -UnifiedAuditLogIngestionEnabled $true
+```
+
+**Via Microsoft 365 Admin Center:**
+1. Go to https://compliance.microsoft.com
+2. Navigate to **Audit** (under Solutions)
+3. If you see "Start recording user and admin activity", click it to enable
+4. Audit logging is enabled when you see the search interface
+
+### 6.4 Option A: Stream M365 Logs to Log Analytics via Microsoft Sentinel
+
+The recommended approach for cross-tenant log collection is using Microsoft Sentinel with the Office 365 data connector.
+
+**Step 1: Enable Microsoft Sentinel in Atevet12**
+
+```powershell
+# Connect to Atevet12
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Enable Microsoft Sentinel on the Log Analytics workspace
+$workspace = Get-AzOperationalInsightsWorkspace `
+    -ResourceGroupName "rg-central-logging" `
+    -Name "law-central-atevet12"
+
+# Install Sentinel solution
+Set-AzSentinel -ResourceGroupName "rg-central-logging" -WorkspaceName "law-central-atevet12"
+```
+
+**Step 2: Configure Office 365 Data Connector in Atevet17**
+
+Since M365 logs are tenant-specific, you need to configure the connector in Atevet17 and export to Atevet12's workspace:
+
+```powershell
+# This requires configuration in Atevet17 tenant
+# Connect to Atevet17
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# Create a Log Analytics workspace in Atevet17 (if not exists) or use cross-tenant export
+# Option 1: Use Sentinel in Atevet17 with data export to Atevet12
+# Option 2: Use Management Activity API (see Option B below)
+```
+
+**Via Azure Portal (Atevet17):**
+1. Go to **Microsoft Sentinel** in Atevet17 (or create a workspace)
+2. Navigate to **Data connectors**
+3. Search for **Office 365**
+4. Click **Open connector page**
+5. Select the log types to enable:
+   - ☑️ Exchange
+   - ☑️ SharePoint
+   - ☑️ Teams
+6. Click **Apply Changes**
+
+**Cross-Tenant Export Configuration:**
+
+To send M365 logs from Atevet17 to Atevet12's Log Analytics workspace:
+
+```powershell
+# In Atevet17, create a data export rule to Atevet12's workspace
+# Note: This requires the workspace in Atevet12 to allow cross-tenant data ingestion
+
+# Get the workspace resource ID in Atevet12
+$targetWorkspaceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Create diagnostic setting for M365 (via Azure AD diagnostic settings)
+# M365 audit logs flow through the Office 365 connector, not diagnostic settings
+```
+
+### 6.5 Option B: Use Management Activity API for Custom Integration
+
+For more control over M365 log collection, use the Office 365 Management Activity API:
+
+**Step 1: Register an Application in Atevet17**
+
+```powershell
+# Connect to Atevet17 Azure AD
+Connect-AzureAD -TenantId "<Atevet17-Tenant-ID>"
+
+# Create app registration
+$app = New-AzureADApplication -DisplayName "M365-Audit-Log-Collector" `
+    -IdentifierUris "https://atevet17.onmicrosoft.com/m365-audit-collector"
+
+# Create service principal
+$sp = New-AzureADServicePrincipal -AppId $app.AppId
+
+# Create client secret
+$secret = New-AzureADApplicationPasswordCredential -ObjectId $app.ObjectId `
+    -CustomKeyIdentifier "M365AuditSecret" `
+    -EndDate (Get-Date).AddYears(2)
+
+Write-Host "Application ID: $($app.AppId)"
+Write-Host "Client Secret: $($secret.Value)"
+Write-Host "Tenant ID: <Atevet17-Tenant-ID>"
+```
+
+**Step 2: Grant API Permissions**
+
+```powershell
+# Required permissions for Office 365 Management APIs
+$requiredPermissions = @(
+    "ActivityFeed.Read",           # Read activity data
+    "ActivityFeed.ReadDlp",        # Read DLP policy events
+    "ServiceHealth.Read"           # Read service health
+)
+
+# Grant permissions via Azure Portal:
+# 1. Go to Azure AD > App registrations > M365-Audit-Log-Collector
+# 2. API permissions > Add permission > Office 365 Management APIs
+# 3. Select: ActivityFeed.Read, ActivityFeed.ReadDlp, ServiceHealth.Read
+# 4. Grant admin consent
+```
+
+**Step 3: Start Subscriptions to Content Types**
+
+```powershell
+# PowerShell script to start M365 audit log subscriptions
+$tenantId = "<Atevet17-Tenant-ID>"
+$clientId = "<Application-ID>"
+$clientSecret = "<Client-Secret>"
+
+# Get OAuth token
+$tokenBody = @{
+    grant_type    = "client_credentials"
+    client_id     = $clientId
+    client_secret = $clientSecret
+    resource      = "https://manage.office.com"
+}
+
+$tokenResponse = Invoke-RestMethod -Uri "https://login.microsoftonline.com/$tenantId/oauth2/token" `
+    -Method Post -Body $tokenBody
+$accessToken = $tokenResponse.access_token
+
+$headers = @{
+    "Authorization" = "Bearer $accessToken"
+    "Content-Type"  = "application/json"
+}
+
+# Content types to subscribe to
+$contentTypes = @(
+    "Audit.AzureActiveDirectory",
+    "Audit.Exchange",
+    "Audit.SharePoint",
+    "Audit.General",
+    "DLP.All"
+)
+
+# Start subscriptions
+foreach ($contentType in $contentTypes) {
+    $uri = "https://manage.office.com/api/v1.0/$tenantId/activity/feed/subscriptions/start?contentType=$contentType"
+    
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers
+        Write-Host "✓ Started subscription for $contentType" -ForegroundColor Green
+    } catch {
+        Write-Warning "✗ Failed to start subscription for $contentType : $_"
+    }
+}
+```
+
+**Step 4: Create Azure Function to Collect and Forward Logs**
+
+Create an Azure Function in Atevet12 to pull logs from Atevet17 and ingest into Log Analytics:
+
+```powershell
+# Function App code (PowerShell)
+# Save as run.ps1 in your Azure Function
+
+param($Timer)
+
+$tenantId = $env:M365_TENANT_ID
+$clientId = $env:M365_CLIENT_ID
+$clientSecret = $env:M365_CLIENT_SECRET
+$workspaceId = $env:LOG_ANALYTICS_WORKSPACE_ID
+$workspaceKey = $env:LOG_ANALYTICS_WORKSPACE_KEY
+
+# Get OAuth token for M365 Management API
+$tokenBody = @{
+    grant_type    = "client_credentials"
+    client_id     = $clientId
+    client_secret = $clientSecret
+    resource      = "https://manage.office.com"
+}
+
+$tokenResponse = Invoke-RestMethod -Uri "https://login.microsoftonline.com/$tenantId/oauth2/token" `
+    -Method Post -Body $tokenBody
+$accessToken = $tokenResponse.access_token
+
+$headers = @{
+    "Authorization" = "Bearer $accessToken"
+    "Content-Type"  = "application/json"
+}
+
+# Content types to collect
+$contentTypes = @("Audit.AzureActiveDirectory", "Audit.Exchange", "Audit.SharePoint", "Audit.General")
+
+foreach ($contentType in $contentTypes) {
+    # Get available content
+    $startTime = (Get-Date).AddHours(-24).ToString("yyyy-MM-ddTHH:mm:ss")
+    $endTime = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
+    
+    $uri = "https://manage.office.com/api/v1.0/$tenantId/activity/feed/subscriptions/content?contentType=$contentType&startTime=$startTime&endTime=$endTime"
+    
+    try {
+        $contentList = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
+        
+        foreach ($content in $contentList) {
+            # Get the actual audit records
+            $auditRecords = Invoke-RestMethod -Uri $content.contentUri -Method Get -Headers $headers
+            
+            # Send to Log Analytics
+            $logType = "M365AuditLog_$($contentType.Replace('.', '_'))"
+            Send-LogAnalyticsData -WorkspaceId $workspaceId -WorkspaceKey $workspaceKey `
+                -LogType $logType -Data $auditRecords
+        }
+    } catch {
+        Write-Error "Failed to collect $contentType : $_"
+    }
+}
+
+# Function to send data to Log Analytics
+function Send-LogAnalyticsData {
+    param(
+        [string]$WorkspaceId,
+        [string]$WorkspaceKey,
+        [string]$LogType,
+        [array]$Data
+    )
+    
+    $json = $Data | ConvertTo-Json -Depth 10
+    $body = [System.Text.Encoding]::UTF8.GetBytes($json)
+    
+    $method = "POST"
+    $contentType = "application/json"
+    $resource = "/api/logs"
+    $rfc1123date = [DateTime]::UtcNow.ToString("r")
+    $contentLength = $body.Length
+    
+    $stringToHash = "$method`n$contentLength`n$contentType`nx-ms-date:$rfc1123date`n$resource"
+    $bytesToHash = [Text.Encoding]::UTF8.GetBytes($stringToHash)
+    $keyBytes = [Convert]::FromBase64String($WorkspaceKey)
+    $sha256 = New-Object System.Security.Cryptography.HMACSHA256
+    $sha256.Key = $keyBytes
+    $calculatedHash = $sha256.ComputeHash($bytesToHash)
+    $encodedHash = [Convert]::ToBase64String($calculatedHash)
+    $authorization = "SharedKey ${WorkspaceId}:${encodedHash}"
+    
+    $uri = "https://$WorkspaceId.ods.opinsights.azure.com$resource`?api-version=2016-04-01"
+    
+    $headers = @{
+        "Authorization"        = $authorization
+        "Log-Type"            = $LogType
+        "x-ms-date"           = $rfc1123date
+        "time-generated-field" = "CreationTime"
+    }
+    
+    Invoke-RestMethod -Uri $uri -Method $method -ContentType $contentType -Headers $headers -Body $body
+}
+```
+
+### 6.6 Option C: Use Microsoft Graph API for Audit Logs
+
+For programmatic access to M365 audit logs:
+
+```powershell
+# Install Microsoft Graph PowerShell
+Install-Module Microsoft.Graph -Scope CurrentUser
+
+# Connect with required permissions
+Connect-MgGraph -TenantId "<Atevet17-Tenant-ID>" -Scopes "AuditLog.Read.All", "Directory.Read.All"
+
+# Query directory audit logs (overlaps with Entra ID)
+$auditLogs = Get-MgAuditLogDirectoryAudit -Top 100
+
+# Query sign-in logs
+$signInLogs = Get-MgAuditLogSignIn -Top 100
+
+# Note: For Exchange, SharePoint, Teams specific logs, use Management Activity API
+```
+
+### 6.7 Configure Audit Log Retention in Microsoft 365
+
+**Via Microsoft 365 Compliance Center:**
+1. Go to https://compliance.microsoft.com
+2. Navigate to **Audit** → **Audit retention policies**
+3. Click **+ Create an audit retention policy**
+4. Configure:
+   - Policy name: `Extended Audit Retention`
+   - Record types: Select all relevant types
+   - Duration: Up to 10 years (with E5 or add-on license)
+5. Click **Save**
+
+**Via PowerShell:**
+```powershell
+# Connect to Security & Compliance PowerShell
+Connect-IPPSSession -UserPrincipalName admin@atevet17.onmicrosoft.com
+
+# Create audit retention policy
+New-UnifiedAuditLogRetentionPolicy -Name "Extended Retention - All Logs" `
+    -Description "Retain all audit logs for 1 year" `
+    -RecordTypes @("ExchangeAdmin", "ExchangeItem", "SharePoint", "OneDrive", "MicrosoftTeams") `
+    -RetentionDuration OneYear `
+    -Priority 100
+```
+
+### 6.8 Query Microsoft 365 Audit Logs
+
+**Via Microsoft 365 Compliance Center:**
+1. Go to https://compliance.microsoft.com
+2. Navigate to **Audit**
+3. Set date range and filters
+4. Click **Search**
+5. Export results as needed
+
+**Via PowerShell (Search-UnifiedAuditLog):**
+```powershell
+# Connect to Exchange Online
+Connect-ExchangeOnline -UserPrincipalName admin@atevet17.onmicrosoft.com
+
+# Search audit logs
+$startDate = (Get-Date).AddDays(-7)
+$endDate = Get-Date
+
+# Search for all Exchange activities
+$exchangeLogs = Search-UnifiedAuditLog -StartDate $startDate -EndDate $endDate `
+    -RecordType ExchangeAdmin -ResultSize 5000
+
+# Search for SharePoint file activities
+$sharePointLogs = Search-UnifiedAuditLog -StartDate $startDate -EndDate $endDate `
+    -RecordType SharePointFileOperation -ResultSize 5000
+
+# Search for Teams activities
+$teamsLogs = Search-UnifiedAuditLog -StartDate $startDate -EndDate $endDate `
+    -RecordType MicrosoftTeams -ResultSize 5000
+
+# Search for specific user activities
+$userLogs = Search-UnifiedAuditLog -StartDate $startDate -EndDate $endDate `
+    -UserIds "user@atevet17.onmicrosoft.com" -ResultSize 5000
+
+# Export to CSV
+$exchangeLogs | Export-Csv -Path "ExchangeAuditLogs.csv" -NoTypeInformation
+```
+
+### 6.9 M365 Audit Log Tables in Log Analytics
+
+When using Microsoft Sentinel Office 365 connector, logs appear in these tables:
+
+| Table Name | Description |
+|------------|-------------|
+| `OfficeActivity` | All Office 365 audit events |
+| `SecurityEvent` | Security-related events |
+| `SigninLogs` | Sign-in events (also from Entra ID) |
+
+**Sample KQL Queries:**
+
+**Query Exchange Mailbox Access:**
+```kusto
+OfficeActivity
+| where TimeGenerated > ago(24h)
+| where RecordType == "ExchangeItem"
+| where Operation in ("MailItemsAccessed", "Send", "SendAs", "SendOnBehalf")
+| project TimeGenerated, UserId, Operation, ClientIP, MailboxOwnerUPN, Subject
+| order by TimeGenerated desc
+```
+
+**Query SharePoint File Operations:**
+```kusto
+OfficeActivity
+| where TimeGenerated > ago(24h)
+| where RecordType == "SharePointFileOperation"
+| where Operation in ("FileDownloaded", "FileUploaded", "FileDeleted", "FileModified")
+| project TimeGenerated, UserId, Operation, SourceFileName, Site_Url, ClientIP
+| order by TimeGenerated desc
+```
+
+**Query Teams Activities:**
+```kusto
+OfficeActivity
+| where TimeGenerated > ago(24h)
+| where RecordType == "MicrosoftTeams"
+| project TimeGenerated, UserId, Operation, TeamName, ChannelName, ClientIP
+| order by TimeGenerated desc
+```
+
+**Query Suspicious Activities:**
+```kusto
+OfficeActivity
+| where TimeGenerated > ago(7d)
+| where Operation in ("Add-MailboxPermission", "Set-Mailbox", "New-InboxRule", "Set-InboxRule")
+| project TimeGenerated, UserId, Operation, Parameters, ClientIP
+| order by TimeGenerated desc
+```
+
+**Query External Sharing:**
+```kusto
+OfficeActivity
+| where TimeGenerated > ago(24h)
+| where RecordType == "SharePointSharingOperation"
+| where Operation contains "Sharing"
+| project TimeGenerated, UserId, Operation, TargetUserOrGroupName, Site_Url, SourceFileName
+| order by TimeGenerated desc
+```
+
+### 6.10 Cross-Tenant M365 Log Collection Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ATEVET17 (Source Tenant)                          │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Microsoft 365 Services                            │   │
+│  │  Exchange | SharePoint | Teams | OneDrive | Power Platform           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │              Microsoft 365 Unified Audit Log                         │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│              ┌─────────────────────┼─────────────────────┐                 │
+│              ▼                     ▼                     ▼                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐         │
+│  │ Option A:        │  │ Option B:        │  │ Option C:        │         │
+│  │ Sentinel         │  │ Management       │  │ Graph API        │         │
+│  │ Connector        │  │ Activity API     │  │                  │         │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘         │
+└───────────┼─────────────────────┼─────────────────────┼─────────────────────┘
+            │                     │                     │
+            │                     ▼                     │
+            │         ┌──────────────────────┐          │
+            │         │ Azure Function       │          │
+            │         │ (Log Forwarder)      │          │
+            │         └──────────┬───────────┘          │
+            │                    │                      │
+            ▼                    ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ATEVET12 (Managing Tenant)                        │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    Log Analytics Workspace                           │   │
+│  │                    (law-central-atevet12)                            │   │
+│  │                                                                       │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │   │
+│  │  │OfficeActivity│  │M365AuditLog_ │  │ SigninLogs   │  ...          │   │
+│  │  │              │  │ Exchange     │  │              │               │   │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.11 Important Considerations for M365 Audit Logs
+
+1. **Licensing Requirements:**
+   - E3/G3: 90-day audit log retention
+   - E5/G5: 1-year default retention, up to 10 years with Advanced Audit
+   - Some audit events require specific licenses (e.g., MailItemsAccessed requires E5)
+
+2. **Latency:**
+   - Audit logs may take 30 minutes to 24 hours to appear
+   - Most logs appear within 60-90 minutes
+
+3. **Data Volume:**
+   - M365 audit logs can be very high volume
+   - Consider filtering to essential events
+   - Monitor Log Analytics ingestion costs
+
+4. **Cross-Tenant Limitations:**
+   - M365 audit logs cannot be directly sent to another tenant's Log Analytics
+   - Requires intermediate collection (Sentinel connector, API, or Function)
+   - Consider data residency and compliance requirements
+
+5. **Permissions:**
+   - Audit log access requires Global Admin, Compliance Admin, or Audit Log role
+   - API access requires app registration with appropriate permissions
+
+6. **Retention:**
+   - Configure retention policies before logs expire
+   - Export historical logs if needed before enabling new collection
+
+---
+
+## Step 7: Centralize Logs in Log Analytics Workspace
+
+### 7.1 Verify Log Tables
 
 After configuration, the following tables should be populated in your Log Analytics workspace:
 
@@ -1925,8 +2450,10 @@ After configuration, the following tables should be populated in your Log Analyt
 | `AADProvisioningLogs` | Entra ID provisioning logs |
 | `AADRiskyUsers` | Entra ID risky users |
 | `AADUserRiskEvents` | Entra ID user risk events |
+| `OfficeActivity` | Microsoft 365 audit events |
+| `M365AuditLog_*` | Custom M365 logs (if using API) |
 
-### 6.2 Sample Queries
+### 7.2 Sample Queries
 
 **Query Activity Logs from Atevet17:**
 
@@ -1960,9 +2487,9 @@ Perf
 
 ---
 
-## Step 7: Verify Log Collection
+## Step 8: Verify Log Collection
 
-### 7.1 Check Diagnostic Settings
+### 8.1 Check Diagnostic Settings
 
 ```powershell
 # List all diagnostic settings for a subscription
@@ -1972,7 +2499,7 @@ Get-AzDiagnosticSetting -SubscriptionId "<Atevet17-Subscription-ID>"
 Get-AzDiagnosticSetting -ResourceId "<Resource-ID>"
 ```
 
-### 7.2 Verify Data in Log Analytics
+### 8.2 Verify Data in Log Analytics
 
 ```powershell
 # Query Log Analytics
@@ -1989,7 +2516,7 @@ $result = Invoke-AzOperationalInsightsQuery `
 $result.Results
 ```
 
-### 7.3 Monitor Data Ingestion
+### 8.3 Monitor Data Ingestion
 
 In Azure Portal:
 1. Go to **Log Analytics workspace** → `law-central-atevet12`
@@ -2291,7 +2818,8 @@ You have now configured cross-tenant log collection from **Atevet17** to **Ateve
 5. ✅ Configured Resource Diagnostic Logs (VMs, Key Vaults, Storage, and all other resource types)
 6. ✅ Set up Azure Monitor Agent for VM-level logs
 7. ✅ Configured Microsoft Entra ID (Azure AD) diagnostic logs (Sign-in, Audit, Risk events)
-8. ✅ Set up Azure Policy for automatic diagnostic settings on new resources
+8. ✅ Configured Microsoft 365 Audit Logs (Exchange, SharePoint, Teams, OneDrive)
+9. ✅ Set up Azure Policy for automatic diagnostic settings on new resources
 
 **Next Steps:**
 1. Set up alerts for critical events
@@ -2315,7 +2843,7 @@ This appendix provides a comprehensive reference of all Azure log types that can
 | **Azure Platform Logs** | Azure platform-level events | 🟡 Important | ✅ Yes (via Activity Logs) |
 | **Microsoft Defender for Cloud** | Security alerts and recommendations | 🟡 Important | ⚠️ Partial |
 | **Azure Policy Logs** | Policy compliance events | 🟡 Important | ✅ Yes (via Activity Logs) |
-| **Microsoft 365 Audit Logs** | Office 365 activities | 🟡 Important | ❌ No (separate config) |
+| **Microsoft 365 Audit Logs** | Office 365 activities | 🟡 Important | ✅ Yes (Step 6) |
 | **Azure Service Health** | Service incidents and maintenance | 🟢 Optional | ✅ Yes (via Activity Logs) |
 | **Cost Management Logs** | Billing and cost data | 🟢 Optional | ❌ No |
 
@@ -2436,7 +2964,7 @@ If using Microsoft Sentinel, these additional connectors can enhance log collect
 3. ✅ Application-specific logs (App Service, AKS, etc.)
 
 **Phase 4 - Long Term (As needed):**
-1. ⬜ Microsoft 365 audit logs
+1. ✅ Microsoft 365 audit logs (covered in Step 6)
 2. ⬜ Third-party security tool integration
 3. ⬜ Custom application logs
 
