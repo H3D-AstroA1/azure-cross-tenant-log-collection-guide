@@ -299,6 +299,11 @@ Create a file named `lighthouse-delegation.parameters.json`:
                 {
                     "principalId": "<SECURITY-GROUP-OBJECT-ID>",
                     "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
+                    "roleDefinitionId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
+                },
+                {
+                    "principalId": "<SECURITY-GROUP-OBJECT-ID>",
+                    "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
                     "roleDefinitionId": "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
                 },
                 {
@@ -317,11 +322,9 @@ Create a file named `lighthouse-delegation.parameters.json`:
 | Role | Role Definition ID | Purpose |
 |------|-------------------|---------|
 | **Reader** | `acdd72a7-3385-48ef-bd42-f606fba81ae7` | Read access to resources for log collection visibility |
+| **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Write access to configure diagnostic settings and manage resources |
 | **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data and diagnostic settings |
 | **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Read Log Analytics data and query logs |
-
-> **Note:** If you need write access to configure diagnostic settings, you may also need:
-> | **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Full management access to resources |
 
 **Replace the placeholders:**
 - `<ATEVET12-TENANT-ID>`: Your Atevet12 tenant ID
