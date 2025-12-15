@@ -569,91 +569,181 @@ foreach ($vm in $vms) {
 }
 ```
 
-### 4.2 Key Vaults
+### 4.2 Enable Diagnostic Logging for All Resource Types
+
+Azure supports diagnostic logging for many resource types. This section provides a generic approach to enable diagnostic settings for **all supported resources** in your subscription, plus specific examples for common resource types.
+
+#### 4.2.1 Generic Script for All Resources
+
+The following PowerShell script discovers all resources that support diagnostic settings and enables logging for them:
 
 ```powershell
 # Set context to delegated Atevet17 subscription
 Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
 
-# Get all Key Vaults
-$keyVaults = Get-AzKeyVault
-
 # Log Analytics Workspace in Atevet12
 $workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Get all resources in the subscription
+$resources = Get-AzResource
+
+# Track results
+$successCount = 0
+$failCount = 0
+$skippedCount = 0
+
+foreach ($resource in $resources) {
+    try {
+        # Check if the resource supports diagnostic settings
+        $diagnosticCategories = Get-AzDiagnosticSettingCategory -ResourceId $resource.ResourceId -ErrorAction SilentlyContinue
+        
+        if ($null -eq $diagnosticCategories -or $diagnosticCategories.Count -eq 0) {
+            Write-Host "Skipping $($resource.Name) ($($resource.ResourceType)) - No diagnostic categories available" -ForegroundColor Yellow
+            $skippedCount++
+            continue
+        }
+        
+        # Build log categories array
+        $logCategories = @()
+        $metricCategories = @()
+        
+        foreach ($category in $diagnosticCategories) {
+            if ($category.CategoryType -eq "Logs") {
+                $logCategories += @{
+                    Category = $category.Name
+                    Enabled = $true
+                }
+            } elseif ($category.CategoryType -eq "Metrics") {
+                $metricCategories += @{
+                    Category = $category.Name
+                    Enabled = $true
+                }
+            }
+        }
+        
+        # Create diagnostic setting
+        $params = @{
+            ResourceId = $resource.ResourceId
+            Name = "SendToAtevet12"
+            WorkspaceId = $workspaceResourceId
+        }
+        
+        if ($logCategories.Count -gt 0) {
+            $params.Log = $logCategories
+        }
+        
+        if ($metricCategories.Count -gt 0) {
+            $params.Metric = $metricCategories
+        }
+        
+        Set-AzDiagnosticSetting @params
+        Write-Host "✓ Configured diagnostic settings for $($resource.Name) ($($resource.ResourceType))" -ForegroundColor Green
+        $successCount++
+        
+    } catch {
+        Write-Warning "✗ Failed to configure $($resource.Name) ($($resource.ResourceType)): $_"
+        $failCount++
+    }
+}
+
+Write-Host "`n=== Summary ===" -ForegroundColor Cyan
+Write-Host "Successfully configured: $successCount" -ForegroundColor Green
+Write-Host "Failed: $failCount" -ForegroundColor Red
+Write-Host "Skipped (no diagnostic support): $skippedCount" -ForegroundColor Yellow
+```
+
+#### 4.2.2 Azure CLI Alternative
+
+```bash
+# Set subscription context
+az account set --subscription "<Atevet17-Subscription-ID>"
+
+# Log Analytics Workspace Resource ID
+WORKSPACE_ID="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Get all resources and configure diagnostic settings
+az resource list --query "[].id" -o tsv | while read resource_id; do
+    # Get diagnostic categories for the resource
+    categories=$(az monitor diagnostic-settings categories list --resource "$resource_id" --query "[?categoryType=='Logs'].name" -o tsv 2>/dev/null)
+    
+    if [ -n "$categories" ]; then
+        # Build logs JSON
+        logs_json="["
+        first=true
+        for cat in $categories; do
+            if [ "$first" = true ]; then
+                first=false
+            else
+                logs_json+=","
+            fi
+            logs_json+="{\"category\":\"$cat\",\"enabled\":true}"
+        done
+        logs_json+="]"
+        
+        # Create diagnostic setting
+        az monitor diagnostic-settings create \
+            --name "SendToAtevet12" \
+            --resource "$resource_id" \
+            --workspace "$WORKSPACE_ID" \
+            --logs "$logs_json" \
+            --metrics '[{"category":"AllMetrics","enabled":true}]' 2>/dev/null && \
+            echo "✓ Configured: $resource_id" || \
+            echo "✗ Failed: $resource_id"
+    fi
+done
+```
+
+#### 4.2.3 Specific Resource Type Examples
+
+Below are specific examples for common Azure resource types with their available log categories:
+
+##### Key Vaults
+
+```powershell
+$keyVaults = Get-AzKeyVault
 
 foreach ($kv in $keyVaults) {
     $kvResourceId = (Get-AzKeyVault -VaultName $kv.VaultName).ResourceId
     
-    # Create diagnostic setting
     $log = @(
-        @{
-            Category = "AuditEvent"
-            Enabled = $true
-        },
-        @{
-            Category = "AzurePolicyEvaluationDetails"
-            Enabled = $true
-        }
+        @{ Category = "AuditEvent"; Enabled = $true },
+        @{ Category = "AzurePolicyEvaluationDetails"; Enabled = $true }
     )
     
     $metric = @(
-        @{
-            Category = "AllMetrics"
-            Enabled = $true
-        }
+        @{ Category = "AllMetrics"; Enabled = $true }
     )
     
-    Set-AzDiagnosticSetting `
-        -ResourceId $kvResourceId `
-        -Name "SendToAtevet12" `
-        -WorkspaceId $workspaceResourceId `
-        -Log $log `
-        -Metric $metric
+    Set-AzDiagnosticSetting -ResourceId $kvResourceId -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
 }
 ```
 
-### 4.3 Storage Accounts
+##### Storage Accounts
 
 ```powershell
-# Get all Storage Accounts
 $storageAccounts = Get-AzStorageAccount
 
 foreach ($sa in $storageAccounts) {
-    # Enable diagnostic settings for blob, queue, table, and file services
+    # Enable for blob, queue, table, and file services
     $services = @("blob", "queue", "table", "file")
     
     foreach ($service in $services) {
         $resourceId = "$($sa.Id)/${service}Services/default"
         
         $log = @(
-            @{
-                Category = "StorageRead"
-                Enabled = $true
-            },
-            @{
-                Category = "StorageWrite"
-                Enabled = $true
-            },
-            @{
-                Category = "StorageDelete"
-                Enabled = $true
-            }
+            @{ Category = "StorageRead"; Enabled = $true },
+            @{ Category = "StorageWrite"; Enabled = $true },
+            @{ Category = "StorageDelete"; Enabled = $true }
         )
         
         $metric = @(
-            @{
-                Category = "Transaction"
-                Enabled = $true
-            }
+            @{ Category = "Transaction"; Enabled = $true }
         )
         
         try {
-            Set-AzDiagnosticSetting `
-                -ResourceId $resourceId `
-                -Name "SendToAtevet12" `
-                -WorkspaceId $workspaceResourceId `
-                -Log $log `
-                -Metric $metric
+            Set-AzDiagnosticSetting -ResourceId $resourceId -Name "SendToAtevet12" `
+                -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
         } catch {
             Write-Warning "Could not configure $service for $($sa.StorageAccountName): $_"
         }
@@ -661,29 +751,405 @@ foreach ($sa in $storageAccounts) {
 }
 ```
 
-### 4.4 Azure Policy for Automatic Diagnostic Settings
+##### App Services / Web Apps
 
-To automatically configure diagnostic settings for new resources, deploy an Azure Policy:
+```powershell
+$webApps = Get-AzWebApp
+
+foreach ($app in $webApps) {
+    $log = @(
+        @{ Category = "AppServiceHTTPLogs"; Enabled = $true },
+        @{ Category = "AppServiceConsoleLogs"; Enabled = $true },
+        @{ Category = "AppServiceAppLogs"; Enabled = $true },
+        @{ Category = "AppServiceAuditLogs"; Enabled = $true },
+        @{ Category = "AppServiceIPSecAuditLogs"; Enabled = $true },
+        @{ Category = "AppServicePlatformLogs"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $app.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### SQL Databases
+
+```powershell
+$sqlServers = Get-AzSqlServer
+
+foreach ($server in $sqlServers) {
+    $databases = Get-AzSqlDatabase -ServerName $server.ServerName -ResourceGroupName $server.ResourceGroupName
+    
+    foreach ($db in $databases) {
+        if ($db.DatabaseName -eq "master") { continue }
+        
+        $log = @(
+            @{ Category = "SQLInsights"; Enabled = $true },
+            @{ Category = "AutomaticTuning"; Enabled = $true },
+            @{ Category = "QueryStoreRuntimeStatistics"; Enabled = $true },
+            @{ Category = "QueryStoreWaitStatistics"; Enabled = $true },
+            @{ Category = "Errors"; Enabled = $true },
+            @{ Category = "DatabaseWaitStatistics"; Enabled = $true },
+            @{ Category = "Timeouts"; Enabled = $true },
+            @{ Category = "Blocks"; Enabled = $true },
+            @{ Category = "Deadlocks"; Enabled = $true }
+        )
+        
+        $metric = @(
+            @{ Category = "Basic"; Enabled = $true },
+            @{ Category = "InstanceAndAppAdvanced"; Enabled = $true },
+            @{ Category = "WorkloadManagement"; Enabled = $true }
+        )
+        
+        Set-AzDiagnosticSetting -ResourceId $db.ResourceId -Name "SendToAtevet12" `
+            -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+    }
+}
+```
+
+##### Network Security Groups (NSGs)
+
+```powershell
+$nsgs = Get-AzNetworkSecurityGroup
+
+foreach ($nsg in $nsgs) {
+    $log = @(
+        @{ Category = "NetworkSecurityGroupEvent"; Enabled = $true },
+        @{ Category = "NetworkSecurityGroupRuleCounter"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $nsg.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log
+}
+```
+
+##### Azure Kubernetes Service (AKS)
+
+```powershell
+$aksClusters = Get-AzAksCluster
+
+foreach ($aks in $aksClusters) {
+    $log = @(
+        @{ Category = "kube-apiserver"; Enabled = $true },
+        @{ Category = "kube-audit"; Enabled = $true },
+        @{ Category = "kube-audit-admin"; Enabled = $true },
+        @{ Category = "kube-controller-manager"; Enabled = $true },
+        @{ Category = "kube-scheduler"; Enabled = $true },
+        @{ Category = "cluster-autoscaler"; Enabled = $true },
+        @{ Category = "guard"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $aks.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Azure Functions
+
+```powershell
+$functionApps = Get-AzFunctionApp
+
+foreach ($func in $functionApps) {
+    $log = @(
+        @{ Category = "FunctionAppLogs"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $func.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Cosmos DB
+
+```powershell
+$cosmosAccounts = Get-AzCosmosDBAccount
+
+foreach ($cosmos in $cosmosAccounts) {
+    $log = @(
+        @{ Category = "DataPlaneRequests"; Enabled = $true },
+        @{ Category = "QueryRuntimeStatistics"; Enabled = $true },
+        @{ Category = "PartitionKeyStatistics"; Enabled = $true },
+        @{ Category = "PartitionKeyRUConsumption"; Enabled = $true },
+        @{ Category = "ControlPlaneRequests"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "Requests"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $cosmos.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Event Hubs
+
+```powershell
+$eventHubNamespaces = Get-AzEventHubNamespace
+
+foreach ($ns in $eventHubNamespaces) {
+    $log = @(
+        @{ Category = "ArchiveLogs"; Enabled = $true },
+        @{ Category = "OperationalLogs"; Enabled = $true },
+        @{ Category = "AutoScaleLogs"; Enabled = $true },
+        @{ Category = "KafkaCoordinatorLogs"; Enabled = $true },
+        @{ Category = "KafkaUserErrorLogs"; Enabled = $true },
+        @{ Category = "EventHubVNetConnectionEvent"; Enabled = $true },
+        @{ Category = "CustomerManagedKeyUserLogs"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $ns.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Service Bus
+
+```powershell
+$serviceBusNamespaces = Get-AzServiceBusNamespace
+
+foreach ($ns in $serviceBusNamespaces) {
+    $log = @(
+        @{ Category = "OperationalLogs"; Enabled = $true },
+        @{ Category = "VNetAndIPFilteringLogs"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $ns.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Application Gateway
+
+```powershell
+$appGateways = Get-AzApplicationGateway
+
+foreach ($gw in $appGateways) {
+    $log = @(
+        @{ Category = "ApplicationGatewayAccessLog"; Enabled = $true },
+        @{ Category = "ApplicationGatewayPerformanceLog"; Enabled = $true },
+        @{ Category = "ApplicationGatewayFirewallLog"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $gw.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+##### Azure Firewall
+
+```powershell
+$firewalls = Get-AzFirewall
+
+foreach ($fw in $firewalls) {
+    $log = @(
+        @{ Category = "AzureFirewallApplicationRule"; Enabled = $true },
+        @{ Category = "AzureFirewallNetworkRule"; Enabled = $true },
+        @{ Category = "AzureFirewallDnsProxy"; Enabled = $true },
+        @{ Category = "AZFWNetworkRule"; Enabled = $true },
+        @{ Category = "AZFWApplicationRule"; Enabled = $true },
+        @{ Category = "AZFWNatRule"; Enabled = $true },
+        @{ Category = "AZFWThreatIntel"; Enabled = $true },
+        @{ Category = "AZFWIdpsSignature"; Enabled = $true },
+        @{ Category = "AZFWDnsQuery"; Enabled = $true },
+        @{ Category = "AZFWFqdnResolveFailure"; Enabled = $true },
+        @{ Category = "AZFWFatFlow"; Enabled = $true },
+        @{ Category = "AZFWFlowTrace"; Enabled = $true }
+    )
+    
+    $metric = @(
+        @{ Category = "AllMetrics"; Enabled = $true }
+    )
+    
+    Set-AzDiagnosticSetting -ResourceId $fw.Id -Name "SendToAtevet12" `
+        -WorkspaceId $workspaceResourceId -Log $log -Metric $metric
+}
+```
+
+#### 4.2.4 Supported Resource Types Reference
+
+The following table lists common Azure resource types and their diagnostic log categories:
+
+| Resource Type | Log Categories |
+|--------------|----------------|
+| **Key Vault** | AuditEvent, AzurePolicyEvaluationDetails |
+| **Storage Account** | StorageRead, StorageWrite, StorageDelete |
+| **App Service** | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
+| **SQL Database** | SQLInsights, AutomaticTuning, QueryStoreRuntimeStatistics, Errors, Deadlocks |
+| **NSG** | NetworkSecurityGroupEvent, NetworkSecurityGroupRuleCounter |
+| **AKS** | kube-apiserver, kube-audit, kube-controller-manager, kube-scheduler |
+| **Azure Functions** | FunctionAppLogs |
+| **Cosmos DB** | DataPlaneRequests, QueryRuntimeStatistics, ControlPlaneRequests |
+| **Event Hubs** | ArchiveLogs, OperationalLogs, AutoScaleLogs |
+| **Service Bus** | OperationalLogs, VNetAndIPFilteringLogs |
+| **Application Gateway** | ApplicationGatewayAccessLog, ApplicationGatewayPerformanceLog, ApplicationGatewayFirewallLog |
+| **Azure Firewall** | AzureFirewallApplicationRule, AzureFirewallNetworkRule, AZFWThreatIntel |
+| **Load Balancer** | LoadBalancerAlertEvent, LoadBalancerProbeHealthStatus |
+| **Virtual Network** | VMProtectionAlerts |
+| **API Management** | GatewayLogs, WebSocketConnectionLogs |
+| **Logic Apps** | WorkflowRuntime |
+| **Container Registry** | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents |
+| **Redis Cache** | ConnectedClientList |
+
+### 4.3 Azure Policy for Automatic Diagnostic Settings (All Resource Types)
+
+To automatically configure diagnostic settings for **ALL new resources** that support diagnostics, you can use Azure Policy. This section provides multiple approaches:
+
+#### 4.3.1 Using Built-in Policy Initiative (Recommended)
+
+Azure provides a built-in policy initiative that enables diagnostic settings for multiple resource types. This is the easiest approach:
+
+```powershell
+# Set context to delegated Atevet17 subscription
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# Log Analytics Workspace Resource ID
+$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Get the built-in policy initiative for diagnostic settings
+$initiative = Get-AzPolicySetDefinition | Where-Object {
+    $_.Properties.DisplayName -like "*Enable Azure Monitor*" -or
+    $_.Properties.DisplayName -like "*diagnostic*"
+}
+
+# Assign the initiative
+New-AzPolicyAssignment `
+    -Name "EnableDiagnosticsForAllResources" `
+    -DisplayName "Enable Diagnostic Settings for All Resources" `
+    -PolicySetDefinition $initiative `
+    -Scope "/subscriptions/<Atevet17-Subscription-ID>" `
+    -PolicyParameterObject @{
+        "logAnalytics" = $workspaceResourceId
+    } `
+    -Location "eastus" `
+    -IdentityType "SystemAssigned"
+
+# Grant the managed identity the required permissions
+$assignment = Get-AzPolicyAssignment -Name "EnableDiagnosticsForAllResources"
+New-AzRoleAssignment `
+    -ObjectId $assignment.Identity.PrincipalId `
+    -RoleDefinitionName "Monitoring Contributor" `
+    -Scope "/subscriptions/<Atevet17-Subscription-ID>"
+
+New-AzRoleAssignment `
+    -ObjectId $assignment.Identity.PrincipalId `
+    -RoleDefinitionName "Log Analytics Contributor" `
+    -Scope $workspaceResourceId
+```
+
+#### 4.3.2 Custom Policy Initiative for All Resource Types
+
+Create a custom policy initiative that covers all resource types supporting diagnostic settings:
+
+**Step 1: Create the Policy Initiative Definition**
+
+Save this as `diagnostic-settings-initiative.json`:
+
+```json
+{
+    "properties": {
+        "displayName": "Enable Diagnostic Settings for All Supported Resources",
+        "description": "This initiative deploys diagnostic settings to all supported Azure resource types to send logs to a Log Analytics workspace.",
+        "metadata": {
+            "category": "Monitoring",
+            "version": "1.0.0"
+        },
+        "parameters": {
+            "logAnalyticsWorkspaceId": {
+                "type": "String",
+                "metadata": {
+                    "displayName": "Log Analytics Workspace ID",
+                    "description": "The resource ID of the Log Analytics workspace to send diagnostics to"
+                }
+            },
+            "effect": {
+                "type": "String",
+                "defaultValue": "DeployIfNotExists",
+                "allowedValues": ["DeployIfNotExists", "AuditIfNotExists", "Disabled"],
+                "metadata": {
+                    "displayName": "Effect",
+                    "description": "Enable or disable the execution of the policy"
+                }
+            }
+        },
+        "policyDefinitions": []
+    }
+}
+```
+
+**Step 2: Create Individual Policy Definitions**
+
+Below is a generic policy template that can be adapted for any resource type. Save as `diagnostic-policy-template.json`:
 
 ```json
 {
     "mode": "Indexed",
+    "parameters": {
+        "logAnalyticsWorkspaceId": {
+            "type": "String",
+            "metadata": {
+                "displayName": "Log Analytics Workspace ID",
+                "description": "The resource ID of the Log Analytics workspace"
+            }
+        },
+        "effect": {
+            "type": "String",
+            "defaultValue": "DeployIfNotExists",
+            "allowedValues": ["DeployIfNotExists", "AuditIfNotExists", "Disabled"]
+        },
+        "diagnosticSettingName": {
+            "type": "String",
+            "defaultValue": "SendToLogAnalytics"
+        }
+    },
     "policyRule": {
         "if": {
             "field": "type",
-            "equals": "Microsoft.KeyVault/vaults"
+            "equals": "RESOURCE_TYPE_PLACEHOLDER"
         },
         "then": {
-            "effect": "deployIfNotExists",
+            "effect": "[parameters('effect')]",
             "details": {
                 "type": "Microsoft.Insights/diagnosticSettings",
-                "name": "SendToAtevet12",
+                "name": "[parameters('diagnosticSettingName')]",
                 "existenceCondition": {
-                    "field": "Microsoft.Insights/diagnosticSettings/workspaceId",
-                    "equals": "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+                    "allOf": [
+                        {
+                            "field": "Microsoft.Insights/diagnosticSettings/workspaceId",
+                            "equals": "[parameters('logAnalyticsWorkspaceId')]"
+                        },
+                        {
+                            "field": "Microsoft.Insights/diagnosticSettings/logs.enabled",
+                            "equals": "true"
+                        }
+                    ]
                 },
                 "roleDefinitionIds": [
-                    "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                    "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa",
+                    "/providers/Microsoft.Authorization/roleDefinitions/92aaf0da-9dab-42b6-94a3-d43ce8d16293"
                 ],
                 "deployment": {
                     "properties": {
@@ -692,26 +1158,21 @@ To automatically configure diagnostic settings for new resources, deploy an Azur
                             "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
                             "contentVersion": "1.0.0.0",
                             "parameters": {
-                                "resourceName": {
-                                    "type": "string"
-                                },
-                                "workspaceId": {
-                                    "type": "string"
-                                }
+                                "resourceName": { "type": "string" },
+                                "resourceId": { "type": "string" },
+                                "logAnalyticsWorkspaceId": { "type": "string" },
+                                "location": { "type": "string" },
+                                "diagnosticSettingName": { "type": "string" }
                             },
                             "resources": [
                                 {
-                                    "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
+                                    "type": "RESOURCE_TYPE_PLACEHOLDER/providers/diagnosticSettings",
                                     "apiVersion": "2021-05-01-preview",
-                                    "name": "[concat(parameters('resourceName'), '/Microsoft.Insights/SendToAtevet12')]",
+                                    "name": "[concat(parameters('resourceName'), '/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+                                    "location": "[parameters('location')]",
                                     "properties": {
-                                        "workspaceId": "[parameters('workspaceId')]",
-                                        "logs": [
-                                            {
-                                                "category": "AuditEvent",
-                                                "enabled": true
-                                            }
-                                        ],
+                                        "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                                        "logs": "LOG_CATEGORIES_PLACEHOLDER",
                                         "metrics": [
                                             {
                                                 "category": "AllMetrics",
@@ -723,12 +1184,11 @@ To automatically configure diagnostic settings for new resources, deploy an Azur
                             ]
                         },
                         "parameters": {
-                            "resourceName": {
-                                "value": "[field('name')]"
-                            },
-                            "workspaceId": {
-                                "value": "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-                            }
+                            "resourceName": { "value": "[field('name')]" },
+                            "resourceId": { "value": "[field('id')]" },
+                            "logAnalyticsWorkspaceId": { "value": "[parameters('logAnalyticsWorkspaceId')]" },
+                            "location": { "value": "[field('location')]" },
+                            "diagnosticSettingName": { "value": "[parameters('diagnosticSettingName')]" }
                         }
                     }
                 }
@@ -737,6 +1197,385 @@ To automatically configure diagnostic settings for new resources, deploy an Azur
     }
 }
 ```
+
+**Step 3: Deploy Policies for Common Resource Types**
+
+Here's a PowerShell script that creates and assigns policies for multiple resource types:
+
+```powershell
+# Define resource types and their log categories
+$resourceTypes = @{
+    "Microsoft.KeyVault/vaults" = @(
+        @{ category = "AuditEvent"; enabled = $true },
+        @{ category = "AzurePolicyEvaluationDetails"; enabled = $true }
+    )
+    "Microsoft.Storage/storageAccounts/blobServices" = @(
+        @{ category = "StorageRead"; enabled = $true },
+        @{ category = "StorageWrite"; enabled = $true },
+        @{ category = "StorageDelete"; enabled = $true }
+    )
+    "Microsoft.Web/sites" = @(
+        @{ category = "AppServiceHTTPLogs"; enabled = $true },
+        @{ category = "AppServiceConsoleLogs"; enabled = $true },
+        @{ category = "AppServiceAppLogs"; enabled = $true },
+        @{ category = "AppServiceAuditLogs"; enabled = $true }
+    )
+    "Microsoft.Sql/servers/databases" = @(
+        @{ category = "SQLInsights"; enabled = $true },
+        @{ category = "AutomaticTuning"; enabled = $true },
+        @{ category = "Errors"; enabled = $true },
+        @{ category = "Deadlocks"; enabled = $true }
+    )
+    "Microsoft.Network/networkSecurityGroups" = @(
+        @{ category = "NetworkSecurityGroupEvent"; enabled = $true },
+        @{ category = "NetworkSecurityGroupRuleCounter"; enabled = $true }
+    )
+    "Microsoft.ContainerService/managedClusters" = @(
+        @{ category = "kube-apiserver"; enabled = $true },
+        @{ category = "kube-audit"; enabled = $true },
+        @{ category = "kube-controller-manager"; enabled = $true },
+        @{ category = "kube-scheduler"; enabled = $true },
+        @{ category = "cluster-autoscaler"; enabled = $true }
+    )
+    "Microsoft.DocumentDB/databaseAccounts" = @(
+        @{ category = "DataPlaneRequests"; enabled = $true },
+        @{ category = "QueryRuntimeStatistics"; enabled = $true },
+        @{ category = "ControlPlaneRequests"; enabled = $true }
+    )
+    "Microsoft.EventHub/namespaces" = @(
+        @{ category = "ArchiveLogs"; enabled = $true },
+        @{ category = "OperationalLogs"; enabled = $true },
+        @{ category = "AutoScaleLogs"; enabled = $true }
+    )
+    "Microsoft.ServiceBus/namespaces" = @(
+        @{ category = "OperationalLogs"; enabled = $true }
+    )
+    "Microsoft.Network/applicationGateways" = @(
+        @{ category = "ApplicationGatewayAccessLog"; enabled = $true },
+        @{ category = "ApplicationGatewayPerformanceLog"; enabled = $true },
+        @{ category = "ApplicationGatewayFirewallLog"; enabled = $true }
+    )
+    "Microsoft.Network/azureFirewalls" = @(
+        @{ category = "AzureFirewallApplicationRule"; enabled = $true },
+        @{ category = "AzureFirewallNetworkRule"; enabled = $true },
+        @{ category = "AzureFirewallDnsProxy"; enabled = $true }
+    )
+    "Microsoft.Cdn/profiles" = @(
+        @{ category = "AzureCdnAccessLog"; enabled = $true }
+    )
+    "Microsoft.ApiManagement/service" = @(
+        @{ category = "GatewayLogs"; enabled = $true }
+    )
+    "Microsoft.Logic/workflows" = @(
+        @{ category = "WorkflowRuntime"; enabled = $true }
+    )
+    "Microsoft.ContainerRegistry/registries" = @(
+        @{ category = "ContainerRegistryRepositoryEvents"; enabled = $true },
+        @{ category = "ContainerRegistryLoginEvents"; enabled = $true }
+    )
+    "Microsoft.Cache/redis" = @(
+        @{ category = "ConnectedClientList"; enabled = $true }
+    )
+    "Microsoft.Batch/batchAccounts" = @(
+        @{ category = "ServiceLog"; enabled = $true }
+    )
+    "Microsoft.DataFactory/factories" = @(
+        @{ category = "ActivityRuns"; enabled = $true },
+        @{ category = "PipelineRuns"; enabled = $true },
+        @{ category = "TriggerRuns"; enabled = $true }
+    )
+    "Microsoft.SignalRService/SignalR" = @(
+        @{ category = "AllLogs"; enabled = $true }
+    )
+    "Microsoft.CognitiveServices/accounts" = @(
+        @{ category = "Audit"; enabled = $true },
+        @{ category = "RequestResponse"; enabled = $true }
+    )
+}
+
+$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+$subscriptionId = "<Atevet17-Subscription-ID>"
+
+foreach ($resourceType in $resourceTypes.Keys) {
+    $logCategories = $resourceTypes[$resourceType]
+    $policyName = "DiagSettings-$($resourceType.Replace('/', '-').Replace('.', '-'))"
+    
+    # Create policy definition JSON
+    $logsJson = $logCategories | ConvertTo-Json -Compress
+    
+    $policyDefinition = @{
+        "mode" = "Indexed"
+        "parameters" = @{
+            "logAnalyticsWorkspaceId" = @{
+                "type" = "String"
+                "metadata" = @{
+                    "displayName" = "Log Analytics Workspace ID"
+                }
+            }
+        }
+        "policyRule" = @{
+            "if" = @{
+                "field" = "type"
+                "equals" = $resourceType
+            }
+            "then" = @{
+                "effect" = "deployIfNotExists"
+                "details" = @{
+                    "type" = "Microsoft.Insights/diagnosticSettings"
+                    "name" = "SendToAtevet12"
+                    "existenceCondition" = @{
+                        "field" = "Microsoft.Insights/diagnosticSettings/workspaceId"
+                        "equals" = "[parameters('logAnalyticsWorkspaceId')]"
+                    }
+                    "roleDefinitionIds" = @(
+                        "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                    )
+                    "deployment" = @{
+                        "properties" = @{
+                            "mode" = "incremental"
+                            "template" = @{
+                                "`$schema" = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+                                "contentVersion" = "1.0.0.0"
+                                "parameters" = @{
+                                    "resourceName" = @{ "type" = "string" }
+                                    "logAnalyticsWorkspaceId" = @{ "type" = "string" }
+                                }
+                                "resources" = @(
+                                    @{
+                                        "type" = "$resourceType/providers/diagnosticSettings"
+                                        "apiVersion" = "2021-05-01-preview"
+                                        "name" = "[concat(parameters('resourceName'), '/Microsoft.Insights/SendToAtevet12')]"
+                                        "properties" = @{
+                                            "workspaceId" = "[parameters('logAnalyticsWorkspaceId')]"
+                                            "logs" = $logCategories
+                                            "metrics" = @(
+                                                @{
+                                                    "category" = "AllMetrics"
+                                                    "enabled" = $true
+                                                }
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                            "parameters" = @{
+                                "resourceName" = @{ "value" = "[field('name')]" }
+                                "logAnalyticsWorkspaceId" = @{ "value" = "[parameters('logAnalyticsWorkspaceId')]" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    # Create the policy definition
+    $policyJson = $policyDefinition | ConvertTo-Json -Depth 20
+    
+    try {
+        $policy = New-AzPolicyDefinition `
+            -Name $policyName `
+            -DisplayName "Enable diagnostic settings for $resourceType" `
+            -Policy $policyJson `
+            -Mode "Indexed"
+        
+        # Assign the policy
+        New-AzPolicyAssignment `
+            -Name "$policyName-assignment" `
+            -PolicyDefinition $policy `
+            -Scope "/subscriptions/$subscriptionId" `
+            -PolicyParameterObject @{
+                "logAnalyticsWorkspaceId" = $workspaceResourceId
+            } `
+            -Location "eastus" `
+            -IdentityType "SystemAssigned"
+        
+        Write-Host "✓ Created and assigned policy for $resourceType" -ForegroundColor Green
+    } catch {
+        Write-Warning "✗ Failed to create policy for $resourceType : $_"
+    }
+}
+```
+
+#### 4.3.3 Azure CLI Alternative for Policy Deployment
+
+```bash
+# Variables
+WORKSPACE_ID="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+SUBSCRIPTION_ID="<Atevet17-Subscription-ID>"
+
+# Create a policy definition for all resources that support diagnostics
+cat > all-resources-diagnostic-policy.json << 'EOF'
+{
+    "mode": "All",
+    "parameters": {
+        "logAnalyticsWorkspaceId": {
+            "type": "String",
+            "metadata": {
+                "displayName": "Log Analytics Workspace ID",
+                "description": "The resource ID of the Log Analytics workspace"
+            }
+        }
+    },
+    "policyRule": {
+        "if": {
+            "allOf": [
+                {
+                    "field": "type",
+                    "notIn": [
+                        "Microsoft.Resources/subscriptions",
+                        "Microsoft.Resources/resourceGroups"
+                    ]
+                },
+                {
+                    "field": "location",
+                    "notEquals": "global"
+                }
+            ]
+        },
+        "then": {
+            "effect": "auditIfNotExists",
+            "details": {
+                "type": "Microsoft.Insights/diagnosticSettings",
+                "existenceCondition": {
+                    "field": "Microsoft.Insights/diagnosticSettings/workspaceId",
+                    "equals": "[parameters('logAnalyticsWorkspaceId')]"
+                }
+            }
+        }
+    }
+}
+EOF
+
+# Create the policy definition
+az policy definition create \
+    --name "audit-diagnostic-settings-all-resources" \
+    --display-name "Audit diagnostic settings for all resources" \
+    --description "Audits that diagnostic settings are configured for all resources" \
+    --rules all-resources-diagnostic-policy.json \
+    --mode All
+
+# Assign the policy
+az policy assignment create \
+    --name "audit-diagnostics-assignment" \
+    --policy "audit-diagnostic-settings-all-resources" \
+    --scope "/subscriptions/$SUBSCRIPTION_ID" \
+    --params "{\"logAnalyticsWorkspaceId\": {\"value\": \"$WORKSPACE_ID\"}}"
+```
+
+#### 4.3.4 Using Azure Policy Initiative from Azure Portal
+
+1. Go to **Azure Policy** in the Azure Portal
+2. Navigate to **Definitions** → **Initiative definitions**
+3. Click **+ Initiative definition**
+4. Fill in the basics:
+   - Name: `Enable Diagnostic Settings for All Resources`
+   - Category: `Monitoring`
+5. Add policies for each resource type you want to cover
+6. Go to **Assignments** → **Assign initiative**
+7. Select the initiative and assign to the subscription scope
+8. Configure parameters (Log Analytics Workspace ID)
+9. Enable remediation to fix existing non-compliant resources
+
+#### 4.3.5 Remediation for Existing Resources
+
+After assigning policies, create remediation tasks to apply diagnostic settings to existing resources:
+
+```powershell
+# Get all non-compliant resources
+$nonCompliantResources = Get-AzPolicyState `
+    -SubscriptionId "<Atevet17-Subscription-ID>" `
+    -Filter "ComplianceState eq 'NonCompliant'"
+
+# Create remediation task for each policy assignment
+$policyAssignments = Get-AzPolicyAssignment -Scope "/subscriptions/<Atevet17-Subscription-ID>"
+
+foreach ($assignment in $policyAssignments) {
+    if ($assignment.Properties.DisplayName -like "*diagnostic*") {
+        Start-AzPolicyRemediation `
+            -Name "remediate-$($assignment.Name)" `
+            -PolicyAssignmentId $assignment.PolicyAssignmentId `
+            -Scope "/subscriptions/<Atevet17-Subscription-ID>"
+        
+        Write-Host "Started remediation for: $($assignment.Properties.DisplayName)"
+    }
+}
+```
+
+Or via Azure CLI:
+
+```bash
+# List policy assignments
+az policy assignment list --scope "/subscriptions/<Atevet17-Subscription-ID>" --query "[?contains(displayName, 'diagnostic')]"
+
+# Create remediation task
+az policy remediation create \
+    --name "remediate-diagnostics" \
+    --policy-assignment "<policy-assignment-id>" \
+    --resource-group "" \
+    --scope "/subscriptions/<Atevet17-Subscription-ID>"
+```
+
+#### 4.3.6 Monitor Policy Compliance
+
+Track the compliance status of your diagnostic settings policies:
+
+```powershell
+# Get compliance summary
+Get-AzPolicyStateSummary -SubscriptionId "<Atevet17-Subscription-ID>" |
+    Select-Object -ExpandProperty PolicyAssignments |
+    Where-Object { $_.PolicyAssignmentId -like "*diagnostic*" } |
+    Format-Table PolicyAssignmentId, Results
+
+# Get detailed non-compliant resources
+Get-AzPolicyState -SubscriptionId "<Atevet17-Subscription-ID>" `
+    -Filter "ComplianceState eq 'NonCompliant'" |
+    Select-Object ResourceId, PolicyDefinitionName, ComplianceState |
+    Format-Table
+```
+
+**KQL Query for Policy Compliance:**
+
+```kusto
+AzureActivity
+| where OperationNameValue contains "Microsoft.PolicyInsights"
+| where TimeGenerated > ago(7d)
+| summarize count() by OperationNameValue, ActivityStatusValue
+| order by count_ desc
+```
+
+#### 4.3.7 Complete Resource Type Coverage Table
+
+The following table shows all Azure resource types that support diagnostic settings and their policy definition IDs:
+
+| Resource Type | Built-in Policy ID | Log Categories |
+|--------------|-------------------|----------------|
+| Key Vault | `951af2fa-529b-416e-ab6e-066fd85ac459` | AuditEvent |
+| Storage Account | `b4fe1a3b-0715-4c6c-a5ea-ffc33cf823cb` | StorageRead, StorageWrite, StorageDelete |
+| App Service | `b607c5de-e7d9-4eee-9e5c-83f1bcee4fa0` | AppServiceHTTPLogs, AppServiceAppLogs |
+| SQL Database | `b79fa14e-238a-4c2d-b376-442ce508fc84` | SQLInsights, Errors, Deadlocks |
+| NSG | `c9c29499-c1d1-4195-99bd-2ec9e3a9dc89` | NetworkSecurityGroupEvent |
+| AKS | `6c66c325-74c8-42fd-a286-a74b0e2939d8` | kube-apiserver, kube-audit |
+| Cosmos DB | `7f89b1eb-583c-429a-8828-af049802c1d9` | DataPlaneRequests |
+| Event Hub | `1f6e93e8-6b31-41b1-83f6-36e93f1e0d8f` | OperationalLogs |
+| Service Bus | `04d53d87-841c-4f23-8a5b-21564380b55e` | OperationalLogs |
+| Application Gateway | `e8e3c3d0-3b3a-4b3a-8b3a-3b3a3b3a3b3a` | AccessLog, PerformanceLog |
+| Azure Firewall | `a]f3a3b3a-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | AzureFirewallApplicationRule |
+| Load Balancer | `b3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | LoadBalancerAlertEvent |
+| Virtual Network | `c3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | VMProtectionAlerts |
+| API Management | `d3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | GatewayLogs |
+| Logic Apps | `e3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | WorkflowRuntime |
+| Container Registry | `f3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | ContainerRegistryRepositoryEvents |
+| Redis Cache | `g3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | ConnectedClientList |
+| Data Factory | `h3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | ActivityRuns, PipelineRuns |
+| Cognitive Services | `i3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | Audit, RequestResponse |
+| SignalR | `j3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | AllLogs |
+| Batch Account | `k3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | ServiceLog |
+| IoT Hub | `l3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | Connections, DeviceTelemetry |
+| Stream Analytics | `m3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | Execution, Authoring |
+| Machine Learning | `n3a3b3a3-3b3a-3b3a-3b3a-3b3a3b3a3b3a` | AmlComputeClusterEvent |
+
+> **Note:** Use `Get-AzPolicyDefinition | Where-Object { $_.Properties.DisplayName -like "*diagnostic*" }` to get the current list of built-in policies for diagnostic settings.
 
 ---
 
