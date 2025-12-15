@@ -11,10 +11,11 @@
 5. [Step 2: Onboard Customer Tenant (Atevet17) to Azure Lighthouse](#step-2-onboard-customer-tenant-atevet17-to-azure-lighthouse)
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
 7. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
-8. [Step 5: Centralize Logs in Log Analytics Workspace](#step-5-centralize-logs-in-log-analytics-workspace)
-9. [Step 6: Verify Log Collection](#step-6-verify-log-collection)
-10. [Alternative Approaches](#alternative-approaches)
-11. [Troubleshooting](#troubleshooting)
+8. [Step 5: Configure Microsoft Entra ID (Azure AD) Logs](#step-5-configure-microsoft-entra-id-azure-ad-logs)
+9. [Step 6: Centralize Logs in Log Analytics Workspace](#step-6-centralize-logs-in-log-analytics-workspace)
+10. [Step 7: Verify Log Collection](#step-7-verify-log-collection)
+11. [Alternative Approaches](#alternative-approaches)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -24,6 +25,11 @@
 
 **Logs to Collect:**
 - Subscription Activity Logs (control plane operations)
+- Microsoft Entra ID (Azure AD) Logs:
+  - Sign-in Logs
+  - Audit Logs
+  - Provisioning Logs
+  - Identity Protection Logs
 - Resource Diagnostic Logs:
   - Virtual Machines
   - Key Vaults
@@ -1579,9 +1585,326 @@ The following table shows all Azure resource types that support diagnostic setti
 
 ---
 
-## Step 5: Centralize Logs in Log Analytics Workspace
+## Step 5: Configure Microsoft Entra ID (Azure AD) Logs
 
-### 5.1 Verify Log Tables
+Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
+
+> **Important:** Entra ID diagnostic settings must be configured **in the source tenant (Atevet17)** by a user with appropriate permissions in that tenant. Azure Lighthouse does NOT provide access to configure Entra ID diagnostic settings cross-tenant.
+
+### 5.1 Prerequisites for Entra ID Logs
+
+| Requirement | Description |
+|-------------|-------------|
+| **License** | Microsoft Entra ID P1 or P2 license (for sign-in logs) |
+| **Permissions** | Global Administrator or Security Administrator in Atevet17 |
+| **Log Analytics Workspace** | Can send to workspace in Atevet12 (cross-tenant supported for data destination) |
+
+### 5.2 Available Entra ID Log Categories
+
+| Log Category | Description | License Required |
+|--------------|-------------|------------------|
+| **AuditLogs** | Directory changes (user/group/app management) | Free |
+| **SignInLogs** | Interactive user sign-ins | P1/P2 |
+| **NonInteractiveUserSignInLogs** | Sign-ins by clients on behalf of users | P1/P2 |
+| **ServicePrincipalSignInLogs** | Sign-ins by apps and service principals | P1/P2 |
+| **ManagedIdentitySignInLogs** | Sign-ins by managed identities | P1/P2 |
+| **ProvisioningLogs** | User provisioning activities | P1/P2 |
+| **ADFSSignInLogs** | AD FS sign-in logs | P1/P2 |
+| **RiskyUsers** | Users flagged for risk | P2 |
+| **UserRiskEvents** | Risk detection events | P2 |
+| **RiskyServicePrincipals** | Service principals flagged for risk | P2 |
+| **ServicePrincipalRiskEvents** | Service principal risk events | P2 |
+| **EnrichedOffice365AuditLogs** | Enriched Office 365 audit logs | E5 |
+| **MicrosoftGraphActivityLogs** | Microsoft Graph API activity | P1/P2 |
+| **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | P1/P2 |
+
+### 5.3 Configure Entra ID Diagnostic Settings via Azure Portal
+
+**This must be done by an administrator in Atevet17:**
+
+1. Sign in to the **Azure Portal** as a Global Administrator in **Atevet17**
+2. Navigate to **Microsoft Entra ID** (or search for "Azure Active Directory")
+3. Go to **Monitoring** → **Diagnostic settings**
+4. Click **+ Add diagnostic setting**
+5. Configure the setting:
+   - **Diagnostic setting name:** `SendEntraLogsToAtevet12`
+   - **Log categories:** Select all applicable categories:
+     - ☑️ AuditLogs
+     - ☑️ SignInLogs
+     - ☑️ NonInteractiveUserSignInLogs
+     - ☑️ ServicePrincipalSignInLogs
+     - ☑️ ManagedIdentitySignInLogs
+     - ☑️ ProvisioningLogs
+     - ☑️ RiskyUsers (if P2)
+     - ☑️ UserRiskEvents (if P2)
+     - ☑️ MicrosoftGraphActivityLogs
+   - **Destination details:**
+     - ☑️ Send to Log Analytics workspace
+     - **Subscription:** Select the Atevet12 subscription
+     - **Log Analytics workspace:** `law-central-atevet12`
+6. Click **Save**
+
+### 5.4 Configure Entra ID Diagnostic Settings via PowerShell
+
+```powershell
+# Connect to Atevet17 tenant as Global Administrator
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# Get the Entra ID resource ID (this is a special format for tenant-level resources)
+$entraResourceId = "/providers/Microsoft.aadiam/diagnosticSettings"
+
+# Log Analytics Workspace in Atevet12
+$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Define log categories to enable
+$logs = @(
+    @{ Category = "AuditLogs"; Enabled = $true },
+    @{ Category = "SignInLogs"; Enabled = $true },
+    @{ Category = "NonInteractiveUserSignInLogs"; Enabled = $true },
+    @{ Category = "ServicePrincipalSignInLogs"; Enabled = $true },
+    @{ Category = "ManagedIdentitySignInLogs"; Enabled = $true },
+    @{ Category = "ProvisioningLogs"; Enabled = $true },
+    @{ Category = "RiskyUsers"; Enabled = $true },
+    @{ Category = "UserRiskEvents"; Enabled = $true },
+    @{ Category = "RiskyServicePrincipals"; Enabled = $true },
+    @{ Category = "ServicePrincipalRiskEvents"; Enabled = $true },
+    @{ Category = "MicrosoftGraphActivityLogs"; Enabled = $true }
+)
+
+# Create the diagnostic setting using REST API (PowerShell cmdlets have limited support)
+$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
+}
+
+$body = @{
+    properties = @{
+        workspaceId = $workspaceResourceId
+        logs = $logs
+    }
+} | ConvertTo-Json -Depth 10
+
+$uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/SendEntraLogsToAtevet12?api-version=2017-04-01"
+
+Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body
+```
+
+### 5.5 Configure Entra ID Diagnostic Settings via Azure CLI
+
+```bash
+# Login to Atevet17 tenant
+az login --tenant "<Atevet17-Tenant-ID>"
+
+# Variables
+WORKSPACE_ID="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Create diagnostic setting for Entra ID
+az rest --method PUT \
+    --uri "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/SendEntraLogsToAtevet12?api-version=2017-04-01" \
+    --body "{
+        \"properties\": {
+            \"workspaceId\": \"$WORKSPACE_ID\",
+            \"logs\": [
+                {\"category\": \"AuditLogs\", \"enabled\": true},
+                {\"category\": \"SignInLogs\", \"enabled\": true},
+                {\"category\": \"NonInteractiveUserSignInLogs\", \"enabled\": true},
+                {\"category\": \"ServicePrincipalSignInLogs\", \"enabled\": true},
+                {\"category\": \"ManagedIdentitySignInLogs\", \"enabled\": true},
+                {\"category\": \"ProvisioningLogs\", \"enabled\": true},
+                {\"category\": \"RiskyUsers\", \"enabled\": true},
+                {\"category\": \"UserRiskEvents\", \"enabled\": true},
+                {\"category\": \"MicrosoftGraphActivityLogs\", \"enabled\": true}
+            ]
+        }
+    }"
+```
+
+### 5.6 Configure via Microsoft Graph API
+
+For automation scenarios, you can use Microsoft Graph API:
+
+```powershell
+# Install Microsoft Graph PowerShell module
+Install-Module Microsoft.Graph -Scope CurrentUser
+
+# Connect with required permissions
+Connect-MgGraph -TenantId "<Atevet17-Tenant-ID>" -Scopes "AuditLog.Read.All", "Directory.Read.All"
+
+# Note: Diagnostic settings configuration requires Azure Resource Manager API
+# Use the REST API approach shown above for programmatic configuration
+```
+
+### 5.7 Verify Entra ID Diagnostic Settings
+
+**Via Azure Portal:**
+1. Go to **Microsoft Entra ID** → **Monitoring** → **Diagnostic settings**
+2. Verify the setting `SendEntraLogsToAtevet12` is listed and enabled
+
+**Via Azure CLI:**
+```bash
+az rest --method GET \
+    --uri "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
+```
+
+**Via PowerShell:**
+```powershell
+$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+$headers = @{ "Authorization" = "Bearer $token" }
+$uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
+Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
+```
+
+### 5.8 Query Entra ID Logs in Log Analytics
+
+Once configured, Entra ID logs will appear in the following tables in your Log Analytics workspace:
+
+| Table Name | Description |
+|------------|-------------|
+| `SigninLogs` | Interactive user sign-ins |
+| `AADNonInteractiveUserSignInLogs` | Non-interactive sign-ins |
+| `AADServicePrincipalSignInLogs` | Service principal sign-ins |
+| `AADManagedIdentitySignInLogs` | Managed identity sign-ins |
+| `AuditLogs` | Directory audit events |
+| `AADProvisioningLogs` | Provisioning activities |
+| `AADRiskyUsers` | Risky user information |
+| `AADUserRiskEvents` | User risk events |
+| `AADRiskyServicePrincipals` | Risky service principals |
+| `AADServicePrincipalRiskEvents` | Service principal risk events |
+| `MicrosoftGraphActivityLogs` | Graph API activity |
+
+**Sample Queries:**
+
+**Query Sign-in Logs from Atevet17:**
+```kusto
+SigninLogs
+| where TimeGenerated > ago(24h)
+| where AADTenantId == "<Atevet17-Tenant-ID>"
+| summarize count() by ResultType, AppDisplayName
+| order by count_ desc
+```
+
+**Query Failed Sign-ins:**
+```kusto
+SigninLogs
+| where TimeGenerated > ago(24h)
+| where ResultType != "0"  // Non-successful sign-ins
+| project TimeGenerated, UserPrincipalName, AppDisplayName, ResultType, ResultDescription, IPAddress, Location
+| order by TimeGenerated desc
+```
+
+**Query Audit Logs for User Changes:**
+```kusto
+AuditLogs
+| where TimeGenerated > ago(24h)
+| where Category == "UserManagement"
+| project TimeGenerated, OperationName, Result, InitiatedBy, TargetResources
+| order by TimeGenerated desc
+```
+
+**Query Risky Sign-ins:**
+```kusto
+SigninLogs
+| where TimeGenerated > ago(7d)
+| where RiskLevelDuringSignIn in ("high", "medium")
+| project TimeGenerated, UserPrincipalName, RiskLevelDuringSignIn, RiskState, IPAddress, Location
+| order by TimeGenerated desc
+```
+
+**Query Service Principal Sign-ins:**
+```kusto
+AADServicePrincipalSignInLogs
+| where TimeGenerated > ago(24h)
+| summarize count() by ServicePrincipalName, ResourceDisplayName
+| order by count_ desc
+```
+
+**Query Microsoft Graph API Activity:**
+```kusto
+MicrosoftGraphActivityLogs
+| where TimeGenerated > ago(24h)
+| summarize count() by RequestMethod, ApiVersion
+| order by count_ desc
+```
+
+### 5.9 Important Considerations for Cross-Tenant Entra ID Logs
+
+1. **Permissions:** The user configuring diagnostic settings must be a Global Administrator or Security Administrator in Atevet17. Azure Lighthouse delegation does NOT grant these permissions.
+
+2. **Licensing:** Sign-in logs require Microsoft Entra ID P1 or P2 licenses. Without proper licensing, only AuditLogs will be available.
+
+3. **Data Residency:** Entra ID logs will be stored in the Log Analytics workspace region (Atevet12). Ensure this complies with your data residency requirements.
+
+4. **Latency:** Entra ID logs may have a latency of 2-15 minutes before appearing in Log Analytics.
+
+5. **Retention:** Configure appropriate retention in your Log Analytics workspace. Entra ID logs can be verbose, especially sign-in logs.
+
+6. **Cost:** Sign-in logs can generate significant data volume. Monitor ingestion costs and consider:
+   - Using Basic Logs tier for high-volume tables
+   - Filtering unnecessary log categories
+   - Setting appropriate retention periods
+
+### 5.10 Automate Entra ID Diagnostic Settings with ARM Template
+
+For repeatable deployments, use this ARM template:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "settingName": {
+            "type": "string",
+            "defaultValue": "SendEntraLogsToAtevet12"
+        },
+        "workspaceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Resource ID of the Log Analytics workspace"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "microsoft.aadiam/diagnosticSettings",
+            "apiVersion": "2017-04-01",
+            "name": "[parameters('settingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceId')]",
+                "logs": [
+                    { "category": "AuditLogs", "enabled": true },
+                    { "category": "SignInLogs", "enabled": true },
+                    { "category": "NonInteractiveUserSignInLogs", "enabled": true },
+                    { "category": "ServicePrincipalSignInLogs", "enabled": true },
+                    { "category": "ManagedIdentitySignInLogs", "enabled": true },
+                    { "category": "ProvisioningLogs", "enabled": true },
+                    { "category": "RiskyUsers", "enabled": true },
+                    { "category": "UserRiskEvents", "enabled": true },
+                    { "category": "RiskyServicePrincipals", "enabled": true },
+                    { "category": "ServicePrincipalRiskEvents", "enabled": true },
+                    { "category": "MicrosoftGraphActivityLogs", "enabled": true }
+                ]
+            }
+        }
+    ]
+}
+```
+
+**Deploy the template:**
+```bash
+# Deploy at tenant level (requires Global Administrator)
+az deployment tenant create \
+    --name "EntraIDDiagnostics" \
+    --location "eastus" \
+    --template-file "entra-diagnostic-settings.json" \
+    --parameters workspaceId="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+---
+
+## Step 6: Centralize Logs in Log Analytics Workspace
+
+### 6.1 Verify Log Tables
 
 After configuration, the following tables should be populated in your Log Analytics workspace:
 
@@ -1595,8 +1918,15 @@ After configuration, the following tables should be populated in your Log Analyt
 | `Perf` | Performance counters (from VMs) |
 | `AzureKeyVaultAuditLogs` | Key Vault audit events |
 | `StorageBlobLogs` | Storage blob operations |
+| `SigninLogs` | Entra ID interactive sign-ins |
+| `AADNonInteractiveUserSignInLogs` | Entra ID non-interactive sign-ins |
+| `AADServicePrincipalSignInLogs` | Entra ID service principal sign-ins |
+| `AuditLogs` | Entra ID audit events |
+| `AADProvisioningLogs` | Entra ID provisioning logs |
+| `AADRiskyUsers` | Entra ID risky users |
+| `AADUserRiskEvents` | Entra ID user risk events |
 
-### 5.2 Sample Queries
+### 6.2 Sample Queries
 
 **Query Activity Logs from Atevet17:**
 
@@ -1630,9 +1960,9 @@ Perf
 
 ---
 
-## Step 6: Verify Log Collection
+## Step 7: Verify Log Collection
 
-### 6.1 Check Diagnostic Settings
+### 7.1 Check Diagnostic Settings
 
 ```powershell
 # List all diagnostic settings for a subscription
@@ -1642,7 +1972,7 @@ Get-AzDiagnosticSetting -SubscriptionId "<Atevet17-Subscription-ID>"
 Get-AzDiagnosticSetting -ResourceId "<Resource-ID>"
 ```
 
-### 6.2 Verify Data in Log Analytics
+### 7.2 Verify Data in Log Analytics
 
 ```powershell
 # Query Log Analytics
@@ -1659,7 +1989,7 @@ $result = Invoke-AzOperationalInsightsQuery `
 $result.Results
 ```
 
-### 6.3 Monitor Data Ingestion
+### 7.3 Monitor Data Ingestion
 
 In Azure Portal:
 1. Go to **Log Analytics workspace** → `law-central-atevet12`
@@ -1958,14 +2288,16 @@ You have now configured cross-tenant log collection from **Atevet17** to **Ateve
 2. ✅ Created centralized Log Analytics workspace in Atevet12
 3. ✅ Onboarded Atevet17 subscriptions to Azure Lighthouse
 4. ✅ Configured Activity Log collection
-5. ✅ Configured Resource Diagnostic Logs (VMs, Key Vaults, Storage)
+5. ✅ Configured Resource Diagnostic Logs (VMs, Key Vaults, Storage, and all other resource types)
 6. ✅ Set up Azure Monitor Agent for VM-level logs
+7. ✅ Configured Microsoft Entra ID (Azure AD) diagnostic logs (Sign-in, Audit, Risk events)
+8. ✅ Set up Azure Policy for automatic diagnostic settings on new resources
 
 **Next Steps:**
-1. Deploy Azure Policy for automatic diagnostic settings on new resources
-2. Set up alerts for critical events
-3. Create dashboards for monitoring
-4. Consider Microsoft Sentinel for advanced security analytics
+1. Set up alerts for critical events
+2. Create dashboards for monitoring
+3. Consider Microsoft Sentinel for advanced security analytics
+4. Review and optimize log retention and costs
 
 ---
 
