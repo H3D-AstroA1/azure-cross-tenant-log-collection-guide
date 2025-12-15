@@ -705,7 +705,487 @@ for SA_ID in $STORAGE_ACCOUNTS; do
 done
 ```
 
-### 4.5 Configure Azure AD Sign-in and Audit Logs
+### 4.5 Configure ALL Resource Types (Universal Script)
+
+The following script automatically discovers and configures diagnostic settings for **all supported Azure resource types** in your subscription. This is the recommended approach for comprehensive logging.
+
+**Azure CLI - Universal Diagnostic Settings Script:**
+```bash
+#!/bin/bash
+# configure-all-resources-diagnostics.sh
+# This script configures diagnostic settings for ALL supported resource types
+# Run this in Atevet17 tenant
+
+set -e
+
+# Configuration - UPDATE THESE VALUES
+ATEVET12_SUB_ID="<Atevet12-Subscription-ID>"
+EVENT_HUB_NAMESPACE="eh-namespace-central-atevet12"
+EVENT_HUB_RG="rg-eventhub-central"
+EVENT_HUB_AUTH_RULE="/subscriptions/${ATEVET12_SUB_ID}/resourceGroups/${EVENT_HUB_RG}/providers/Microsoft.EventHub/namespaces/${EVENT_HUB_NAMESPACE}/authorizationRules/atevet17-send-policy"
+DIAGNOSTIC_SETTING_NAME="stream-to-atevet12-eventhub"
+DEFAULT_EVENT_HUB="eh-activity-logs"
+
+echo "=========================================="
+echo "Configuring Diagnostic Settings for ALL Resources"
+echo "Destination: Event Hub in Atevet12"
+echo "=========================================="
+
+# Function to get available log categories for a resource
+get_log_categories() {
+    local RESOURCE_ID=$1
+    az monitor diagnostic-settings categories list \
+        --resource "$RESOURCE_ID" \
+        --query "[?categoryType=='Logs'].category" \
+        --output tsv 2>/dev/null || echo ""
+}
+
+# Function to get available metric categories for a resource
+get_metric_categories() {
+    local RESOURCE_ID=$1
+    az monitor diagnostic-settings categories list \
+        --resource "$RESOURCE_ID" \
+        --query "[?categoryType=='Metrics'].category" \
+        --output tsv 2>/dev/null || echo ""
+}
+
+# Function to build logs JSON array
+build_logs_json() {
+    local CATEGORIES=$1
+    local JSON="["
+    local FIRST=true
+    
+    for CAT in $CATEGORIES; do
+        if [ "$FIRST" = true ]; then
+            FIRST=false
+        else
+            JSON+=","
+        fi
+        JSON+="{\"category\":\"$CAT\",\"enabled\":true}"
+    done
+    
+    JSON+="]"
+    echo "$JSON"
+}
+
+# Function to build metrics JSON array
+build_metrics_json() {
+    local CATEGORIES=$1
+    local JSON="["
+    local FIRST=true
+    
+    for CAT in $CATEGORIES; do
+        if [ "$FIRST" = true ]; then
+            FIRST=false
+        else
+            JSON+=","
+        fi
+        JSON+="{\"category\":\"$CAT\",\"enabled\":true}"
+    done
+    
+    JSON+="]"
+    echo "$JSON"
+}
+
+# Function to configure diagnostic settings for a resource
+configure_resource() {
+    local RESOURCE_ID=$1
+    local EVENT_HUB_NAME=$2
+    local RESOURCE_NAME=$(echo "$RESOURCE_ID" | rev | cut -d'/' -f1 | rev)
+    local RESOURCE_TYPE=$(echo "$RESOURCE_ID" | grep -oP 'providers/\K[^/]+/[^/]+' | head -1)
+    
+    # Get available categories
+    LOG_CATS=$(get_log_categories "$RESOURCE_ID")
+    METRIC_CATS=$(get_metric_categories "$RESOURCE_ID")
+    
+    if [ -z "$LOG_CATS" ] && [ -z "$METRIC_CATS" ]; then
+        echo "  ⚠ $RESOURCE_NAME ($RESOURCE_TYPE) - No diagnostic categories available"
+        return
+    fi
+    
+    # Build JSON arrays
+    LOGS_JSON=$(build_logs_json "$LOG_CATS")
+    METRICS_JSON=$(build_metrics_json "$METRIC_CATS")
+    
+    # Create diagnostic setting
+    if [ -n "$LOG_CATS" ] && [ -n "$METRIC_CATS" ]; then
+        az monitor diagnostic-settings create \
+            --name "$DIAGNOSTIC_SETTING_NAME" \
+            --resource "$RESOURCE_ID" \
+            --event-hub "$EVENT_HUB_NAME" \
+            --event-hub-rule "$EVENT_HUB_AUTH_RULE" \
+            --logs "$LOGS_JSON" \
+            --metrics "$METRICS_JSON" \
+            2>/dev/null && echo "  ✓ $RESOURCE_NAME ($RESOURCE_TYPE)" || echo "  ✗ $RESOURCE_NAME - Failed"
+    elif [ -n "$LOG_CATS" ]; then
+        az monitor diagnostic-settings create \
+            --name "$DIAGNOSTIC_SETTING_NAME" \
+            --resource "$RESOURCE_ID" \
+            --event-hub "$EVENT_HUB_NAME" \
+            --event-hub-rule "$EVENT_HUB_AUTH_RULE" \
+            --logs "$LOGS_JSON" \
+            2>/dev/null && echo "  ✓ $RESOURCE_NAME ($RESOURCE_TYPE)" || echo "  ✗ $RESOURCE_NAME - Failed"
+    elif [ -n "$METRIC_CATS" ]; then
+        az monitor diagnostic-settings create \
+            --name "$DIAGNOSTIC_SETTING_NAME" \
+            --resource "$RESOURCE_ID" \
+            --event-hub "$EVENT_HUB_NAME" \
+            --event-hub-rule "$EVENT_HUB_AUTH_RULE" \
+            --metrics "$METRICS_JSON" \
+            2>/dev/null && echo "  ✓ $RESOURCE_NAME ($RESOURCE_TYPE)" || echo "  ✗ $RESOURCE_NAME - Failed"
+    fi
+}
+
+# Get all resources in the subscription
+echo ""
+echo "Discovering all resources..."
+ALL_RESOURCES=$(az resource list --query "[].id" --output tsv)
+TOTAL_COUNT=$(echo "$ALL_RESOURCES" | wc -l)
+echo "Found $TOTAL_COUNT resources"
+
+# Resource type to Event Hub mapping
+declare -A EVENT_HUB_MAP=(
+    ["Microsoft.KeyVault/vaults"]="eh-keyvault-logs"
+    ["Microsoft.Storage/storageAccounts"]="eh-storage-logs"
+    ["Microsoft.Compute/virtualMachines"]="eh-vm-logs"
+    ["Microsoft.Network/networkSecurityGroups"]="eh-nsg-logs"
+    ["Microsoft.Sql/servers"]="eh-activity-logs"
+    ["Microsoft.Web/sites"]="eh-activity-logs"
+    ["Microsoft.ContainerService/managedClusters"]="eh-activity-logs"
+    ["Microsoft.EventHub/namespaces"]="eh-activity-logs"
+    ["Microsoft.ServiceBus/namespaces"]="eh-activity-logs"
+    ["Microsoft.Cdn/profiles"]="eh-activity-logs"
+    ["Microsoft.Network/applicationGateways"]="eh-activity-logs"
+    ["Microsoft.Network/loadBalancers"]="eh-activity-logs"
+    ["Microsoft.Network/publicIPAddresses"]="eh-activity-logs"
+    ["Microsoft.Network/virtualNetworks"]="eh-activity-logs"
+    ["Microsoft.ContainerRegistry/registries"]="eh-activity-logs"
+    ["Microsoft.DocumentDB/databaseAccounts"]="eh-activity-logs"
+    ["Microsoft.Cache/Redis"]="eh-activity-logs"
+    ["Microsoft.ApiManagement/service"]="eh-activity-logs"
+    ["Microsoft.Logic/workflows"]="eh-activity-logs"
+    ["Microsoft.DataFactory/factories"]="eh-activity-logs"
+)
+
+# Process each resource
+echo ""
+echo "Configuring diagnostic settings..."
+CONFIGURED=0
+SKIPPED=0
+
+for RESOURCE_ID in $ALL_RESOURCES; do
+    # Get resource type
+    RESOURCE_TYPE=$(echo "$RESOURCE_ID" | grep -oP 'providers/\K[^/]+/[^/]+' | head -1)
+    
+    # Determine Event Hub based on resource type
+    EVENT_HUB_NAME="${EVENT_HUB_MAP[$RESOURCE_TYPE]:-$DEFAULT_EVENT_HUB}"
+    
+    # Configure the resource
+    configure_resource "$RESOURCE_ID" "$EVENT_HUB_NAME"
+    
+    ((CONFIGURED++)) || true
+done
+
+echo ""
+echo "=========================================="
+echo "Configuration Complete!"
+echo "Processed: $CONFIGURED resources"
+echo "=========================================="
+```
+
+**PowerShell - Universal Diagnostic Settings Script:**
+```powershell
+# Configure-AllResourcesDiagnostics.ps1
+# This script configures diagnostic settings for ALL supported resource types
+# Run this in Atevet17 tenant
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$Atevet12SubscriptionId,
+    
+    [string]$EventHubNamespace = "eh-namespace-central-atevet12",
+    [string]$EventHubResourceGroup = "rg-eventhub-central",
+    [string]$DiagnosticSettingName = "stream-to-atevet12-eventhub",
+    [string]$DefaultEventHub = "eh-activity-logs"
+)
+
+# Event Hub Authorization Rule ID
+$EventHubAuthRuleId = "/subscriptions/$Atevet12SubscriptionId/resourceGroups/$EventHubResourceGroup/providers/Microsoft.EventHub/namespaces/$EventHubNamespace/authorizationRules/atevet17-send-policy"
+
+# Resource type to Event Hub mapping
+$EventHubMap = @{
+    "Microsoft.KeyVault/vaults" = "eh-keyvault-logs"
+    "Microsoft.Storage/storageAccounts" = "eh-storage-logs"
+    "Microsoft.Compute/virtualMachines" = "eh-vm-logs"
+    "Microsoft.Network/networkSecurityGroups" = "eh-nsg-logs"
+    "Microsoft.Sql/servers" = "eh-activity-logs"
+    "Microsoft.Web/sites" = "eh-activity-logs"
+    "Microsoft.ContainerService/managedClusters" = "eh-activity-logs"
+    "Microsoft.EventHub/namespaces" = "eh-activity-logs"
+    "Microsoft.ServiceBus/namespaces" = "eh-activity-logs"
+    "Microsoft.Cdn/profiles" = "eh-activity-logs"
+    "Microsoft.Network/applicationGateways" = "eh-activity-logs"
+    "Microsoft.Network/loadBalancers" = "eh-activity-logs"
+    "Microsoft.Network/publicIPAddresses" = "eh-activity-logs"
+    "Microsoft.Network/virtualNetworks" = "eh-activity-logs"
+    "Microsoft.ContainerRegistry/registries" = "eh-activity-logs"
+    "Microsoft.DocumentDB/databaseAccounts" = "eh-activity-logs"
+    "Microsoft.Cache/Redis" = "eh-activity-logs"
+    "Microsoft.ApiManagement/service" = "eh-activity-logs"
+    "Microsoft.Logic/workflows" = "eh-activity-logs"
+    "Microsoft.DataFactory/factories" = "eh-activity-logs"
+}
+
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "Configuring Diagnostic Settings for ALL Resources" -ForegroundColor Cyan
+Write-Host "Destination: Event Hub in Atevet12" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+
+# Get all resources in the subscription
+Write-Host "`nDiscovering all resources..." -ForegroundColor Yellow
+$allResources = Get-AzResource
+Write-Host "Found $($allResources.Count) resources" -ForegroundColor Green
+
+$configured = 0
+$skipped = 0
+$failed = 0
+
+foreach ($resource in $allResources) {
+    $resourceId = $resource.ResourceId
+    $resourceName = $resource.Name
+    $resourceType = $resource.ResourceType
+    
+    # Determine Event Hub based on resource type
+    $eventHubName = if ($EventHubMap.ContainsKey($resourceType)) {
+        $EventHubMap[$resourceType]
+    } else {
+        $DefaultEventHub
+    }
+    
+    try {
+        # Get available diagnostic categories
+        $categories = Get-AzDiagnosticSettingCategory -ResourceId $resourceId -ErrorAction SilentlyContinue
+        
+        if (-not $categories) {
+            Write-Host "  ⚠ $resourceName ($resourceType) - No diagnostic categories available" -ForegroundColor Yellow
+            $skipped++
+            continue
+        }
+        
+        # Separate log and metric categories
+        $logCategories = $categories | Where-Object { $_.CategoryType -eq "Logs" }
+        $metricCategories = $categories | Where-Object { $_.CategoryType -eq "Metrics" }
+        
+        # Build log settings
+        $logSettings = @()
+        foreach ($cat in $logCategories) {
+            $logSettings += New-AzDiagnosticSettingLogSettingsObject -Category $cat.Name -Enabled $true
+        }
+        
+        # Build metric settings
+        $metricSettings = @()
+        foreach ($cat in $metricCategories) {
+            $metricSettings += New-AzDiagnosticSettingMetricSettingsObject -Category $cat.Name -Enabled $true
+        }
+        
+        # Create diagnostic setting
+        $params = @{
+            Name = $DiagnosticSettingName
+            ResourceId = $resourceId
+            EventHubName = $eventHubName
+            EventHubAuthorizationRuleId = $EventHubAuthRuleId
+        }
+        
+        if ($logSettings.Count -gt 0) {
+            $params.Log = $logSettings
+        }
+        
+        if ($metricSettings.Count -gt 0) {
+            $params.Metric = $metricSettings
+        }
+        
+        New-AzDiagnosticSetting @params -ErrorAction Stop | Out-Null
+        Write-Host "  ✓ $resourceName ($resourceType)" -ForegroundColor Green
+        $configured++
+    }
+    catch {
+        Write-Host "  ✗ $resourceName ($resourceType) - $($_.Exception.Message)" -ForegroundColor Red
+        $failed++
+    }
+}
+
+Write-Host "`n==========================================" -ForegroundColor Cyan
+Write-Host "Configuration Complete!" -ForegroundColor Cyan
+Write-Host "Configured: $configured resources" -ForegroundColor Green
+Write-Host "Skipped: $skipped resources (no diagnostic support)" -ForegroundColor Yellow
+Write-Host "Failed: $failed resources" -ForegroundColor Red
+Write-Host "==========================================" -ForegroundColor Cyan
+```
+
+### 4.6 Supported Resource Types Reference
+
+The following Azure resource types support diagnostic settings:
+
+| Resource Type | Log Categories | Metrics |
+|---------------|----------------|---------|
+| **Microsoft.KeyVault/vaults** | AuditEvent, AzurePolicyEvaluationDetails | AllMetrics |
+| **Microsoft.Storage/storageAccounts** | StorageRead, StorageWrite, StorageDelete | Transaction |
+| **Microsoft.Compute/virtualMachines** | (via Azure Monitor Agent) | AllMetrics |
+| **Microsoft.Network/networkSecurityGroups** | NetworkSecurityGroupEvent, NetworkSecurityGroupRuleCounter | - |
+| **Microsoft.Sql/servers/databases** | SQLInsights, AutomaticTuning, QueryStoreRuntimeStatistics | AllMetrics |
+| **Microsoft.Web/sites** | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs | AllMetrics |
+| **Microsoft.ContainerService/managedClusters** | kube-apiserver, kube-controller-manager, kube-scheduler | AllMetrics |
+| **Microsoft.EventHub/namespaces** | ArchiveLogs, OperationalLogs, AutoScaleLogs | AllMetrics |
+| **Microsoft.ServiceBus/namespaces** | OperationalLogs | AllMetrics |
+| **Microsoft.Cdn/profiles/endpoints** | CoreAnalytics | AllMetrics |
+| **Microsoft.Network/applicationGateways** | ApplicationGatewayAccessLog, ApplicationGatewayPerformanceLog | AllMetrics |
+| **Microsoft.Network/loadBalancers** | LoadBalancerAlertEvent, LoadBalancerProbeHealthStatus | AllMetrics |
+| **Microsoft.Network/publicIPAddresses** | DDoSProtectionNotifications, DDoSMitigationFlowLogs | AllMetrics |
+| **Microsoft.Network/virtualNetworks** | VMProtectionAlerts | AllMetrics |
+| **Microsoft.ContainerRegistry/registries** | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents | AllMetrics |
+| **Microsoft.DocumentDB/databaseAccounts** | DataPlaneRequests, MongoRequests, QueryRuntimeStatistics | AllMetrics |
+| **Microsoft.Cache/Redis** | ConnectedClientList | AllMetrics |
+| **Microsoft.ApiManagement/service** | GatewayLogs | AllMetrics |
+| **Microsoft.Logic/workflows** | WorkflowRuntime | AllMetrics |
+| **Microsoft.DataFactory/factories** | ActivityRuns, PipelineRuns, TriggerRuns | AllMetrics |
+| **Microsoft.Batch/batchAccounts** | ServiceLog | AllMetrics |
+| **Microsoft.CognitiveServices/accounts** | Audit, RequestResponse | AllMetrics |
+| **Microsoft.Search/searchServices** | OperationLogs | AllMetrics |
+| **Microsoft.SignalRService/SignalR** | AllLogs | AllMetrics |
+| **Microsoft.StreamAnalytics/streamingjobs** | Execution, Authoring | AllMetrics |
+
+### 4.7 Azure Policy for Automatic Configuration
+
+Deploy an Azure Policy to automatically configure diagnostic settings for all new resources:
+
+```json
+{
+    "mode": "All",
+    "policyRule": {
+        "if": {
+            "field": "type",
+            "in": [
+                "Microsoft.KeyVault/vaults",
+                "Microsoft.Storage/storageAccounts",
+                "Microsoft.Sql/servers/databases",
+                "Microsoft.Web/sites",
+                "Microsoft.ContainerService/managedClusters",
+                "Microsoft.Network/applicationGateways",
+                "Microsoft.Network/loadBalancers",
+                "Microsoft.DocumentDB/databaseAccounts",
+                "Microsoft.Cache/Redis",
+                "Microsoft.ApiManagement/service"
+            ]
+        },
+        "then": {
+            "effect": "deployIfNotExists",
+            "details": {
+                "type": "Microsoft.Insights/diagnosticSettings",
+                "name": "stream-to-atevet12-eventhub",
+                "existenceCondition": {
+                    "allOf": [
+                        {
+                            "field": "Microsoft.Insights/diagnosticSettings/eventHubAuthorizationRuleId",
+                            "equals": "[parameters('eventHubAuthorizationRuleId')]"
+                        }
+                    ]
+                },
+                "roleDefinitionIds": [
+                    "/providers/Microsoft.Authorization/roleDefinitions/749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+                ],
+                "deployment": {
+                    "properties": {
+                        "mode": "incremental",
+                        "template": {
+                            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                            "contentVersion": "1.0.0.0",
+                            "parameters": {
+                                "resourceName": { "type": "string" },
+                                "resourceId": { "type": "string" },
+                                "eventHubAuthorizationRuleId": { "type": "string" },
+                                "eventHubName": { "type": "string" }
+                            },
+                            "resources": [
+                                {
+                                    "type": "Microsoft.Insights/diagnosticSettings",
+                                    "apiVersion": "2021-05-01-preview",
+                                    "name": "stream-to-atevet12-eventhub",
+                                    "scope": "[parameters('resourceId')]",
+                                    "properties": {
+                                        "eventHubAuthorizationRuleId": "[parameters('eventHubAuthorizationRuleId')]",
+                                        "eventHubName": "[parameters('eventHubName')]",
+                                        "logs": [
+                                            {
+                                                "categoryGroup": "allLogs",
+                                                "enabled": true
+                                            }
+                                        ],
+                                        "metrics": [
+                                            {
+                                                "category": "AllMetrics",
+                                                "enabled": true
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        "parameters": {
+                            "resourceName": { "value": "[field('name')]" },
+                            "resourceId": { "value": "[field('id')]" },
+                            "eventHubAuthorizationRuleId": { "value": "[parameters('eventHubAuthorizationRuleId')]" },
+                            "eventHubName": { "value": "[parameters('eventHubName')]" }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "parameters": {
+        "eventHubAuthorizationRuleId": {
+            "type": "String",
+            "metadata": {
+                "displayName": "Event Hub Authorization Rule ID",
+                "description": "The resource ID of the Event Hub authorization rule"
+            }
+        },
+        "eventHubName": {
+            "type": "String",
+            "metadata": {
+                "displayName": "Event Hub Name",
+                "description": "The name of the Event Hub to send logs to"
+            },
+            "defaultValue": "eh-activity-logs"
+        }
+    }
+}
+```
+
+**Deploy the Policy:**
+```bash
+# Create policy definition
+az policy definition create \
+    --name "configure-diagnostic-settings-eventhub" \
+    --display-name "Configure diagnostic settings to stream to Event Hub" \
+    --description "Automatically configure diagnostic settings for supported resources to stream to Event Hub" \
+    --rules policy-rule.json \
+    --params policy-params.json \
+    --mode All
+
+# Assign the policy to a subscription
+az policy assignment create \
+    --name "diag-settings-eventhub-assignment" \
+    --policy "configure-diagnostic-settings-eventhub" \
+    --scope "/subscriptions/<Atevet17-Subscription-ID>" \
+    --params '{
+        "eventHubAuthorizationRuleId": "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-eventhub-central/providers/Microsoft.EventHub/namespaces/eh-namespace-central-atevet12/authorizationRules/atevet17-send-policy",
+        "eventHubName": "eh-activity-logs"
+    }' \
+    --assign-identity \
+    --location "eastus"
+```
+
+### 4.8 Configure Azure AD Sign-in and Audit Logs
 
 **IMPORTANT:** Azure AD logs require **Azure AD Premium P1 or P2** license.
 
