@@ -443,120 +443,117 @@ Write-Host "Workspace Resource ID: $workspaceResourceId"
 
 ## Step 2: Onboard Customer Tenant (Atevet17) to Azure Lighthouse
 
-### 2.1 Create the Azure Lighthouse ARM Template
+Azure Lighthouse onboarding requires two separate deployments:
+1. **Registration Definition** - Defines the delegation (who can access what with which roles)
+2. **Registration Assignment** - Assigns the definition to the subscription
 
-Create a file named `lighthouse-delegation.json`:
+This two-step approach provides better control and allows you to reuse definitions across multiple subscriptions.
+
+### 2.1 Create the Registration Definition Template
+
+Create a file named `lighthouse-template-definition.json`:
 
 ```json
 {
-    "$schema": "https://schema.management.azure.com/schemas/2019-08-01/subscriptionDeploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "mspOfferName": {
-            "type": "string",
-            "defaultValue": "Atevet12 Log Collection Delegation"
-        },
-        "mspOfferDescription": {
-            "type": "string",
-            "defaultValue": "Delegation for centralized log collection from Atevet17 to Atevet12"
-        },
-        "managedByTenantId": {
-            "type": "string",
-            "metadata": {
-                "description": "The Tenant ID of the managing tenant (Atevet12)"
-            }
-        },
-        "authorizations": {
-            "type": "array",
-            "metadata": {
-                "description": "Array of authorization objects"
-            }
-        }
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "managedByTenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "Tenant ID (GUID) of the managing tenant (Atevet12)."
+      }
     },
-    "variables": {
-        "mspRegistrationName": "[guid(parameters('mspOfferName'))]",
-        "mspAssignmentName": "[guid(parameters('mspOfferName'))]"
+    "registrationDefinitionName": {
+      "type": "string",
+      "defaultValue": "Sentinel Delegation for Atevet12 (v2)",
+      "metadata": {
+        "description": "Display name of the Lighthouse registration definition."
+      }
     },
-    "resources": [
-        {
-            "type": "Microsoft.ManagedServices/registrationDefinitions",
-            "apiVersion": "2022-10-01",
-            "name": "[variables('mspRegistrationName')]",
-            "properties": {
-                "registrationDefinitionName": "[parameters('mspOfferName')]",
-                "description": "[parameters('mspOfferDescription')]",
-                "managedByTenantId": "[parameters('managedByTenantId')]",
-                "authorizations": "[parameters('authorizations')]"
-            }
-        },
-        {
-            "type": "Microsoft.ManagedServices/registrationAssignments",
-            "apiVersion": "2022-10-01",
-            "name": "[variables('mspAssignmentName')]",
-            "dependsOn": [
-                "[resourceId('Microsoft.ManagedServices/registrationDefinitions', variables('mspRegistrationName'))]"
-            ],
-            "properties": {
-                "registrationDefinitionId": "[resourceId('Microsoft.ManagedServices/registrationDefinitions', variables('mspRegistrationName'))]"
-            }
-        }
-    ],
-    "outputs": {
-        "mspOfferName": {
-            "type": "string",
-            "value": "[parameters('mspOfferName')]"
-        },
-        "registrationDefinitionId": {
-            "type": "string",
-            "value": "[resourceId('Microsoft.ManagedServices/registrationDefinitions', variables('mspRegistrationName'))]"
-        }
+    "registrationDefinitionDescription": {
+      "type": "string",
+      "defaultValue": "Delegates access from Atevet17 to Atevet12 at subscription scope.",
+      "metadata": {
+        "description": "Description for the Lighthouse registration definition."
+      }
+    },
+    "authorizations": {
+      "type": "array",
+      "metadata": {
+        "description": "Array of authorization objects."
+      }
     }
+  },
+  "variables": {
+    "definitionNameGuidSeed": "[concat(parameters('managedByTenantId'), '-', parameters('registrationDefinitionName'))]",
+    "definitionGuid": "[guid(variables('definitionNameGuidSeed'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ManagedServices/registrationDefinitions",
+      "apiVersion": "2022-10-01",
+      "name": "[variables('definitionGuid')]",
+      "properties": {
+        "registrationDefinitionName": "[parameters('registrationDefinitionName')]",
+        "description": "[parameters('registrationDefinitionDescription')]",
+        "managedByTenantId": "[parameters('managedByTenantId')]",
+        "authorizations": "[parameters('authorizations')]"
+      }
+    }
+  ],
+  "outputs": {
+    "registrationDefinitionId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedServices/registrationDefinitions', variables('definitionGuid'))]"
+    }
+  }
 }
 ```
 
-### 2.2 Create the Parameters File
+### 2.2 Create the Registration Definition Parameters File
 
-Create a file named `lighthouse-delegation.parameters.json`:
+Create a file named `lighthouse-parameters-definition.json`:
 
 ```json
 {
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "mspOfferName": {
-            "value": "Atevet12 Log Collection Delegation"
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "managedByTenantId": {
+      "value": "<ATEVET12-TENANT-ID>"
+    },
+    "registrationDefinitionName": {
+      "value": "Atevet12 Log Collection Delegation"
+    },
+    "registrationDefinitionDescription": {
+      "value": "Delegates access from Atevet17 to Atevet12 at subscription scope."
+    },
+    "authorizations": {
+      "value": [
+        {
+          "principalId": "<SECURITY-GROUP-OBJECT-ID>",
+          "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
+          "principalIdDisplayName": "Lighthouse-Atevet17-Admins"
         },
-        "mspOfferDescription": {
-            "value": "Delegation for centralized log collection from Atevet17 to Atevet12"
+        {
+          "principalId": "<SECURITY-GROUP-OBJECT-ID>",
+          "roleDefinitionId": "b24988ac-6180-42a0-ab88-20f7382dd24c",
+          "principalIdDisplayName": "Lighthouse-Atevet17-Admins"
         },
-        "managedByTenantId": {
-            "value": "<ATEVET12-TENANT-ID>"
+        {
+          "principalId": "<SECURITY-GROUP-OBJECT-ID>",
+          "roleDefinitionId": "43d0d8ad-25c7-4714-9337-8ba259a9fe05",
+          "principalIdDisplayName": "Lighthouse-Atevet17-Admins"
         },
-        "authorizations": {
-            "value": [
-                {
-                    "principalId": "<SECURITY-GROUP-OBJECT-ID>",
-                    "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "acdd72a7-3385-48ef-bd42-f606fba81ae7"
-                },
-                {
-                    "principalId": "<SECURITY-GROUP-OBJECT-ID>",
-                    "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "b24988ac-6180-42a0-ab88-20f7382dd24c"
-                },
-                {
-                    "principalId": "<SECURITY-GROUP-OBJECT-ID>",
-                    "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
-                },
-                {
-                    "principalId": "<SECURITY-GROUP-OBJECT-ID>",
-                    "principalIdDisplayName": "Lighthouse-Atevet17-Admins",
-                    "roleDefinitionId": "73c42c96-874c-492b-b04d-ab87d138a893"
-                }
-            ]
+        {
+          "principalId": "<SECURITY-GROUP-OBJECT-ID>",
+          "roleDefinitionId": "73c42c96-874c-492b-b04d-ab87d138a893",
+          "principalIdDisplayName": "Lighthouse-Atevet17-Admins"
         }
+      ]
     }
+  }
 }
 ```
 
@@ -573,9 +570,73 @@ Create a file named `lighthouse-delegation.parameters.json`:
 - `<ATEVET12-TENANT-ID>`: Your Atevet12 tenant ID
 - `<SECURITY-GROUP-OBJECT-ID>`: The Object ID of the security group created in Step 1.1
 
-### 2.3 Deploy the Lighthouse Template in Atevet17
+### 2.3 Create the Registration Assignment Template
 
-**Option A: Using Azure CLI (Recommended)**
+Create a file named `lighthouse-template-assignment.json`:
+
+```json
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "registrationDefinitionId": {
+      "type": "string",
+      "metadata": {
+        "description": "Full resource ID of the registration definition created in step A."
+      }
+    },
+       "registrationAssignmentName": {
+      "type": "string",
+      "defaultValue": "[newGuid()]",
+      "metadata": {
+        "description": "Name (GUID) for the registration assignment."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ManagedServices/registrationAssignments",
+      "apiVersion": "2022-10-01",
+      "name": "[parameters('registrationAssignmentName')]",
+      "properties": {
+        "registrationDefinitionId": "[parameters('registrationDefinitionId')]"
+      }
+    }
+  ],
+  "outputs": {
+    "registrationAssignmentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedServices/registrationAssignments', parameters('registrationAssignmentName'))]"
+    }
+  }
+}
+```
+
+### 2.4 Create the Registration Assignment Parameters File
+
+Create a file named `lighthouse-parameters-assignment.json`:
+
+```json
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "registrationDefinitionId": {
+      "value": "/subscriptions/<ATEVET17-SUBSCRIPTION-ID>/providers/Microsoft.ManagedServices/registrationDefinitions/<DEFINITION-GUID>"
+    }
+  }
+}
+```
+
+**Replace the placeholders:**
+- `<ATEVET17-SUBSCRIPTION-ID>`: The subscription ID in Atevet17 where you deployed the definition
+- `<DEFINITION-GUID>`: The GUID from the output of the definition deployment (Step 2.5)
+
+### 2.5 Deploy the Registration Definition in Atevet17
+
+**Step A: Deploy the Definition**
+
+**Using Azure CLI:**
 
 ```bash
 # Login to Atevet17 tenant
@@ -584,15 +645,15 @@ az login --tenant "<Atevet17-Tenant-ID>"
 # Set the subscription you want to delegate
 az account set --subscription "<Atevet17-Subscription-ID>"
 
-# Deploy the template at subscription level
+# Deploy the registration definition
 az deployment sub create \
-    --name "LighthouseDeployment" \
+    --name "LighthouseDefinition" \
     --location "westus2" \
-    --template-file "lighthouse-delegation.json" \
-    --parameters "lighthouse-delegation.parameters.json"
+    --template-file "lighthouse-template-definition.json" \
+    --parameters "lighthouse-parameters-definition.json"
 ```
 
-**Option B: Using PowerShell**
+**Using PowerShell:**
 
 ```powershell
 # Login to Atevet17 tenant
@@ -601,28 +662,146 @@ Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
 # Set the subscription context
 Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
 
-# Deploy the template
-New-AzSubscriptionDeployment `
-    -Name "LighthouseDeployment" `
+# Deploy the registration definition
+$definitionDeployment = New-AzSubscriptionDeployment `
+    -Name "LighthouseDefinition" `
     -Location "westus2" `
-    -TemplateFile "lighthouse-delegation.json" `
-    -TemplateParameterFile "lighthouse-delegation.parameters.json"
+    -TemplateFile "lighthouse-template-definition.json" `
+    -TemplateParameterFile "lighthouse-parameters-definition.json"
+
+# Get the registration definition ID from the output
+$registrationDefinitionId = $definitionDeployment.Outputs.registrationDefinitionId.Value
+Write-Host "Registration Definition ID: $registrationDefinitionId"
 ```
 
-**Option C: Using Azure Portal**
+**Important:** Note the `registrationDefinitionId` from the deployment output. You will need this for the assignment step.
+
+### 2.6 Deploy the Registration Assignment in Atevet17
+
+**Step B: Deploy the Assignment**
+
+First, update the `lighthouse-parameters-assignment.json` file with the `registrationDefinitionId` from Step 2.5.
+
+**Using Azure CLI:**
+
+```bash
+# Deploy the registration assignment (same subscription context)
+az deployment sub create \
+    --name "LighthouseAssignment" \
+    --location "westus2" \
+    --template-file "lighthouse-template-assignment.json" \
+    --parameters "lighthouse-parameters-assignment.json"
+```
+
+**Using PowerShell:**
+
+```powershell
+# Deploy the registration assignment
+New-AzSubscriptionDeployment `
+    -Name "LighthouseAssignment" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-assignment.json" `
+    -TemplateParameterFile "lighthouse-parameters-assignment.json"
+```
+
+**Alternative: Deploy Assignment with Inline Parameter**
+
+If you want to deploy the assignment immediately after the definition without editing the parameters file:
+
+```powershell
+# Deploy assignment using the definition ID from the previous deployment
+New-AzSubscriptionDeployment `
+    -Name "LighthouseAssignment" `
+    -Location "westus2" `
+    -TemplateFile "lighthouse-template-assignment.json" `
+    -registrationDefinitionId $registrationDefinitionId
+```
+
+Or with Azure CLI:
+
+```bash
+# Get the definition ID from the previous deployment
+DEFINITION_ID=$(az deployment sub show \
+    --name "LighthouseDefinition" \
+    --query "properties.outputs.registrationDefinitionId.value" \
+    -o tsv)
+
+# Deploy the assignment with the definition ID
+az deployment sub create \
+    --name "LighthouseAssignment" \
+    --location "westus2" \
+    --template-file "lighthouse-template-assignment.json" \
+    --parameters registrationDefinitionId="$DEFINITION_ID"
+```
+
+### 2.7 Using Azure Portal
+
+**Option: Deploy via Azure Portal**
 
 1. In Atevet17 tenant, go to **Subscriptions** → Select the subscription
 2. Go to **Service providers** → **Service provider offers**
 3. Click **Add offer** → **Add via template**
-4. Upload the `lighthouse-delegation.json` template
-5. Fill in the parameters
-6. Click **Review + Create** → **Create**
+4. **First deployment (Definition):**
+   - Upload the `lighthouse-template-definition.json` template
+   - Fill in the parameters from `lighthouse-parameters-definition.json`
+   - Click **Review + Create** → **Create**
+   - Note the `registrationDefinitionId` from the deployment outputs
+5. **Second deployment (Assignment):**
+   - Click **Add offer** → **Add via template** again
+   - Upload the `lighthouse-template-assignment.json` template
+   - Enter the `registrationDefinitionId` from step 4
+   - Click **Review + Create** → **Create**
 
-### 2.4 Repeat for Each Subscription
+### 2.8 Repeat for Each Subscription
 
-If you have multiple subscriptions in Atevet17, repeat Step 2.3 for each subscription you want to delegate.
+If you have multiple subscriptions in Atevet17:
 
-### 2.5 Verify Delegation
+1. **Definition:** You only need to deploy the definition once per subscription (or you can reuse the same definition across subscriptions if they're in the same tenant)
+2. **Assignment:** Deploy the assignment to each subscription you want to delegate
+
+**Script to deploy to multiple subscriptions:**
+
+```powershell
+# Login to Atevet17 tenant
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# List of subscriptions to delegate
+$subscriptions = @(
+    "<Subscription-ID-1>",
+    "<Subscription-ID-2>",
+    "<Subscription-ID-3>"
+)
+
+foreach ($subId in $subscriptions) {
+    Write-Host "`nProcessing subscription: $subId" -ForegroundColor Cyan
+    
+    # Set context to this subscription
+    Set-AzContext -SubscriptionId $subId
+    
+    # Deploy the definition
+    $defDeployment = New-AzSubscriptionDeployment `
+        -Name "LighthouseDefinition" `
+        -Location "westus2" `
+        -TemplateFile "lighthouse-template-definition.json" `
+        -TemplateParameterFile "lighthouse-parameters-definition.json"
+    
+    $definitionId = $defDeployment.Outputs.registrationDefinitionId.Value
+    Write-Host "  Definition ID: $definitionId" -ForegroundColor Green
+    
+    # Deploy the assignment
+    New-AzSubscriptionDeployment `
+        -Name "LighthouseAssignment" `
+        -Location "westus2" `
+        -TemplateFile "lighthouse-template-assignment.json" `
+        -registrationDefinitionId $definitionId
+    
+    Write-Host "  ✓ Delegation complete for $subId" -ForegroundColor Green
+}
+
+Write-Host "`n=== All subscriptions processed ===" -ForegroundColor Cyan
+```
+
+### 2.9 Verify Delegation
 
 **In Atevet12 (Managing Tenant):**
 
@@ -632,11 +811,73 @@ Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
 
 # List all delegated subscriptions
 Get-AzManagedServicesAssignment | Format-Table
+
+# List registration definitions
+Get-AzManagedServicesDefinition | Format-Table
 ```
 
 **In Azure Portal (Atevet12):**
 1. Go to **My customers** (search in the portal)
 2. You should see Atevet17 subscriptions listed under **Customers**
+
+**In Atevet17 (Customer Tenant):**
+
+```powershell
+# Login to Atevet17
+Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+
+# View service provider offers
+Get-AzManagedServicesDefinition | Format-List
+
+# View assignments
+Get-AzManagedServicesAssignment | Format-List
+```
+
+### 2.10 File Summary
+
+Here's a summary of all the files you need to create:
+
+| File Name | Purpose | Deploy Order |
+|-----------|---------|--------------|
+| `lighthouse-template-definition.json` | ARM template for registration definition | 1st |
+| `lighthouse-parameters-definition.json` | Parameters for definition (tenant ID, roles) | 1st |
+| `lighthouse-template-assignment.json` | ARM template for registration assignment | 2nd |
+| `lighthouse-parameters-assignment.json` | Parameters for assignment (definition ID) | 2nd |
+
+**Deployment Flow:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DEPLOYMENT FLOW                                    │
+│                                                                             │
+│  Step 1: Deploy Definition                                                  │
+│  ┌─────────────────────────┐    ┌─────────────────────────┐                │
+│  │ lighthouse-template-    │ +  │ lighthouse-parameters-  │                │
+│  │ definition.json         │    │ definition.json         │                │
+│  └───────────┬─────────────┘    └───────────┬─────────────┘                │
+│              │                              │                               │
+│              └──────────────┬───────────────┘                               │
+│                             ▼                                               │
+│              ┌─────────────────────────────┐                                │
+│              │ Registration Definition     │                                │
+│              │ (Output: definitionId)      │                                │
+│              └──────────────┬──────────────┘                                │
+│                             │                                               │
+│  Step 2: Deploy Assignment  │                                               │
+│                             ▼                                               │
+│  ┌─────────────────────────┐    ┌─────────────────────────┐                │
+│  │ lighthouse-template-    │ +  │ lighthouse-parameters-  │                │
+│  │ assignment.json         │    │ assignment.json         │                │
+│  └───────────┬─────────────┘    └───────────┬─────────────┘                │
+│              │                              │                               │
+│              └──────────────┬───────────────┘                               │
+│                             ▼                                               │
+│              ┌─────────────────────────────┐                                │
+│              │ Registration Assignment     │                                │
+│              │ (Delegation Active!)        │                                │
+│              └─────────────────────────────┘                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
