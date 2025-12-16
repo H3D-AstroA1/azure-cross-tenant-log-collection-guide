@@ -1059,49 +1059,247 @@ Here's a summary of all the files you need to create:
 
 Activity Logs capture control plane operations (who did what, when, and on which resources).
 
-### 3.1 Create Diagnostic Setting for Activity Logs
+### 3.1 ARM Template for Activity Log Diagnostic Settings (Recommended)
 
-**For each delegated subscription in Atevet17:**
+Activity Log diagnostic settings are subscription-level resources, so you need to use a **subscription deployment**. This ARM template approach is recommended for:
+- ✅ Infrastructure as Code (version controlled, repeatable)
+- ✅ Idempotent deployments (safe to run multiple times)
+- ✅ Easy deployment to multiple subscriptions
+- ✅ Consistent with Azure Lighthouse cross-tenant management
+
+#### 3.1.1 ARM Template
+
+Create a file named `activity-log-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "SendActivityLogsToAtevet12",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace in Atevet12"
+            }
+        },
+        "enableAdministrative": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Administrative log category"
+            }
+        },
+        "enableSecurity": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Security log category"
+            }
+        },
+        "enableServiceHealth": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable ServiceHealth log category"
+            }
+        },
+        "enableAlert": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Alert log category"
+            }
+        },
+        "enableRecommendation": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Recommendation log category"
+            }
+        },
+        "enablePolicy": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Policy log category"
+            }
+        },
+        "enableAutoscale": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable Autoscale log category"
+            }
+        },
+        "enableResourceHealth": {
+            "type": "bool",
+            "defaultValue": true,
+            "metadata": {
+                "description": "Enable ResourceHealth log category"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[parameters('diagnosticSettingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    {
+                        "category": "Administrative",
+                        "enabled": "[parameters('enableAdministrative')]"
+                    },
+                    {
+                        "category": "Security",
+                        "enabled": "[parameters('enableSecurity')]"
+                    },
+                    {
+                        "category": "ServiceHealth",
+                        "enabled": "[parameters('enableServiceHealth')]"
+                    },
+                    {
+                        "category": "Alert",
+                        "enabled": "[parameters('enableAlert')]"
+                    },
+                    {
+                        "category": "Recommendation",
+                        "enabled": "[parameters('enableRecommendation')]"
+                    },
+                    {
+                        "category": "Policy",
+                        "enabled": "[parameters('enablePolicy')]"
+                    },
+                    {
+                        "category": "Autoscale",
+                        "enabled": "[parameters('enableAutoscale')]"
+                    },
+                    {
+                        "category": "ResourceHealth",
+                        "enabled": "[parameters('enableResourceHealth')]"
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+        "diagnosticSettingId": {
+            "type": "string",
+            "value": "[subscriptionResourceId('Microsoft.Insights/diagnosticSettings', parameters('diagnosticSettingName'))]"
+        }
+    }
+}
+```
+
+#### 3.1.2 Parameters File
+
+Create a file named `activity-log-diagnostic-settings.parameters.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "diagnosticSettingName": {
+            "value": "SendActivityLogsToAtevet12"
+        },
+        "workspaceResourceId": {
+            "value": "/subscriptions/<ATEVET12-SUBSCRIPTION-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+        }
+    }
+}
+```
+
+**Replace the placeholder:**
+- `<ATEVET12-SUBSCRIPTION-ID>`: Your Atevet12 subscription ID where the Log Analytics workspace is located
+
+#### 3.1.3 Deploy the ARM Template
+
+**Using PowerShell:**
 
 ```powershell
 # Login to Atevet12 (managing tenant)
 Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
 
-# Get the delegated subscription from Atevet17
-$subscriptionId = "<Atevet17-Subscription-ID>"
+# Set context to the delegated Atevet17 subscription
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
 
-# Set context to the delegated subscription
-Set-AzContext -SubscriptionId $subscriptionId
-
-# Get the Log Analytics Workspace in Atevet12
-$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-
-# Create diagnostic setting for Activity Log
-$params = @{
-    Name = "SendActivityLogsToAtevet12"
-    SubscriptionId = $subscriptionId
-    WorkspaceId = $workspaceResourceId
-    Category = @(
-        "Administrative",
-        "Security",
-        "ServiceHealth",
-        "Alert",
-        "Recommendation",
-        "Policy",
-        "Autoscale",
-        "ResourceHealth"
-    )
-}
-
-# Using Azure CLI (more reliable for cross-tenant)
-az monitor diagnostic-settings subscription create `
-    --name "SendActivityLogsToAtevet12" `
-    --subscription $subscriptionId `
-    --workspace $workspaceResourceId `
-    --logs '[{"category":"Administrative","enabled":true},{"category":"Security","enabled":true},{"category":"ServiceHealth","enabled":true},{"category":"Alert","enabled":true},{"category":"Recommendation","enabled":true},{"category":"Policy","enabled":true},{"category":"Autoscale","enabled":true},{"category":"ResourceHealth","enabled":true}]'
+# Deploy the diagnostic settings
+New-AzSubscriptionDeployment `
+    -Name "ActivityLogDiagnostics" `
+    -Location "westus2" `
+    -TemplateFile "activity-log-diagnostic-settings.json" `
+    -TemplateParameterFile "activity-log-diagnostic-settings.parameters.json"
 ```
 
-**Or via Azure Portal:**
+**Using Azure CLI:**
+
+```bash
+# Login to Atevet12 (managing tenant)
+az login --tenant "<Atevet12-Tenant-ID>"
+
+# Set the delegated Atevet17 subscription
+az account set --subscription "<Atevet17-Subscription-ID>"
+
+# Deploy the diagnostic settings
+az deployment sub create \
+    --name "ActivityLogDiagnostics" \
+    --location "westus2" \
+    --template-file "activity-log-diagnostic-settings.json" \
+    --parameters "activity-log-diagnostic-settings.parameters.json"
+```
+
+#### 3.1.4 Deploy to Multiple Subscriptions
+
+If you have multiple delegated subscriptions in Atevet17, use this script:
+
+**PowerShell Script:**
+
+```powershell
+# Login to Atevet12 (managing tenant)
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# List of delegated subscriptions in Atevet17
+$subscriptions = @(
+    "<Atevet17-Subscription-ID-1>",
+    "<Atevet17-Subscription-ID-2>",
+    "<Atevet17-Subscription-ID-3>"
+)
+
+foreach ($subId in $subscriptions) {
+    Write-Host "`nDeploying Activity Log diagnostics to subscription: $subId" -ForegroundColor Cyan
+    
+    # Set context to this subscription
+    Set-AzContext -SubscriptionId $subId
+    
+    # Deploy the diagnostic settings
+    $deployment = New-AzSubscriptionDeployment `
+        -Name "ActivityLogDiagnostics-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+        -Location "westus2" `
+        -TemplateFile "activity-log-diagnostic-settings.json" `
+        -TemplateParameterFile "activity-log-diagnostic-settings.parameters.json"
+    
+    if ($deployment.ProvisioningState -eq "Succeeded") {
+        Write-Host "  ✓ Successfully configured Activity Log diagnostics" -ForegroundColor Green
+    } else {
+        Write-Host "  ✗ Failed: $($deployment.ProvisioningState)" -ForegroundColor Red
+    }
+}
+
+Write-Host "`n=== All subscriptions processed ===" -ForegroundColor Cyan
+```
+
+### 3.2 Azure Portal Method (Alternative)
+
+If you prefer to configure via the Azure Portal:
 
 1. In Atevet12, go to **My customers** → Select the Atevet17 subscription
 2. Go to **Activity log** → **Diagnostic settings**
@@ -1121,15 +1319,319 @@ az monitor diagnostic-settings subscription create `
 8. Log Analytics workspace: `law-central-atevet12`
 9. Click **Save**
 
+### 3.3 Verify Activity Log Collection
+
+After deployment, verify that Activity Logs are being collected:
+
+**Using KQL Query:**
+
+```kusto
+AzureActivity
+| where TimeGenerated > ago(1h)
+| where SubscriptionId == "<Atevet17-Subscription-ID>"
+| summarize count() by CategoryValue
+| order by count_ desc
+```
+
+**Expected Categories:**
+- Administrative
+- Security
+- ServiceHealth
+- Alert
+- Recommendation
+- Policy
+- Autoscale
+- ResourceHealth
+
 ---
 
 ## Step 4: Configure Resource Diagnostic Logs
 
+Resource diagnostic logs capture data plane operations for Azure resources. This step covers configuring diagnostic settings using ARM templates (recommended) and PowerShell scripts.
+
 ### 4.1 Virtual Machines
 
-For VMs, you need to install the Azure Monitor Agent and configure Data Collection Rules.
+For VMs, you need to install the Azure Monitor Agent and configure Data Collection Rules (DCR).
 
-#### 4.1.1 Create a Data Collection Rule
+#### 4.1.1 ARM Template for Data Collection Rule (Recommended)
+
+Create a file named `data-collection-rule.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "dataCollectionRuleName": {
+            "type": "string",
+            "defaultValue": "dcr-vm-logs-atevet17",
+            "metadata": {
+                "description": "Name of the Data Collection Rule"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "westus2",
+            "metadata": {
+                "description": "Location for the Data Collection Rule"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "workspaceName": {
+            "type": "string",
+            "defaultValue": "law-central-atevet12",
+            "metadata": {
+                "description": "Name of the Log Analytics workspace (used as destination name)"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/dataCollectionRules",
+            "apiVersion": "2022-06-01",
+            "name": "[parameters('dataCollectionRuleName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "description": "Data Collection Rule for VM logs from Atevet17 to Atevet12",
+                "dataSources": {
+                    "performanceCounters": [
+                        {
+                            "name": "perfCounterDataSource",
+                            "streams": ["Microsoft-Perf"],
+                            "samplingFrequencyInSeconds": 60,
+                            "counterSpecifiers": [
+                                "\\Processor(_Total)\\% Processor Time",
+                                "\\Memory\\Available MBytes",
+                                "\\Memory\\% Committed Bytes In Use",
+                                "\\LogicalDisk(_Total)\\% Free Space",
+                                "\\LogicalDisk(_Total)\\Free Megabytes",
+                                "\\PhysicalDisk(_Total)\\Avg. Disk Queue Length",
+                                "\\Network Interface(*)\\Bytes Total/sec"
+                            ]
+                        }
+                    ],
+                    "windowsEventLogs": [
+                        {
+                            "name": "windowsEventLogs",
+                            "streams": ["Microsoft-Event"],
+                            "xPathQueries": [
+                                "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
+                                "Security!*[System[(band(Keywords,13510798882111488))]]",
+                                "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
+                            ]
+                        }
+                    ],
+                    "syslog": [
+                        {
+                            "name": "syslogDataSource",
+                            "streams": ["Microsoft-Syslog"],
+                            "facilityNames": [
+                                "auth",
+                                "authpriv",
+                                "cron",
+                                "daemon",
+                                "kern",
+                                "syslog",
+                                "user"
+                            ],
+                            "logLevels": [
+                                "Debug",
+                                "Info",
+                                "Notice",
+                                "Warning",
+                                "Error",
+                                "Critical",
+                                "Alert",
+                                "Emergency"
+                            ]
+                        }
+                    ]
+                },
+                "destinations": {
+                    "logAnalytics": [
+                        {
+                            "name": "[parameters('workspaceName')]",
+                            "workspaceResourceId": "[parameters('workspaceResourceId')]"
+                        }
+                    ]
+                },
+                "dataFlows": [
+                    {
+                        "streams": ["Microsoft-Perf"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    },
+                    {
+                        "streams": ["Microsoft-Event"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    },
+                    {
+                        "streams": ["Microsoft-Syslog"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+        "dataCollectionRuleId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dataCollectionRuleName'))]"
+        }
+    }
+}
+```
+
+Create a parameters file named `data-collection-rule.parameters.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "dataCollectionRuleName": {
+            "value": "dcr-vm-logs-atevet17"
+        },
+        "location": {
+            "value": "westus2"
+        },
+        "workspaceResourceId": {
+            "value": "/subscriptions/<ATEVET12-SUBSCRIPTION-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+        },
+        "workspaceName": {
+            "value": "law-central-atevet12"
+        }
+    }
+}
+```
+
+**Deploy the Data Collection Rule:**
+
+```powershell
+# Connect to Atevet12 (managing tenant)
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Deploy the Data Collection Rule to Atevet12
+New-AzResourceGroupDeployment `
+    -Name "DataCollectionRule" `
+    -ResourceGroupName "rg-central-logging" `
+    -TemplateFile "data-collection-rule.json" `
+    -TemplateParameterFile "data-collection-rule.parameters.json"
+```
+
+Or using Azure CLI:
+
+```bash
+az deployment group create \
+    --name "DataCollectionRule" \
+    --resource-group "rg-central-logging" \
+    --template-file "data-collection-rule.json" \
+    --parameters "data-collection-rule.parameters.json"
+```
+
+#### 4.1.2 ARM Template for Azure Monitor Agent Extension
+
+Create a file named `azure-monitor-agent.json` to deploy the Azure Monitor Agent to VMs:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the virtual machine"
+            }
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "Location of the virtual machine"
+            }
+        },
+        "osType": {
+            "type": "string",
+            "allowedValues": ["Windows", "Linux"],
+            "metadata": {
+                "description": "Operating system type of the VM"
+            }
+        }
+    },
+    "variables": {
+        "extensionName": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]",
+        "extensionPublisher": "Microsoft.Azure.Monitor",
+        "extensionType": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2023-03-01",
+            "name": "[concat(parameters('vmName'), '/', variables('extensionName'))]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "publisher": "[variables('extensionPublisher')]",
+                "type": "[variables('extensionType')]",
+                "typeHandlerVersion": "1.0",
+                "autoUpgradeMinorVersion": true,
+                "enableAutomaticUpgrade": true
+            }
+        }
+    ]
+}
+```
+
+#### 4.1.3 ARM Template for Data Collection Rule Association
+
+Create a file named `dcr-association.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the virtual machine"
+            }
+        },
+        "vmResourceGroup": {
+            "type": "string",
+            "metadata": {
+                "description": "Resource group of the virtual machine"
+            }
+        },
+        "dataCollectionRuleId": {
+            "type": "string",
+            "metadata": {
+                "description": "Resource ID of the Data Collection Rule"
+            }
+        }
+    },
+    "variables": {
+        "associationName": "[concat('dcr-association-', parameters('vmName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Compute/virtualMachines/providers/dataCollectionRuleAssociations",
+            "apiVersion": "2022-06-01",
+            "name": "[concat(parameters('vmName'), '/Microsoft.Insights/', variables('associationName'))]",
+            "properties": {
+                "dataCollectionRuleId": "[parameters('dataCollectionRuleId')]"
+            }
+        }
+    ]
+}
+```
+
+#### 4.1.4 PowerShell Alternative for Data Collection Rule
+
+If you prefer PowerShell:
 
 ```powershell
 # In Atevet12 tenant
@@ -1240,11 +1742,261 @@ foreach ($vm in $vms) {
 }
 ```
 
-### 4.2 Enable Diagnostic Logging for All Resource Types
+### 4.2 ARM Templates for Resource Diagnostic Settings (Recommended)
 
-Azure supports diagnostic logging for many resource types. This section provides a generic approach to enable diagnostic settings for **all supported resources** in your subscription, plus specific examples for common resource types.
+ARM templates provide a declarative, repeatable way to configure diagnostic settings for Azure resources. This section provides templates for common resource types.
 
-#### 4.2.1 Generic Script for All Resources
+#### 4.2.1 Generic ARM Template for Any Resource Type
+
+This template can be used to configure diagnostic settings for any Azure resource that supports diagnostics:
+
+Create a file named `resource-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the resource to configure diagnostics for"
+            }
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "SendToAtevet12",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "logs": {
+            "type": "array",
+            "defaultValue": [],
+            "metadata": {
+                "description": "Array of log categories to enable"
+            }
+        },
+        "metrics": {
+            "type": "array",
+            "defaultValue": [
+                {
+                    "category": "AllMetrics",
+                    "enabled": true
+                }
+            ],
+            "metadata": {
+                "description": "Array of metric categories to enable"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "scope": "[parameters('resourceId')]",
+            "name": "[parameters('diagnosticSettingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": "[parameters('logs')]",
+                "metrics": "[parameters('metrics')]"
+            }
+        }
+    ]
+}
+```
+
+#### 4.2.2 ARM Template for Key Vault Diagnostic Settings
+
+Create a file named `keyvault-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "keyVaultName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Key Vault"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('keyVaultName'), '/Microsoft.Insights/SendToAtevet12')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    {
+                        "category": "AuditEvent",
+                        "enabled": true
+                    },
+                    {
+                        "category": "AzurePolicyEvaluationDetails",
+                        "enabled": true
+                    }
+                ],
+                "metrics": [
+                    {
+                        "category": "AllMetrics",
+                        "enabled": true
+                    }
+                ]
+            }
+        }
+    ]
+}
+```
+
+#### 4.2.3 ARM Template for Storage Account Diagnostic Settings
+
+Create a file named `storage-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Storage Account"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/SendToAtevet12')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/queueServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/SendToAtevet12')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/SendToAtevet12')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/fileServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/SendToAtevet12')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        }
+    ]
+}
+```
+
+#### 4.2.4 Deploy Diagnostic Settings ARM Templates
+
+**Deploy for a specific Key Vault:**
+
+```powershell
+# Connect to Atevet12 (managing tenant)
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Set context to delegated Atevet17 subscription
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# Deploy Key Vault diagnostic settings
+New-AzResourceGroupDeployment `
+    -Name "KeyVaultDiagnostics" `
+    -ResourceGroupName "<Resource-Group-Name>" `
+    -TemplateFile "keyvault-diagnostic-settings.json" `
+    -keyVaultName "<Key-Vault-Name>" `
+    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+**Deploy for all Key Vaults in a subscription:**
+
+```powershell
+# Get all Key Vaults
+$keyVaults = Get-AzKeyVault
+
+foreach ($kv in $keyVaults) {
+    Write-Host "Configuring diagnostics for Key Vault: $($kv.VaultName)" -ForegroundColor Cyan
+    
+    New-AzResourceGroupDeployment `
+        -Name "KeyVaultDiagnostics-$($kv.VaultName)" `
+        -ResourceGroupName $kv.ResourceGroupName `
+        -TemplateFile "keyvault-diagnostic-settings.json" `
+        -keyVaultName $kv.VaultName `
+        -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+}
+```
+
+### 4.3 PowerShell Scripts for Resource Diagnostic Settings
+
+For scenarios where ARM templates are not practical (e.g., dynamic resource discovery), use PowerShell scripts.
+
+#### 4.3.1 Generic Script for All Resources
 
 The following PowerShell script discovers all resources that support diagnostic settings and enables logging for them:
 
