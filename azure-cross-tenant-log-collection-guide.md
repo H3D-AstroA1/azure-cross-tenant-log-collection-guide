@@ -385,7 +385,9 @@ Write-Host "Security Group Object ID: $($group.ObjectId)"
 5. Click **Create**
 6. Note the **Object ID** of the created group
 
-### 1.2 Create a Log Analytics Workspace
+### 1.2 Create a Log Analytics Workspace and Enable Microsoft Sentinel
+
+#### 1.2.1 Create the Log Analytics Workspace
 
 ```powershell
 # Connect to Azure
@@ -418,6 +420,160 @@ Write-Host "Workspace Resource ID: $($workspace.ResourceId)"
 4. Name: `law-central-atevet12`
 5. Region: Choose your preferred region
 6. Click **Review + Create** → **Create**
+
+#### 1.2.2 Enable Microsoft Sentinel on the Workspace
+
+Microsoft Sentinel is a cloud-native SIEM (Security Information and Event Management) and SOAR (Security Orchestration, Automation, and Response) solution built on top of Log Analytics. Enabling Sentinel provides:
+
+- ✅ Advanced threat detection with built-in analytics rules
+- ✅ Automated incident response with playbooks
+- ✅ Cross-tenant visibility through Azure Lighthouse
+- ✅ Built-in data connectors for Azure and Microsoft 365 services
+- ✅ Threat intelligence integration
+- ✅ Investigation and hunting capabilities
+
+**Using PowerShell:**
+
+```powershell
+# Ensure you're connected to Atevet12
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Install the Az.SecurityInsights module if not already installed
+Install-Module -Name Az.SecurityInsights -Scope CurrentUser -Force
+
+# Enable Microsoft Sentinel on the Log Analytics workspace
+$workspace = Get-AzOperationalInsightsWorkspace `
+    -ResourceGroupName "rg-central-logging" `
+    -Name "law-central-atevet12"
+
+# Create the Sentinel workspace (onboard Sentinel)
+New-AzSentinelOnboardingState `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -Name "default"
+
+Write-Host "✓ Microsoft Sentinel enabled on workspace: law-central-atevet12" -ForegroundColor Green
+```
+
+**Using Azure CLI:**
+
+```bash
+# Login to Atevet12 tenant
+az login --tenant "<Atevet12-Tenant-ID>"
+
+# Install the Sentinel extension if not already installed
+az extension add --name sentinel
+
+# Enable Microsoft Sentinel on the workspace
+az sentinel onboarding-state create \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --name "default"
+
+echo "✓ Microsoft Sentinel enabled on workspace: law-central-atevet12"
+```
+
+**Or via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** in the Azure Portal (search for "Sentinel")
+2. Click **+ Create** or **Add Microsoft Sentinel to a workspace**
+3. Select the workspace `law-central-atevet12` from the list
+4. Click **Add**
+5. Wait for the deployment to complete (usually 1-2 minutes)
+
+#### 1.2.3 Configure Sentinel Data Connectors (Optional but Recommended)
+
+After enabling Sentinel, configure data connectors to automatically ingest logs from various sources:
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
+2. Navigate to **Configuration** → **Data connectors**
+3. Enable the following recommended connectors:
+   - **Azure Activity** - For subscription activity logs
+   - **Microsoft Entra ID** - For sign-in and audit logs
+   - **Microsoft Defender for Cloud** - For security alerts
+   - **Office 365** - For Microsoft 365 audit logs (requires configuration in source tenant)
+
+**Using PowerShell to enable Azure Activity connector:**
+
+```powershell
+# Enable Azure Activity data connector
+$connectorId = "AzureActivity"
+
+# Get the workspace
+$workspace = Get-AzOperationalInsightsWorkspace `
+    -ResourceGroupName "rg-central-logging" `
+    -Name "law-central-atevet12"
+
+# Note: Data connectors are typically enabled via the portal or ARM templates
+# The Azure Activity connector requires a diagnostic setting on the subscription
+# which is covered in Step 3 of this guide
+```
+
+#### 1.2.4 Verify Sentinel Deployment
+
+**Using PowerShell:**
+
+```powershell
+# Check Sentinel onboarding status
+$sentinelStatus = Get-AzSentinelOnboardingState `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12"
+
+if ($sentinelStatus) {
+    Write-Host "✓ Microsoft Sentinel is enabled" -ForegroundColor Green
+    Write-Host "  Workspace: law-central-atevet12"
+    Write-Host "  Resource Group: rg-central-logging"
+} else {
+    Write-Host "✗ Microsoft Sentinel is not enabled" -ForegroundColor Red
+}
+```
+
+**Using Azure CLI:**
+
+```bash
+# Check Sentinel status
+az sentinel onboarding-state show \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --name "default"
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel**
+2. Verify `law-central-atevet12` appears in the list of Sentinel workspaces
+3. Click on the workspace to access the Sentinel dashboard
+
+#### 1.2.5 Sentinel Cost Considerations
+
+Microsoft Sentinel has additional costs beyond Log Analytics:
+
+| Component | Pricing Model |
+|-----------|---------------|
+| **Sentinel Ingestion** | ~$2.46 per GB (on top of Log Analytics) |
+| **Commitment Tiers** | Discounts available at 100GB/day and above |
+| **Free Data Sources** | Azure Activity, Office 365 audit logs (connector only) |
+| **Automation** | Logic Apps consumption pricing for playbooks |
+
+**Cost Optimization Tips:**
+
+1. Use **Commitment Tiers** if ingesting >100GB/day for significant discounts
+2. Enable **Basic Logs** for high-volume, low-query tables
+3. Use **Data Collection Rules** to filter unnecessary data before ingestion
+4. Review **Free Data Sources** - some connectors don't incur Sentinel charges
+5. Set up **Cost Alerts** in Azure Cost Management
+
+**Estimated Additional Monthly Costs for Sentinel:**
+
+| Log Volume | Log Analytics Cost | Sentinel Cost | Total |
+|------------|-------------------|---------------|-------|
+| 10 GB/month | ~$28 | ~$25 | ~$53 |
+| 50 GB/month | ~$138 | ~$123 | ~$261 |
+| 100 GB/month | ~$276 | ~$246 | ~$522 |
+
+> **Note:** Prices are approximate and vary by region. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for accurate estimates.
 
 ### 1.3 Get Required IDs
 
