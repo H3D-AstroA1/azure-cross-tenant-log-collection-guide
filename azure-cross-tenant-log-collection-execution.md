@@ -6,10 +6,93 @@ This document contains Python scripts for automating the Azure cross-tenant log 
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
-3. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
-4. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
+1. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
+2. [Prerequisites](#prerequisites)
+3. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
+4. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
+5. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
+
+---
+
+## Important: Where to Run These Scripts
+
+> ⚠️ **CRITICAL**: These scripts must be run from the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
+
+### Cross-Tenant Architecture Overview
+
+In a cross-tenant log collection scenario, there are two tenants:
+
+| Tenant | Role | Example | What Runs Here |
+|--------|------|---------|----------------|
+| **Source Tenant** | Customer/Resource Owner | Atevet17 | ✅ **Run these scripts here** |
+| **Managing Tenant** | MSP/Security Team | Atevet12 | Log Analytics Workspace, Sentinel |
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SOURCE TENANT (Atevet17)                         │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  📜 Run these scripts here:                                      │   │
+│  │     • register_managed_services.py                               │   │
+│  │     • Azure Lighthouse ARM template deployment                   │   │
+│  │     • Diagnostic settings configuration                          │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
+│  │ Subscription │  │ Subscription │  │ Subscription │                  │
+│  │      A       │  │      B       │  │      C       │                  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                  │
+│         │                 │                 │                           │
+│         └─────────────────┼─────────────────┘                           │
+│                           │                                             │
+│                           │ Logs flow via                               │
+│                           │ Azure Lighthouse                            │
+│                           ▼                                             │
+└─────────────────────────────────────────────────────────────────────────┘
+                            │
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      MANAGING TENANT (Atevet12)                         │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
+│  │  (Receives logs)                   (Security monitoring)         │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Run from the Source Tenant?
+
+The `register_managed_services.py` script registers the `Microsoft.ManagedServices` resource provider on subscriptions. This is a **prerequisite for Azure Lighthouse** and must be done on the **source tenant's subscriptions** (where the resources exist).
+
+### Authentication Requirements
+
+When running from the source tenant, you need:
+
+| Requirement | Details |
+|-------------|---------|
+| **Role** | Owner or Contributor on the source subscriptions |
+| **Permission** | `Microsoft.ManagedServices/register/action` |
+| **Authentication** | Azure CLI, Service Principal, or Managed Identity |
+
+### Step-by-Step Execution
+
+1. **Authenticate to the SOURCE tenant** (e.g., Atevet17):
+   ```bash
+   az login --tenant <SOURCE-TENANT-ID>
+   ```
+
+2. **Verify you're in the correct tenant**:
+   ```bash
+   az account show --query tenantId -o tsv
+   ```
+
+3. **Run the script**:
+   ```bash
+   python register_managed_services.py --tenant-id <SOURCE-TENANT-ID>
+   ```
 
 ---
 
