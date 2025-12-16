@@ -555,27 +555,47 @@ az sentinel data-connector show \
 
 Many data connectors are now delivered through Content Hub solutions. Check which solutions are installed:
 
-**Using PowerShell:**
+> **Note:** Content Hub management is best done through the Azure Portal or REST API. The Az.SecurityInsights PowerShell module does not include cmdlets for Content Hub package management.
+
+**Using REST API (PowerShell):**
 
 ```powershell
-# List installed Content Hub solutions
-$solutions = Get-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12"
+# Connect to Azure
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
 
-$solutions | Format-Table DisplayName, Version, @{
-    Label = "Status"
-    Expression = { $_.InstalledVersion -ne $null ? "Installed" : "Available" }
+# Get access token
+$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
 }
 
-# Check for available solutions that include data connectors
-Get-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentProductFilter "Data connector"
+# Variables
+$subscriptionId = "<Atevet12-Subscription-ID>"
+$resourceGroup = "rg-central-logging"
+$workspaceName = "law-central-atevet12"
+
+# List installed Content Hub solutions
+$uri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.OperationalInsights/workspaces/$workspaceName/providers/Microsoft.SecurityInsights/contentPackages?api-version=2023-11-01"
+
+$response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
+$response.value | Format-Table @{L='Name';E={$_.name}}, @{L='ContentId';E={$_.properties.contentId}}, @{L='Version';E={$_.properties.version}}
 ```
 
-**Via Azure Portal:**
+**Using Azure CLI:**
+
+```bash
+# Login to Azure
+az login --tenant "<Atevet12-Tenant-ID>"
+
+# List installed content packages
+az rest --method GET \
+    --uri "https://management.azure.com/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12/providers/Microsoft.SecurityInsights/contentPackages?api-version=2023-11-01" \
+    --query "value[].{Name:name, ContentId:properties.contentId, Version:properties.version}" \
+    --output table
+```
+
+**Via Azure Portal (Recommended):**
 
 1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
 2. Navigate to **Content management** → **Content hub**
@@ -584,63 +604,9 @@ Get-AzSentinelContentPackage `
 
 ##### 1.2.3.3 Install Data Connectors from Content Hub
 
-**Using PowerShell:**
+> **Important:** Content Hub solutions should be installed via the Azure Portal for the best experience. The PowerShell cmdlets `Get-AzSentinelContentPackage` and `Install-AzSentinelContentPackage` do not exist in the Az.SecurityInsights module.
 
-```powershell
-# Install a Content Hub solution (e.g., Azure Activity)
-$solution = Get-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentId "azuresentinel.azure-sentinel-solution-azureactivity"
-
-# Install the solution
-Install-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentId $solution.ContentId `
-    -Version $solution.Version
-
-# Install Microsoft Entra ID solution
-Install-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentId "azuresentinel.azure-sentinel-solution-azureactivedirectory" `
-    -Version "latest"
-
-# Install Microsoft 365 solution
-Install-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentId "azuresentinel.azure-sentinel-solution-office365" `
-    -Version "latest"
-
-# Install Microsoft Defender for Cloud solution
-Install-AzSentinelContentPackage `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
-    -ContentId "azuresentinel.azure-sentinel-solution-azuresecuritycenter" `
-    -Version "latest"
-```
-
-**Using Azure CLI:**
-
-```bash
-# Install Azure Activity solution
-az sentinel content-package install \
-    --resource-group "rg-central-logging" \
-    --workspace-name "law-central-atevet12" \
-    --content-id "azuresentinel.azure-sentinel-solution-azureactivity" \
-    --version "latest"
-
-# Install Microsoft Entra ID solution
-az sentinel content-package install \
-    --resource-group "rg-central-logging" \
-    --workspace-name "law-central-atevet12" \
-    --content-id "azuresentinel.azure-sentinel-solution-azureactivedirectory" \
-    --version "latest"
-```
-
-**Via Azure Portal:**
+**Via Azure Portal (Recommended):**
 
 1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
 2. Navigate to **Content management** → **Content hub**
@@ -648,6 +614,98 @@ az sentinel content-package install \
 4. Click on the solution card
 5. Click **Install** or **Update** if already installed
 6. Wait for installation to complete
+
+**Common Solutions to Install:**
+- **Azure Activity** - For Azure subscription activity logs
+- **Microsoft Entra ID** (formerly Azure AD) - For sign-in and audit logs
+- **Microsoft 365** - For Office 365 audit logs
+- **Microsoft Defender for Cloud** - For security alerts
+
+**Using REST API (PowerShell):**
+
+```powershell
+# Connect to Azure
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Get access token
+$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
+}
+
+# Variables
+$subscriptionId = "<Atevet12-Subscription-ID>"
+$resourceGroup = "rg-central-logging"
+$workspaceName = "law-central-atevet12"
+
+# Install a Content Hub solution (e.g., Azure Activity)
+$solutionId = "azuresentinel.azure-sentinel-solution-azureactivity"
+$uri = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$resourceGroup/providers/Microsoft.OperationalInsights/workspaces/$workspaceName/providers/Microsoft.SecurityInsights/contentPackages/$solutionId`?api-version=2023-11-01"
+
+$body = @{
+    properties = @{
+        contentId = $solutionId
+        contentKind = "Solution"
+        contentProductId = $solutionId
+        displayName = "Azure Activity"
+        version = "2.0.6"  # Check Content Hub for latest version
+    }
+} | ConvertTo-Json -Depth 10
+
+try {
+    Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body
+    Write-Host "✓ Solution installed successfully" -ForegroundColor Green
+} catch {
+    Write-Warning "Failed to install solution: $_"
+}
+```
+
+**Using Azure CLI:**
+
+```bash
+# Install Azure Activity solution via REST API
+az rest --method PUT \
+    --uri "https://management.azure.com/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12/providers/Microsoft.SecurityInsights/contentPackages/azuresentinel.azure-sentinel-solution-azureactivity?api-version=2023-11-01" \
+    --body '{
+        "properties": {
+            "contentId": "azuresentinel.azure-sentinel-solution-azureactivity",
+            "contentKind": "Solution",
+            "displayName": "Azure Activity",
+            "version": "2.0.6"
+        }
+    }'
+```
+
+**Using ARM Template:**
+
+For repeatable deployments, use an ARM template:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspaceName": {
+            "type": "string",
+            "defaultValue": "law-central-atevet12"
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/providers/contentPackages",
+            "apiVersion": "2023-11-01",
+            "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/azuresentinel.azure-sentinel-solution-azureactivity')]",
+            "properties": {
+                "contentId": "azuresentinel.azure-sentinel-solution-azureactivity",
+                "contentKind": "Solution",
+                "displayName": "Azure Activity",
+                "version": "2.0.6"
+            }
+        }
+    ]
+}
+```
 
 ##### 1.2.3.4 Configure Individual Data Connectors
 
