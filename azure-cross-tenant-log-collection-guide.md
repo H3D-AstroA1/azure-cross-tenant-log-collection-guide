@@ -481,34 +481,481 @@ echo "✓ Microsoft Sentinel enabled on workspace: law-central-atevet12"
 4. Click **Add**
 5. Wait for the deployment to complete (usually 1-2 minutes)
 
-#### 1.2.3 Configure Sentinel Data Connectors (Optional but Recommended)
+#### 1.2.3 Check, Install, and Configure Sentinel Data Connectors
 
-After enabling Sentinel, configure data connectors to automatically ingest logs from various sources:
+Data connectors are essential for ingesting logs into Microsoft Sentinel. This section provides comprehensive guidance on checking which connectors are installed, installing new connectors, and configuring them.
+
+##### 1.2.3.1 Check Installed Data Connectors
+
+**Using PowerShell:**
+
+```powershell
+# Connect to Azure
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Install the Az.SecurityInsights module if not already installed
+Install-Module -Name Az.SecurityInsights -Scope CurrentUser -Force
+
+# List all available data connectors and their status
+$connectors = Get-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12"
+
+# Display connector status
+$connectors | Format-Table Name, Kind, @{
+    Label = "Connected"
+    Expression = {
+        if ($_.Kind -eq "AzureActiveDirectory") { $_.TenantId -ne $null }
+        elseif ($_.Kind -eq "AzureSecurityCenter") { $_.SubscriptionId -ne $null }
+        elseif ($_.Kind -eq "Office365") { $_.TenantId -ne $null }
+        else { "Check manually" }
+    }
+}
+
+# Get detailed information about a specific connector
+Get-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -DataConnectorId "<connector-id>"
+```
+
+**Using Azure CLI:**
+
+```bash
+# Login to Azure
+az login --tenant "<Atevet12-Tenant-ID>"
+
+# Install the sentinel extension if not already installed
+az extension add --name sentinel
+
+# List all data connectors
+az sentinel data-connector list \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --output table
+
+# Get details of a specific connector
+az sentinel data-connector show \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --data-connector-id "<connector-id>"
+```
 
 **Via Azure Portal:**
 
 1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
 2. Navigate to **Configuration** → **Data connectors**
-3. Enable the following recommended connectors:
-   - **Azure Activity** - For subscription activity logs
-   - **Microsoft Entra ID** - For sign-in and audit logs
-   - **Microsoft Defender for Cloud** - For security alerts
-   - **Office 365** - For Microsoft 365 audit logs (requires configuration in source tenant)
+3. View the list of connectors with their status:
+   - **Connected** (green checkmark) - Connector is active and receiving data
+   - **Not connected** - Connector is available but not configured
+   - **Prerequisites not met** - Additional configuration required
+4. Click on any connector to see detailed status and configuration
 
-**Using PowerShell to enable Azure Activity connector:**
+##### 1.2.3.2 Check Content Hub Solutions (Connector Packages)
+
+Many data connectors are now delivered through Content Hub solutions. Check which solutions are installed:
+
+**Using PowerShell:**
 
 ```powershell
-# Enable Azure Activity data connector
-$connectorId = "AzureActivity"
+# List installed Content Hub solutions
+$solutions = Get-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12"
 
-# Get the workspace
+$solutions | Format-Table DisplayName, Version, @{
+    Label = "Status"
+    Expression = { $_.InstalledVersion -ne $null ? "Installed" : "Available" }
+}
+
+# Check for available solutions that include data connectors
+Get-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentProductFilter "Data connector"
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
+2. Navigate to **Content management** → **Content hub**
+3. Filter by **Content type: Data connector**
+4. View installed solutions (marked with checkmark) and available solutions
+
+##### 1.2.3.3 Install Data Connectors from Content Hub
+
+**Using PowerShell:**
+
+```powershell
+# Install a Content Hub solution (e.g., Azure Activity)
+$solution = Get-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentId "azuresentinel.azure-sentinel-solution-azureactivity"
+
+# Install the solution
+Install-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentId $solution.ContentId `
+    -Version $solution.Version
+
+# Install Microsoft Entra ID solution
+Install-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentId "azuresentinel.azure-sentinel-solution-azureactivedirectory" `
+    -Version "latest"
+
+# Install Microsoft 365 solution
+Install-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentId "azuresentinel.azure-sentinel-solution-office365" `
+    -Version "latest"
+
+# Install Microsoft Defender for Cloud solution
+Install-AzSentinelContentPackage `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -ContentId "azuresentinel.azure-sentinel-solution-azuresecuritycenter" `
+    -Version "latest"
+```
+
+**Using Azure CLI:**
+
+```bash
+# Install Azure Activity solution
+az sentinel content-package install \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --content-id "azuresentinel.azure-sentinel-solution-azureactivity" \
+    --version "latest"
+
+# Install Microsoft Entra ID solution
+az sentinel content-package install \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --content-id "azuresentinel.azure-sentinel-solution-azureactivedirectory" \
+    --version "latest"
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → Select `law-central-atevet12`
+2. Navigate to **Content management** → **Content hub**
+3. Search for the desired solution (e.g., "Azure Activity")
+4. Click on the solution card
+5. Click **Install** or **Update** if already installed
+6. Wait for installation to complete
+
+##### 1.2.3.4 Configure Individual Data Connectors
+
+After installing solutions, you need to configure each data connector:
+
+###### Azure Activity Connector
+
+**Using PowerShell:**
+
+```powershell
+# Create Azure Activity data connector
+$connectorParams = @{
+    ResourceGroupName = "rg-central-logging"
+    WorkspaceName = "law-central-atevet12"
+    Kind = "AzureActivity"
+}
+
+# Note: Azure Activity connector requires diagnostic settings on subscriptions
+# The connector itself is enabled automatically when you configure diagnostic settings
+# See Step 3 of this guide for configuring Activity Log diagnostic settings
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Search for **Azure Activity**
+3. Click **Open connector page**
+4. Click **Launch Azure Policy Assignment wizard**
+5. Select the subscriptions to monitor
+6. Configure the diagnostic settings to send to your workspace
+7. Click **Create**
+
+###### Microsoft Entra ID Connector
+
+**Using PowerShell:**
+
+```powershell
+# Create Microsoft Entra ID data connector
+New-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -Kind "AzureActiveDirectory" `
+    -TenantId "<Atevet12-Tenant-ID>" `
+    -Alerts "Enabled"
+
+# Enable specific log types
+$aadConnector = @{
+    ResourceGroupName = "rg-central-logging"
+    WorkspaceName = "law-central-atevet12"
+    Kind = "AzureActiveDirectory"
+    TenantId = "<Atevet12-Tenant-ID>"
+    SignIns = "Enabled"
+    AuditLogs = "Enabled"
+    NonInteractiveUserSignInLogs = "Enabled"
+    ServicePrincipalSignInLogs = "Enabled"
+    ManagedIdentitySignInLogs = "Enabled"
+    ProvisioningLogs = "Enabled"
+    RiskyUsers = "Enabled"
+    UserRiskEvents = "Enabled"
+    RiskyServicePrincipals = "Enabled"
+    ServicePrincipalRiskEvents = "Enabled"
+}
+
+New-AzSentinelDataConnector @aadConnector
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Search for **Microsoft Entra ID** (formerly Azure Active Directory)
+3. Click **Open connector page**
+4. Under **Configuration**, select the log types to enable:
+   - ☑️ Sign-in logs
+   - ☑️ Audit logs
+   - ☑️ Non-interactive user sign-in logs
+   - ☑️ Service principal sign-in logs
+   - ☑️ Managed Identity sign-in logs
+   - ☑️ Provisioning logs
+   - ☑️ Risky users (requires P2)
+   - ☑️ User risk events (requires P2)
+5. Click **Apply Changes**
+
+###### Microsoft Defender for Cloud Connector
+
+**Using PowerShell:**
+
+```powershell
+# Create Microsoft Defender for Cloud data connector
+New-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -Kind "AzureSecurityCenter" `
+    -SubscriptionId "<Subscription-ID>" `
+    -Alerts "Enabled"
+
+# Enable for multiple subscriptions
+$subscriptions = @(
+    "<Subscription-ID-1>",
+    "<Subscription-ID-2>",
+    "<Subscription-ID-3>"
+)
+
+foreach ($subId in $subscriptions) {
+    New-AzSentinelDataConnector `
+        -ResourceGroupName "rg-central-logging" `
+        -WorkspaceName "law-central-atevet12" `
+        -Kind "AzureSecurityCenter" `
+        -SubscriptionId $subId `
+        -Alerts "Enabled"
+    
+    Write-Host "✓ Enabled Defender for Cloud connector for subscription: $subId" -ForegroundColor Green
+}
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Search for **Microsoft Defender for Cloud**
+3. Click **Open connector page**
+4. Under **Configuration**, select the subscriptions to connect
+5. Toggle **Status** to **Connected** for each subscription
+6. Optionally enable **Bi-directional sync** for incident synchronization
+
+###### Office 365 Connector
+
+**Using PowerShell:**
+
+```powershell
+# Create Office 365 data connector
+New-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -Kind "Office365" `
+    -TenantId "<Tenant-ID>" `
+    -Exchange "Enabled" `
+    -SharePoint "Enabled" `
+    -Teams "Enabled"
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Search for **Office 365**
+3. Click **Open connector page**
+4. Under **Configuration**, select the log types:
+   - ☑️ Exchange
+   - ☑️ SharePoint
+   - ☑️ Teams
+5. Click **Apply Changes**
+
+> **Note:** For cross-tenant scenarios, the Office 365 connector must be configured in the source tenant (Atevet17) with data export to the destination workspace.
+
+###### Microsoft 365 Defender Connector
+
+**Using PowerShell:**
+
+```powershell
+# Create Microsoft 365 Defender data connector
+New-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12" `
+    -Kind "MicrosoftThreatProtection" `
+    -TenantId "<Tenant-ID>" `
+    -Incidents "Enabled"
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Search for **Microsoft 365 Defender**
+3. Click **Open connector page**
+4. Click **Connect incidents & alerts**
+5. Select the products to connect:
+   - ☑️ Microsoft Defender for Endpoint
+   - ☑️ Microsoft Defender for Identity
+   - ☑️ Microsoft Defender for Office 365
+   - ☑️ Microsoft Defender for Cloud Apps
+6. Click **Apply Changes**
+
+##### 1.2.3.5 Verify Data Connector Status
+
+**Using PowerShell:**
+
+```powershell
+# Check all connector statuses
+$connectors = Get-AzSentinelDataConnector `
+    -ResourceGroupName "rg-central-logging" `
+    -WorkspaceName "law-central-atevet12"
+
+Write-Host "`n=== Data Connector Status ===" -ForegroundColor Cyan
+
+foreach ($connector in $connectors) {
+    $status = switch ($connector.Kind) {
+        "AzureActiveDirectory" {
+            if ($connector.TenantId) { "✓ Connected" } else { "✗ Not Connected" }
+        }
+        "AzureSecurityCenter" {
+            if ($connector.SubscriptionId) { "✓ Connected" } else { "✗ Not Connected" }
+        }
+        "Office365" {
+            if ($connector.TenantId) { "✓ Connected" } else { "✗ Not Connected" }
+        }
+        "AzureActivity" {
+            "Check diagnostic settings"
+        }
+        default { "Check manually" }
+    }
+    
+    $color = if ($status -like "*Connected*") { "Green" } else { "Yellow" }
+    Write-Host "$($connector.Kind): $status" -ForegroundColor $color
+}
+```
+
+**Using KQL to verify data ingestion:**
+
+```kusto
+// Check if data is being ingested from each connector
+union withsource=TableName *
+| where TimeGenerated > ago(24h)
+| summarize Count = count(), LastRecord = max(TimeGenerated) by TableName
+| where TableName in (
+    "AzureActivity",
+    "SigninLogs",
+    "AuditLogs",
+    "AADNonInteractiveUserSignInLogs",
+    "AADServicePrincipalSignInLogs",
+    "SecurityAlert",
+    "OfficeActivity"
+)
+| order by TableName asc
+```
+
+**Via Azure Portal:**
+
+1. Go to **Microsoft Sentinel** → **Data connectors**
+2. Check the **Status** column for each connector:
+   - **Connected** with green indicator = Active and receiving data
+   - **Not connected** = Needs configuration
+3. Click on a connector and check **Last log received** timestamp
+
+##### 1.2.3.6 Common Data Connectors Reference
+
+| Connector | Content Hub Solution | Kind | Required Permissions |
+|-----------|---------------------|------|---------------------|
+| **Azure Activity** | Azure Activity | AzureActivity | Monitoring Reader on subscriptions |
+| **Microsoft Entra ID** | Microsoft Entra ID | AzureActiveDirectory | Global Admin or Security Admin |
+| **Microsoft Defender for Cloud** | Microsoft Defender for Cloud | AzureSecurityCenter | Security Reader on subscriptions |
+| **Office 365** | Microsoft 365 | Office365 | Global Admin |
+| **Microsoft 365 Defender** | Microsoft 365 Defender | MicrosoftThreatProtection | Security Admin |
+| **Azure Key Vault** | Azure Key Vault | (via diagnostic settings) | Key Vault Reader |
+| **Azure Firewall** | Azure Firewall | (via diagnostic settings) | Network Contributor |
+| **Windows Security Events** | Windows Security Events | SecurityEvents | VM Contributor |
+| **Syslog** | Syslog | Syslog | VM Contributor |
+| **CEF** | Common Event Format | CommonSecurityLog | Depends on source |
+| **Threat Intelligence** | Threat Intelligence | ThreatIntelligence | Security Admin |
+
+##### 1.2.3.7 Troubleshooting Data Connectors
+
+**Issue: Connector shows "Connected" but no data**
+
+```powershell
+# Check if data is being ingested
+$query = @"
+union withsource=TableName *
+| where TimeGenerated > ago(1h)
+| summarize count() by TableName
+| order by count_ desc
+"@
+
 $workspace = Get-AzOperationalInsightsWorkspace `
     -ResourceGroupName "rg-central-logging" `
     -Name "law-central-atevet12"
 
-# Note: Data connectors are typically enabled via the portal or ARM templates
-# The Azure Activity connector requires a diagnostic setting on the subscription
-# which is covered in Step 3 of this guide
+$result = Invoke-AzOperationalInsightsQuery `
+    -WorkspaceId $workspace.CustomerId `
+    -Query $query
+
+$result.Results | Format-Table
+```
+
+**Issue: Prerequisites not met**
+
+1. Check required permissions for the connector
+2. Verify licensing requirements (e.g., P1/P2 for sign-in logs)
+3. Ensure the source service is properly configured
+
+**Issue: Connector not appearing in list**
+
+1. Install the Content Hub solution first
+2. Refresh the Data connectors page
+3. Check if the connector requires a specific Azure region
+
+**Useful diagnostic queries:**
+
+```kusto
+// Check for ingestion anomalies
+Usage
+| where TimeGenerated > ago(7d)
+| where DataType in ("AzureActivity", "SigninLogs", "SecurityAlert")
+| summarize DailyVolume = sum(Quantity) by DataType, bin(TimeGenerated, 1d)
+| render timechart
+
+// Check for connector health events
+SentinelHealth
+| where TimeGenerated > ago(24h)
+| where SentinelResourceType == "Data connector"
+| project TimeGenerated, SentinelResourceName, Status, Description
+| order by TimeGenerated desc
 ```
 
 #### 1.2.4 Verify Sentinel Deployment
