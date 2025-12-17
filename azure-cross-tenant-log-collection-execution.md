@@ -627,11 +627,18 @@ This PowerShell script automates the preparation of the managing tenant by:
 .PARAMETER SkipWorkspaceCreation
     Skip workspace creation if it already exists.
 
+.PARAMETER GroupMembers
+    Array of user principal names (UPNs) or object IDs to add to the security group.
+    Example: @("user1@domain.com", "user2@domain.com")
+
 .EXAMPLE
     .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 
 .EXAMPLE
     .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -SecurityGroupName "Lighthouse-Atevet17-Admins" -WorkspaceName "law-central-atevet12"
+
+.EXAMPLE
+    .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -GroupMembers @("admin@contoso.com", "analyst@contoso.com")
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
@@ -665,7 +672,10 @@ param(
     [switch]$SkipGroupCreation,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipWorkspaceCreation
+    [switch]$SkipWorkspaceCreation,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$GroupMembers = @()
 )
 
 # Color functions for output
@@ -687,6 +697,8 @@ $results = @{
     WorkspaceResourceId = $null
     WorkspaceCustomerId = $null
     Location = $Location
+    GroupMembersAdded = @()
+    GroupMembersFailed = @()
     Success = $true
     Errors = @()
 }
@@ -846,6 +858,89 @@ else {
 Write-Host ""
 #endregion
 
+#region Add Members to Security Group
+if ($GroupMembers.Count -gt 0 -and $results.SecurityGroupId) {
+    Write-Info "Adding members to security group..."
+    Write-Host ""
+    
+    foreach ($member in $GroupMembers) {
+        try {
+            # Try to resolve the user (could be UPN or Object ID)
+            $user = $null
+            
+            # Check if it's a GUID (Object ID)
+            if ($member -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+                # It's an Object ID
+                if ($graphModule) {
+                    $user = Get-MgUser -UserId $member -ErrorAction SilentlyContinue
+                }
+                else {
+                    $user = Get-AzADUser -ObjectId $member -ErrorAction SilentlyContinue
+                }
+            }
+            else {
+                # It's a UPN
+                if ($graphModule) {
+                    $user = Get-MgUser -UserId $member -ErrorAction SilentlyContinue
+                }
+                else {
+                    $user = Get-AzADUser -UserPrincipalName $member -ErrorAction SilentlyContinue
+                }
+            }
+            
+            if (-not $user) {
+                Write-ErrorMsg "  [X] User not found: $member"
+                $results.GroupMembersFailed += $member
+                continue
+            }
+            
+            $userId = if ($graphModule) { $user.Id } else { $user.Id }
+            
+            # Check if user is already a member
+            $isMember = $false
+            if ($graphModule) {
+                $existingMembers = Get-MgGroupMember -GroupId $results.SecurityGroupId -ErrorAction SilentlyContinue
+                $isMember = $existingMembers.Id -contains $userId
+            }
+            else {
+                $existingMembers = Get-AzADGroupMember -GroupObjectId $results.SecurityGroupId -ErrorAction SilentlyContinue
+                $isMember = $existingMembers.Id -contains $userId
+            }
+            
+            if ($isMember) {
+                Write-Warning "  [~] Already a member: $member"
+                $results.GroupMembersAdded += $member
+                continue
+            }
+            
+            # Add user to group
+            if ($graphModule) {
+                $memberRef = @{
+                    "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$userId"
+                }
+                New-MgGroupMemberByRef -GroupId $results.SecurityGroupId -BodyParameter $memberRef -ErrorAction Stop
+            }
+            else {
+                Add-AzADGroupMember -TargetGroupObjectId $results.SecurityGroupId -MemberObjectId $userId -ErrorAction Stop
+            }
+            
+            Write-Success "  [+] Added: $member"
+            $results.GroupMembersAdded += $member
+        }
+        catch {
+            Write-ErrorMsg "  [X] Failed to add $member : $($_.Exception.Message)"
+            $results.GroupMembersFailed += $member
+            $results.Errors += "Failed to add member $member : $($_.Exception.Message)"
+        }
+    }
+    Write-Host ""
+}
+elseif ($GroupMembers.Count -gt 0 -and -not $results.SecurityGroupId) {
+    Write-Warning "Cannot add members: Security group ID not available"
+    Write-Warning "Create the group first or provide the group Object ID"
+}
+#endregion
+
 #region Create Resource Group
 if (-not $SkipWorkspaceCreation) {
     Write-Info "Creating resource group: $ResourceGroupName"
@@ -962,6 +1057,22 @@ if ($results.WorkspaceResourceId) {
 Write-Host "Location:                  $($results.Location)"
 Write-Host ""
 
+if ($results.GroupMembersAdded.Count -gt 0) {
+    Write-Info "Group Members Added:"
+    foreach ($member in $results.GroupMembersAdded) {
+        Write-Success "  - $member"
+    }
+    Write-Host ""
+}
+
+if ($results.GroupMembersFailed.Count -gt 0) {
+    Write-Warning "Group Members Failed:"
+    foreach ($member in $results.GroupMembersFailed) {
+        Write-ErrorMsg "  - $member"
+    }
+    Write-Host ""
+}
+
 # Output as JSON for easy copying
 Write-Info "=== JSON Output (for automation) ==="
 Write-Host ""
@@ -974,6 +1085,8 @@ $jsonOutput = @{
     workspaceResourceId = $results.WorkspaceResourceId
     workspaceCustomerId = $results.WorkspaceCustomerId
     location = $results.Location
+    groupMembersAdded = $results.GroupMembersAdded
+    groupMembersFailed = $results.GroupMembersFailed
 } | ConvertTo-Json -Depth 2
 
 Write-Host $jsonOutput
@@ -1056,6 +1169,22 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
     -Location "eastus"
 ```
 
+#### Add Users to Security Group
+
+```powershell
+# Add specific users to the security group during creation
+.\Prepare-ManagingTenant.ps1 `
+    -TenantId "<MANAGING-TENANT-ID>" `
+    -SubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
+    -GroupMembers @("admin@contoso.com", "analyst@contoso.com", "secops@contoso.com")
+
+# You can also use Object IDs
+.\Prepare-ManagingTenant.ps1 `
+    -TenantId "<MANAGING-TENANT-ID>" `
+    -SubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
+    -GroupMembers @("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+```
+
 #### Skip Existing Resources
 
 ```powershell
@@ -1093,6 +1222,12 @@ Connecting to Microsoft Graph...
   Created security group successfully
   Group ID: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
+Adding members to security group...
+
+  [+] Added: admin@contoso.com
+  [+] Added: analyst@contoso.com
+  [~] Already a member: secops@contoso.com
+
 Creating resource group: rg-central-logging
   Created resource group in westus2
 
@@ -1117,12 +1252,18 @@ Workspace Name:            law-central-logging
 Workspace Resource ID:     /subscriptions/.../workspaces/law-central-logging
 Location:                  westus2
 
+Group Members Added:
+  - admin@contoso.com
+  - analyst@contoso.com
+  - secops@contoso.com
+
 === JSON Output (for automation) ===
 
 {
   "managingTenantId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "subscriptionId": "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
   "securityGroupObjectId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "groupMembersAdded": ["admin@contoso.com", "analyst@contoso.com", "secops@contoso.com"],
   ...
 }
 
@@ -1133,7 +1274,7 @@ Update your lighthouse-parameters-definition.json with these values:
 
 === Next Steps ===
 
-1. Add users to the security group 'Lighthouse-CrossTenant-Admins'
+1. Verify users in the security group 'Lighthouse-CrossTenant-Admins'
 2. Update the Lighthouse parameters file with the values above
 3. Run the Azure Lighthouse deployment in the SOURCE tenant
 4. Configure diagnostic settings to send logs to the workspace
