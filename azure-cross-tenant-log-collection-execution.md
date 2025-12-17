@@ -198,7 +198,8 @@ function Get-ProviderStatus {
     
     try {
         $provider = Get-AzResourceProvider -ProviderNamespace $ProviderNamespace -ErrorAction Stop
-        return $provider.RegistrationState
+        # Get-AzResourceProvider returns an array of resource types; extract the first RegistrationState
+        return ($provider | Select-Object -First 1).RegistrationState
     }
     catch {
         if ($_.Exception.Message -like "*not found*") {

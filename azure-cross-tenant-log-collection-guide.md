@@ -190,7 +190,8 @@ Write-Host "Waiting for registration to complete..."
 do {
     Start-Sleep -Seconds 10
     $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
-    $status = $provider.RegistrationState
+    # Get-AzResourceProvider returns an array; extract the first RegistrationState
+    $status = ($provider | Select-Object -First 1).RegistrationState
     Write-Host "Current status: $status"
 } while ($status -eq "Registering")
 
@@ -253,8 +254,10 @@ foreach ($sub in $subscriptions) {
     
     # Check current status
     $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+    # Get-AzResourceProvider returns an array; extract the first RegistrationState
+    $registrationState = ($provider | Select-Object -First 1).RegistrationState
     
-    if ($provider.RegistrationState -eq "Registered") {
+    if ($registrationState -eq "Registered") {
         Write-Host "  ✓ Already registered" -ForegroundColor Green
     } else {
         Write-Host "  Registering..." -ForegroundColor Yellow
@@ -264,12 +267,13 @@ foreach ($sub in $subscriptions) {
         do {
             Start-Sleep -Seconds 5
             $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
-        } while ($provider.RegistrationState -eq "Registering")
+            $registrationState = ($provider | Select-Object -First 1).RegistrationState
+        } while ($registrationState -eq "Registering")
         
-        if ($provider.RegistrationState -eq "Registered") {
+        if ($registrationState -eq "Registered") {
             Write-Host "  ✓ Successfully registered" -ForegroundColor Green
         } else {
-            Write-Host "  ✗ Failed to register: $($provider.RegistrationState)" -ForegroundColor Red
+            Write-Host "  ✗ Failed to register: $registrationState" -ForegroundColor Red
         }
     }
 }
