@@ -2782,13 +2782,6 @@ This is not an error. The script will update the existing diagnostic setting wit
 
 ---
 
-## Additional Resources
-
-- [Main Guide: Azure Cross-Tenant Log Collection](azure-cross-tenant-log-collection-guide.md)
-- [Azure PowerShell Documentation](https://docs.microsoft.com/en-us/powershell/azure/)
-- [Az.Resources Module](https://docs.microsoft.com/en-us/powershell/module/az.resources/)
-- [Azure Cloud Shell](https://docs.microsoft.com/en-us/azure/cloud-shell/overview)---
-
 ## Step 4: Configure Resource Diagnostic Logs
 
 > ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
@@ -3848,5 +3841,14 @@ StorageBlobLogs
 | **Microsoft.Cache/redis** | ConnectedClientList |
 | **Microsoft.DataFactory/factories** | ActivityRuns, PipelineRuns, TriggerRuns |
 | **Microsoft.CognitiveServices/accounts** | Audit, RequestResponse |
+
+---
+
+## Additional Resources
+
+- [Main Guide: Azure Cross-Tenant Log Collection](azure-cross-tenant-log-collection-guide.md)
+- [Azure PowerShell Documentation](https://docs.microsoft.com/en-us/powershell/azure/)
+- [Az.Resources Module](https://docs.microsoft.com/en-us/powershell/module/az.resources/)
+- [Azure Cloud Shell](https://docs.microsoft.com/en-us/azure/cloud-shell/overview)
 
 ---
