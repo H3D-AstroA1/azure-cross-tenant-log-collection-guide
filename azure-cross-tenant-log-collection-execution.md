@@ -12,7 +12,8 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 4. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
 5. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-7. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
+7. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
+8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
 
 ---
 
@@ -2782,7 +2783,692 @@ This is not an error. The script will update the existing diagnostic setting wit
 
 ---
 
-## Step 4: Configure Resource Diagnostic Logs
+## Step 4: Configure Virtual Machine Diagnostic Logs
+
+> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures Data Collection Rules (DCR), installs the Azure Monitor Agent, and creates DCR associations for VMs in the delegated subscriptions.
+
+Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs, and Linux Syslog data. This step covers configuring the Azure Monitor Agent (AMA) and Data Collection Rules (DCR) for VMs.
+
+> **Note:** Virtual Machines require a different approach than other Azure resources. Instead of diagnostic settings, VMs use the Azure Monitor Agent with Data Collection Rules to collect logs and metrics.
+
+### Prerequisites
+
+Before running this script, you need:
+- **Azure Lighthouse delegation** completed (Step 2)
+- **Log Analytics Workspace Resource ID** (from Step 1)
+- **Delegated subscription IDs** (from the source tenant)
+- **Contributor** role on the delegated subscriptions
+
+### Script: `Configure-VMDiagnosticLogs.ps1`
+
+```powershell
+<#
+.SYNOPSIS
+    Configures Virtual Machine diagnostic logs using Azure Monitor Agent and Data Collection Rules.
+
+.DESCRIPTION
+    This script is used as Step 4 in the Azure Cross-Tenant Log Collection setup.
+    It configures VM log collection by:
+    - Creating a Data Collection Rule (DCR) for VM logs
+    - Installing the Azure Monitor Agent on VMs
+    - Creating DCR associations to link VMs to the DCR
+    
+    The script supports both Windows and Linux VMs and collects:
+    - Performance counters (CPU, Memory, Disk, Network)
+    - Windows Event Logs (Application, Security, System)
+    - Linux Syslog
+
+.PARAMETER WorkspaceResourceId
+    The full resource ID of the Log Analytics workspace to send logs to.
+
+.PARAMETER SubscriptionIds
+    Array of subscription IDs to configure. If not provided, uses current subscription.
+
+.PARAMETER DataCollectionRuleName
+    Name for the Data Collection Rule. Default: "dcr-vm-logs"
+
+.PARAMETER ResourceGroupName
+    Resource group where the DCR will be created. Default: Same as workspace resource group.
+
+.PARAMETER Location
+    Azure region for DCR deployment. Default: "westus2"
+
+.PARAMETER SkipAgentInstallation
+    Skip Azure Monitor Agent installation (useful if agents are already installed).
+
+.PARAMETER SkipDCRCreation
+    Skip DCR creation (useful if DCR already exists).
+
+.PARAMETER SkipVerification
+    Skip the verification step after deployment.
+
+.EXAMPLE
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+.EXAMPLE
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SubscriptionIds @("sub-id-1", "sub-id-2")
+
+.NOTES
+    Author: Cross-Tenant Log Collection Guide
+    Requires: Az.Accounts, Az.Resources, Az.Compute, Az.Monitor modules
+    Should be run from the MANAGING tenant after Lighthouse delegation is complete
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$WorkspaceResourceId,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$SubscriptionIds,
+
+    [Parameter(Mandatory = $false)]
+    [string]$DataCollectionRuleName = "dcr-vm-logs",
+
+    [Parameter(Mandatory = $false)]
+    [string]$ResourceGroupName,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Location = "westus2",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipAgentInstallation,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipDCRCreation,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipVerification
+)
+
+# Color functions for output
+function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
+function Write-ErrorMsg { param($Message) Write-Host $Message -ForegroundColor Red }
+function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor Yellow }
+function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
+function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
+
+# Results tracking
+$results = @{
+    WorkspaceResourceId = $WorkspaceResourceId
+    DataCollectionRuleName = $DataCollectionRuleName
+    DataCollectionRuleId = $null
+    SubscriptionsProcessed = @()
+    VMsConfigured = @()
+    VMsFailed = @()
+    AgentsInstalled = @()
+    DCRAssociationsCreated = @()
+    Errors = @()
+}
+
+# Main script execution
+Write-Host ""
+Write-Header "======================================================================"
+Write-Header "        Configure Virtual Machine Diagnostic Logs - Step 4            "
+Write-Header "======================================================================"
+Write-Host ""
+
+#region Check Azure Connection
+Write-Info "Checking Azure connection..."
+
+$context = Get-AzContext -ErrorAction SilentlyContinue
+if (-not $context) {
+    Write-ErrorMsg "Not connected to Azure. Please connect first."
+    Write-Host ""
+    Write-Info "Run: Connect-AzAccount -TenantId '<MANAGING-TENANT-ID>'"
+    exit 1
+}
+
+Write-Success "Connected as: $($context.Account.Id)"
+Write-Success "Current Tenant: $($context.Tenant.Id)"
+Write-Host ""
+#endregion
+
+#region Validate Workspace Resource ID
+Write-Info "Validating workspace resource ID..."
+
+if ($WorkspaceResourceId -notmatch "^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.OperationalInsights/workspaces/[^/]+$") {
+    Write-ErrorMsg "Invalid workspace resource ID format."
+    exit 1
+}
+
+# Extract workspace details from resource ID
+$workspaceIdParts = $WorkspaceResourceId -split "/"
+$workspaceSubscriptionId = $workspaceIdParts[2]
+$workspaceResourceGroup = $workspaceIdParts[4]
+$workspaceName = $workspaceIdParts[8]
+
+# Use workspace resource group if not specified
+if (-not $ResourceGroupName) {
+    $ResourceGroupName = $workspaceResourceGroup
+}
+
+Write-Success "  Workspace Name: $workspaceName"
+Write-Success "  Resource Group: $workspaceResourceGroup"
+Write-Host ""
+#endregion
+
+#region Get Subscriptions
+if (-not $SubscriptionIds -or $SubscriptionIds.Count -eq 0) {
+    $SubscriptionIds = @($context.Subscription.Id)
+    Write-Info "No subscriptions specified. Using current subscription: $($context.Subscription.Name)"
+}
+
+Write-Info "Subscriptions to configure: $($SubscriptionIds.Count)"
+foreach ($subId in $SubscriptionIds) {
+    Write-Host "  - $subId"
+}
+Write-Host ""
+#endregion
+
+#region Create Data Collection Rule
+if (-not $SkipDCRCreation) {
+    Write-Info "Creating Data Collection Rule: $DataCollectionRuleName"
+    
+    # Switch to workspace subscription to create DCR
+    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
+    
+    # Check if DCR already exists
+    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+    
+    if ($existingDCR) {
+        Write-WarningMsg "  Data Collection Rule '$DataCollectionRuleName' already exists"
+        $results.DataCollectionRuleId = $existingDCR.Id
+    }
+    else {
+        Write-Host "  Creating new Data Collection Rule..."
+        
+        # Create DCR using ARM template
+        $dcrTemplate = @{
+            '$schema' = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+            contentVersion = "1.0.0.0"
+            resources = @(
+                @{
+                    type = "Microsoft.Insights/dataCollectionRules"
+                    apiVersion = "2022-06-01"
+                    name = $DataCollectionRuleName
+                    location = $Location
+                    properties = @{
+                        description = "Data Collection Rule for VM logs - Cross-tenant collection"
+                        dataSources = @{
+                            performanceCounters = @(
+                                @{
+                                    name = "perfCounterDataSource"
+                                    streams = @("Microsoft-Perf")
+                                    samplingFrequencyInSeconds = 60
+                                    counterSpecifiers = @(
+                                        "\\Processor(_Total)\\% Processor Time",
+                                        "\\Memory\\Available MBytes",
+                                        "\\Memory\\% Committed Bytes In Use",
+                                        "\\LogicalDisk(_Total)\\% Free Space",
+                                        "\\LogicalDisk(_Total)\\Free Megabytes",
+                                        "\\PhysicalDisk(_Total)\\Avg. Disk Queue Length",
+                                        "\\Network Interface(*)\\Bytes Total/sec"
+                                    )
+                                }
+                            )
+                            windowsEventLogs = @(
+                                @{
+                                    name = "windowsEventLogs"
+                                    streams = @("Microsoft-Event")
+                                    xPathQueries = @(
+                                        "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
+                                        "Security!*[System[(band(Keywords,13510798882111488))]]",
+                                        "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
+                                    )
+                                }
+                            )
+                            syslog = @(
+                                @{
+                                    name = "syslogDataSource"
+                                    streams = @("Microsoft-Syslog")
+                                    facilityNames = @("auth", "authpriv", "cron", "daemon", "kern", "syslog", "user")
+                                    logLevels = @("Debug", "Info", "Notice", "Warning", "Error", "Critical", "Alert", "Emergency")
+                                }
+                            )
+                        }
+                        destinations = @{
+                            logAnalytics = @(
+                                @{
+                                    name = $workspaceName
+                                    workspaceResourceId = $WorkspaceResourceId
+                                }
+                            )
+                        }
+                        dataFlows = @(
+                            @{ streams = @("Microsoft-Perf"); destinations = @($workspaceName) },
+                            @{ streams = @("Microsoft-Event"); destinations = @($workspaceName) },
+                            @{ streams = @("Microsoft-Syslog"); destinations = @($workspaceName) }
+                        )
+                    }
+                }
+            )
+            outputs = @{
+                dataCollectionRuleId = @{
+                    type = "string"
+                    value = "[resourceId('Microsoft.Insights/dataCollectionRules', '$DataCollectionRuleName')]"
+                }
+            }
+        }
+        
+        # Save template to temp file
+        $tempDir = [System.IO.Path]::GetTempPath()
+        $dcrTemplatePath = Join-Path $tempDir "dcr-template.json"
+        $dcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $dcrTemplatePath -Encoding UTF8
+        
+        try {
+            $dcrDeployment = New-AzResourceGroupDeployment `
+                -Name "DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+                -ResourceGroupName $ResourceGroupName `
+                -TemplateFile $dcrTemplatePath `
+                -ErrorAction Stop
+            
+            $results.DataCollectionRuleId = $dcrDeployment.Outputs.dataCollectionRuleId.Value
+            Write-Success "  ✓ Data Collection Rule created successfully"
+        }
+        catch {
+            Write-ErrorMsg "  ✗ Failed to create DCR: $($_.Exception.Message)"
+            $results.Errors += "DCR creation failed: $($_.Exception.Message)"
+        }
+        finally {
+            Remove-Item -Path $dcrTemplatePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+else {
+    Write-Info "Skipping DCR creation (--SkipDCRCreation specified)"
+    
+    # Try to get existing DCR
+    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
+    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+    if ($existingDCR) {
+        $results.DataCollectionRuleId = $existingDCR.Id
+    }
+}
+Write-Host ""
+#endregion
+
+#region Process VMs in Each Subscription
+Write-Info "Processing Virtual Machines in delegated subscriptions..."
+Write-Host ""
+
+foreach ($subId in $SubscriptionIds) {
+    $results.SubscriptionsProcessed += $subId
+    
+    Write-Info "Processing subscription: $subId"
+    
+    try {
+        Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
+        $subName = (Get-AzContext).Subscription.Name
+        Write-Host "  Subscription name: $subName"
+        
+        # Get all VMs in the subscription
+        $vms = Get-AzVM -ErrorAction SilentlyContinue
+        
+        if (-not $vms -or $vms.Count -eq 0) {
+            Write-WarningMsg "  No VMs found in subscription $subId"
+            continue
+        }
+        
+        Write-Host "  Found $($vms.Count) VM(s)"
+        Write-Host ""
+        
+        foreach ($vm in $vms) {
+            Write-Host "  Processing VM: $($vm.Name)"
+            
+            try {
+                $osType = $vm.StorageProfile.OsDisk.OsType
+                Write-Host "    OS Type: $osType"
+                
+                #region Install Azure Monitor Agent
+                if (-not $SkipAgentInstallation) {
+                    $extensionName = if ($osType -eq "Windows") { "AzureMonitorWindowsAgent" } else { "AzureMonitorLinuxAgent" }
+                    
+                    # Check if agent is already installed
+                    $existingExtension = Get-AzVMExtension -ResourceGroupName $vm.ResourceGroupName -VMName $vm.Name -Name $extensionName -ErrorAction SilentlyContinue
+                    
+                    if ($existingExtension) {
+                        Write-Success "    ✓ Azure Monitor Agent already installed"
+                    }
+                    else {
+                        Write-Host "    Installing Azure Monitor Agent..."
+                        
+                        try {
+                            Set-AzVMExtension `
+                                -ResourceGroupName $vm.ResourceGroupName `
+                                -VMName $vm.Name `
+                                -Name $extensionName `
+                                -Publisher "Microsoft.Azure.Monitor" `
+                                -ExtensionType $extensionName `
+                                -TypeHandlerVersion "1.0" `
+                                -EnableAutomaticUpgrade $true `
+                                -ErrorAction Stop | Out-Null
+                            
+                            Write-Success "    ✓ Azure Monitor Agent installed"
+                            $results.AgentsInstalled += $vm.Id
+                        }
+                        catch {
+                            Write-ErrorMsg "    ✗ Failed to install agent: $($_.Exception.Message)"
+                            $results.Errors += "Agent installation failed for $($vm.Name): $($_.Exception.Message)"
+                            $results.VMsFailed += $vm.Id
+                            continue
+                        }
+                    }
+                }
+                #endregion
+                
+                #region Create DCR Association
+                Write-Host "    Creating DCR association..."
+                
+                $associationName = "dcr-association-$($vm.Name)"
+                
+                # Check if association already exists
+                $existingAssociation = Get-AzDataCollectionRuleAssociation -TargetResourceId $vm.Id -AssociationName $associationName -ErrorAction SilentlyContinue
+                
+                if ($existingAssociation) {
+                    Write-Success "    ✓ DCR association already exists"
+                }
+                else {
+                    try {
+                        New-AzDataCollectionRuleAssociation `
+                            -TargetResourceId $vm.Id `
+                            -AssociationName $associationName `
+                            -RuleId $results.DataCollectionRuleId `
+                            -ErrorAction Stop | Out-Null
+                        
+                        Write-Success "    ✓ DCR association created"
+                        $results.DCRAssociationsCreated += $vm.Id
+                    }
+                    catch {
+                        Write-ErrorMsg "    ✗ Failed to create DCR association: $($_.Exception.Message)"
+                        $results.Errors += "DCR association failed for $($vm.Name): $($_.Exception.Message)"
+                        $results.VMsFailed += $vm.Id
+                        continue
+                    }
+                }
+                #endregion
+                
+                $results.VMsConfigured += $vm.Id
+                Write-Success "    ✓ VM configured successfully"
+            }
+            catch {
+                Write-ErrorMsg "    ✗ Failed to configure VM: $($_.Exception.Message)"
+                $results.Errors += "VM $($vm.Name): $($_.Exception.Message)"
+                $results.VMsFailed += $vm.Id
+            }
+            
+            Write-Host ""
+        }
+    }
+    catch {
+        Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
+        $results.Errors += "Subscription $subId : $($_.Exception.Message)"
+    }
+}
+#endregion
+
+#region Output Summary
+Write-Host ""
+Write-Header "======================================================================"
+Write-Header "                              SUMMARY                                 "
+Write-Header "======================================================================"
+Write-Host ""
+
+Write-Host "Data Collection Rule:      $DataCollectionRuleName"
+Write-Host "DCR Resource ID:           $($results.DataCollectionRuleId)"
+Write-Host ""
+
+Write-Host "Subscriptions Processed:   $($results.SubscriptionsProcessed.Count)"
+Write-Host "VMs Configured:            $($results.VMsConfigured.Count)"
+Write-Host "VMs Failed:                $($results.VMsFailed.Count)"
+Write-Host "Agents Installed:          $($results.AgentsInstalled.Count)"
+Write-Host "DCR Associations Created:  $($results.DCRAssociationsCreated.Count)"
+Write-Host ""
+
+if ($results.VMsConfigured.Count -gt 0) {
+    Write-Success "Successfully configured VMs:"
+    foreach ($vmId in $results.VMsConfigured | Select-Object -First 10) {
+        $vmName = ($vmId -split "/")[-1]
+        Write-Success "  ✓ $vmName"
+    }
+    if ($results.VMsConfigured.Count -gt 10) {
+        Write-Success "  ... and $($results.VMsConfigured.Count - 10) more"
+    }
+    Write-Host ""
+}
+
+if ($results.Errors.Count -gt 0) {
+    Write-WarningMsg "Errors encountered:"
+    foreach ($err in $results.Errors | Select-Object -First 5) {
+        Write-ErrorMsg "  - $err"
+    }
+    Write-Host ""
+}
+
+# Output as JSON for automation
+Write-Info "=== JSON Output (for automation) ==="
+Write-Host ""
+$jsonOutput = @{
+    dataCollectionRuleName = $results.DataCollectionRuleName
+    dataCollectionRuleId = $results.DataCollectionRuleId
+    subscriptionsProcessed = $results.SubscriptionsProcessed
+    vmsConfiguredCount = $results.VMsConfigured.Count
+    vmsFailedCount = $results.VMsFailed.Count
+    agentsInstalledCount = $results.AgentsInstalled.Count
+    dcrAssociationsCreatedCount = $results.DCRAssociationsCreated.Count
+    errorsCount = $results.Errors.Count
+} | ConvertTo-Json -Depth 2
+
+Write-Host $jsonOutput
+Write-Host ""
+
+Write-Info "=== Verification Queries ==="
+Write-Host ""
+Write-Host "Run these queries in Log Analytics to verify VM data is flowing:"
+Write-Host ""
+Write-Host "// VM Performance data"
+Write-Host "Perf"
+Write-Host "| where TimeGenerated > ago(1h)"
+Write-Host "| summarize count() by Computer, ObjectName"
+Write-Host ""
+Write-Host "// Windows Event Logs"
+Write-Host "Event"
+Write-Host "| where TimeGenerated > ago(1h)"
+Write-Host "| summarize count() by Computer, EventLog"
+Write-Host ""
+Write-Host "// Linux Syslog"
+Write-Host "Syslog"
+Write-Host "| where TimeGenerated > ago(1h)"
+Write-Host "| summarize count() by Computer, Facility"
+Write-Host ""
+
+Write-Info "=== Next Steps ==="
+Write-Host ""
+Write-Host "1. Wait 5-15 minutes for VM logs to start flowing"
+Write-Host "2. Run the verification queries in Log Analytics"
+Write-Host "3. Proceed to Step 5: Configure Azure Resource Diagnostic Logs"
+Write-Host "4. Configure Microsoft Sentinel analytics rules for VM security events"
+Write-Host ""
+#endregion
+
+# Return results object
+return $results
+```
+
+### Usage Examples
+
+#### Basic Usage (All VMs in Current Subscription)
+
+```powershell
+# Connect to the managing tenant first
+Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
+
+# Set context to a delegated subscription
+Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
+
+# Configure VM diagnostic logs
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+#### Multiple Subscriptions
+
+```powershell
+# Configure VMs across multiple delegated subscriptions
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
+```
+
+#### Custom DCR Name
+
+```powershell
+# Use a custom name for the Data Collection Rule
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DataCollectionRuleName "dcr-cross-tenant-vm-logs-atevet17"
+```
+
+#### Skip Agent Installation (Agents Already Installed)
+
+```powershell
+# Skip agent installation if Azure Monitor Agent is already deployed
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipAgentInstallation
+```
+
+### Expected Output
+
+```
+======================================================================
+        Configure Virtual Machine Diagnostic Logs - Step 4
+======================================================================
+
+Checking Azure connection...
+Connected as: admin@atevet12.onmicrosoft.com
+Current Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+Validating workspace resource ID...
+  Workspace Name: law-central-atevet12
+  Resource Group: rg-central-logging
+
+Subscriptions to configure: 2
+  - aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  - bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+
+Creating Data Collection Rule: dcr-vm-logs
+  Creating new Data Collection Rule...
+  ✓ Data Collection Rule created successfully
+
+Processing Virtual Machines in delegated subscriptions...
+
+Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  Subscription name: Production-Subscription
+  Found 3 VM(s)
+
+  Processing VM: vm-web-01
+    OS Type: Windows
+    Installing Azure Monitor Agent...
+    ✓ Azure Monitor Agent installed
+    Creating DCR association...
+    ✓ DCR association created
+    ✓ VM configured successfully
+
+  Processing VM: vm-db-01
+    OS Type: Windows
+    ✓ Azure Monitor Agent already installed
+    Creating DCR association...
+    ✓ DCR association created
+    ✓ VM configured successfully
+
+  Processing VM: vm-linux-01
+    OS Type: Linux
+    Installing Azure Monitor Agent...
+    ✓ Azure Monitor Agent installed
+    Creating DCR association...
+    ✓ DCR association created
+    ✓ VM configured successfully
+
+======================================================================
+                              SUMMARY
+======================================================================
+
+Data Collection Rule:      dcr-vm-logs
+DCR Resource ID:           /subscriptions/.../dataCollectionRules/dcr-vm-logs
+
+Subscriptions Processed:   2
+VMs Configured:            3
+VMs Failed:                0
+Agents Installed:          2
+DCR Associations Created:  3
+
+Successfully configured VMs:
+  ✓ vm-web-01
+  ✓ vm-db-01
+  ✓ vm-linux-01
+
+=== Verification Queries ===
+
+Run these queries in Log Analytics to verify VM data is flowing:
+
+// VM Performance data
+Perf
+| where TimeGenerated > ago(1h)
+| summarize count() by Computer, ObjectName
+
+// Windows Event Logs
+Event
+| where TimeGenerated > ago(1h)
+| summarize count() by Computer, EventLog
+
+// Linux Syslog
+Syslog
+| where TimeGenerated > ago(1h)
+| summarize count() by Computer, Facility
+
+=== Next Steps ===
+
+1. Wait 5-15 minutes for VM logs to start flowing
+2. Run the verification queries in Log Analytics
+3. Proceed to Step 5: Configure Azure Resource Diagnostic Logs
+4. Configure Microsoft Sentinel analytics rules for VM security events
+```
+
+### Troubleshooting
+
+#### Permission Denied
+
+**Error:** `The client does not have authorization to perform action`
+
+**Solution:**
+- Ensure you have **Contributor** role on the delegated subscription
+- Verify Azure Lighthouse delegation includes the Contributor role
+- Check that you're a member of the delegated security group
+
+#### VM Extension Installation Failed
+
+**Error:** `VM extension installation failed`
+
+**Solution:**
+1. Verify the VM is running
+2. Check that the VM has outbound internet connectivity
+3. Ensure no conflicting extensions are installed
+4. Try installing the agent manually via Azure Portal
+
+#### DCR Association Failed
+
+**Error:** `Failed to create DCR association`
+
+**Solution:**
+1. Verify the DCR was created successfully
+2. Check that the Azure Monitor Agent is installed on the VM
+3. Ensure the DCR resource ID is correct
+4. Verify you have permissions on both the VM and DCR
+
+---
+
+## Step 5: Configure Azure Resource Diagnostic Logs
 
 > ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
 

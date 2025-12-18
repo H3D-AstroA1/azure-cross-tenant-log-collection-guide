@@ -11,14 +11,15 @@
 5. [Step 1: Prepare the Managing Tenant (Atevet12)](#step-1-prepare-the-managing-tenant-atevet12)
 6. [Step 2: Onboard Customer Tenant (Atevet17) to Azure Lighthouse](#step-2-onboard-customer-tenant-atevet17-to-azure-lighthouse)
 7. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-8. [Step 4: Configure Resource Diagnostic Logs](#step-4-configure-resource-diagnostic-logs)
-9. [Step 5: Configure Microsoft Entra ID (Azure AD) Logs](#step-5-configure-microsoft-entra-id-azure-ad-logs)
-10. [Step 6: Configure Microsoft 365 Audit Logs](#step-6-configure-microsoft-365-audit-logs)
-11. [Step 7: Centralize Logs in Log Analytics Workspace](#step-7-centralize-logs-in-log-analytics-workspace)
-12. [Step 8: Enable Microsoft Sentinel and Data Connectors](#step-8-enable-microsoft-sentinel-and-data-connectors)
-13. [Step 9: Verify Log Collection](#step-9-verify-log-collection)
-14. [Alternative Approaches](#alternative-approaches)
-15. [Troubleshooting](#troubleshooting)
+8. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
+9. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+10. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs](#step-6-configure-microsoft-entra-id-azure-ad-logs)
+11. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+12. [Step 8: Centralize Logs in Log Analytics Workspace](#step-8-centralize-logs-in-log-analytics-workspace)
+13. [Step 9: Enable Microsoft Sentinel and Data Connectors](#step-9-enable-microsoft-sentinel-and-data-connectors)
+14. [Step 10: Verify Log Collection](#step-10-verify-log-collection)
+15. [Alternative Approaches](#alternative-approaches)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1349,15 +1350,24 @@ AzureActivity
 
 ---
 
-## Step 4: Configure Resource Diagnostic Logs
+## Step 4: Configure Virtual Machine Diagnostic Logs
 
-Resource diagnostic logs capture data plane operations for Azure resources. This step covers configuring diagnostic settings using ARM templates (recommended) and PowerShell scripts.
+Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs, and Linux Syslog data. This step covers configuring the Azure Monitor Agent (AMA) and Data Collection Rules (DCR) using ARM templates.
 
-### 4.1 Virtual Machines
+> **Note:** Virtual Machines require a different approach than other Azure resources. Instead of diagnostic settings, VMs use the Azure Monitor Agent with Data Collection Rules to collect logs and metrics.
+
+### 4.1 Overview
+
+For VMs, you need to:
+1. **Create a Data Collection Rule (DCR)** - Defines what data to collect and where to send it
+2. **Install the Azure Monitor Agent** - Collects data from the VM
+3. **Associate the VM with the DCR** - Links the VM to the data collection configuration
+
+### 4.2 ARM Template for Data Collection Rule
 
 For VMs, you need to install the Azure Monitor Agent and configure Data Collection Rules (DCR).
 
-#### 4.1.1 ARM Template for Data Collection Rule (Recommended)
+#### 4.2.1 ARM Template for Data Collection Rule (Recommended)
 
 Create a file named `data-collection-rule.json`:
 
@@ -1537,7 +1547,7 @@ az deployment group create \
     --parameters "data-collection-rule.parameters.json"
 ```
 
-#### 4.1.2 ARM Template for Azure Monitor Agent Extension
+#### 4.2.2 ARM Template for Azure Monitor Agent Extension
 
 Create a file named `azure-monitor-agent.json` to deploy the Azure Monitor Agent to VMs:
 
@@ -1589,7 +1599,7 @@ Create a file named `azure-monitor-agent.json` to deploy the Azure Monitor Agent
 }
 ```
 
-#### 4.1.3 ARM Template for Data Collection Rule Association
+#### 4.2.3 ARM Template for Data Collection Rule Association
 
 Create a file named `dcr-association.json`:
 
@@ -1633,11 +1643,27 @@ Create a file named `dcr-association.json`:
 }
 ```
 
-### 4.2 ARM Templates for Resource Diagnostic Settings (Recommended)
+---
+
+## Step 5: Configure Azure Resource Diagnostic Logs
+
+This step covers configuring diagnostic settings for Azure resources **other than Virtual Machines** (which are covered in Step 4). This includes resources like Key Vault, Storage Accounts, Azure SQL, App Services, and other PaaS/IaaS resources.
+
+### 5.1 Overview
+
+Azure resources (excluding VMs) use **Diagnostic Settings** to send logs and metrics to destinations like Log Analytics workspaces. Unlike VMs which use the Azure Monitor Agent and Data Collection Rules, these resources have built-in diagnostic capabilities that can be configured directly.
+
+**Key differences from VM logging:**
+- No agent installation required
+- Configuration is per-resource via Diagnostic Settings
+- Each resource type has specific log categories available
+- Can send to Log Analytics, Storage Account, Event Hub, or Partner Solutions
+
+### 5.2 ARM Templates for Resource Diagnostic Settings (Recommended)
 
 ARM templates provide a declarative, repeatable way to configure diagnostic settings for Azure resources. This section provides templates for common resource types.
 
-#### 4.2.1 Generic ARM Template for Any Resource Type
+#### 5.2.1 Generic ARM Template for Any Resource Type
 
 This template can be used to configure diagnostic settings for any Azure resource that supports diagnostics:
 
@@ -1703,7 +1729,7 @@ Create a file named `resource-diagnostic-settings.json`:
 }
 ```
 
-#### 4.2.2 ARM Template for Key Vault Diagnostic Settings
+#### 5.2.2 ARM Template for Key Vault Diagnostic Settings
 
 Create a file named `keyvault-diagnostic-settings.json`:
 
@@ -1754,7 +1780,7 @@ Create a file named `keyvault-diagnostic-settings.json`:
 }
 ```
 
-#### 4.2.3 ARM Template for Storage Account Diagnostic Settings
+#### 5.2.3 ARM Template for Storage Account Diagnostic Settings
 
 Create a file named `storage-diagnostic-settings.json`:
 
@@ -1845,7 +1871,7 @@ Create a file named `storage-diagnostic-settings.json`:
 }
 ```
 
-#### 4.2.4 Deploy Diagnostic Settings ARM Templates
+#### 5.2.4 Deploy Diagnostic Settings ARM Templates
 
 **Deploy for a specific Key Vault:**
 
@@ -1883,7 +1909,7 @@ foreach ($kv in $keyVaults) {
 }
 ```
 
-### 4.3 Supported Resource Types Reference
+### 5.3 Supported Resource Types Reference
 
 The following table lists common Azure resource types and their diagnostic log categories. Use this reference when configuring the ARM templates above:
 
@@ -1908,11 +1934,11 @@ The following table lists common Azure resource types and their diagnostic log c
 | **Container Registry** | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents |
 | **Redis Cache** | ConnectedClientList |
 
-### 4.4 Azure Policy for Automatic Diagnostic Settings (All Resource Types)
+### 5.4 Azure Policy for Automatic Diagnostic Settings (All Resource Types)
 
 To automatically configure diagnostic settings for **ALL new resources** that support diagnostics, you can use Azure Policy. This section provides multiple approaches:
 
-#### 4.3.1 Using Built-in Policy Initiative (Recommended)
+#### 5.4.1 Using Built-in Policy Initiative (Recommended)
 
 Azure provides a built-in policy initiative that enables diagnostic settings for multiple resource types. This is the easiest approach:
 
@@ -1954,7 +1980,7 @@ New-AzRoleAssignment `
     -Scope $workspaceResourceId
 ```
 
-#### 4.3.2 Custom Policy Initiative for All Resource Types
+#### 5.4.2 Custom Policy Initiative for All Resource Types
 
 Create a custom policy initiative that covers all resource types supporting diagnostic settings:
 
@@ -2290,7 +2316,7 @@ foreach ($resourceType in $resourceTypes.Keys) {
 }
 ```
 
-#### 4.3.3 Azure CLI Alternative for Policy Deployment
+#### 5.4.3 Azure CLI Alternative for Policy Deployment
 
 ```bash
 # Variables
@@ -2356,7 +2382,7 @@ az policy assignment create \
     --params "{\"logAnalyticsWorkspaceId\": {\"value\": \"$WORKSPACE_ID\"}}"
 ```
 
-#### 4.3.4 Using Azure Policy Initiative from Azure Portal
+#### 5.4.4 Using Azure Policy Initiative from Azure Portal
 
 1. Go to **Azure Policy** in the Azure Portal
 2. Navigate to **Definitions** → **Initiative definitions**
@@ -2370,7 +2396,7 @@ az policy assignment create \
 8. Configure parameters (Log Analytics Workspace ID)
 9. Enable remediation to fix existing non-compliant resources
 
-#### 4.3.5 Remediation for Existing Resources
+#### 5.4.5 Remediation for Existing Resources
 
 After assigning policies, create remediation tasks to apply diagnostic settings to existing resources:
 
@@ -2409,7 +2435,7 @@ az policy remediation create \
     --scope "/subscriptions/<Atevet17-Subscription-ID>"
 ```
 
-#### 4.3.6 Monitor Policy Compliance
+#### 5.4.6 Monitor Policy Compliance
 
 Track the compliance status of your diagnostic settings policies:
 
@@ -2437,7 +2463,7 @@ AzureActivity
 | order by count_ desc
 ```
 
-#### 4.3.7 Complete Resource Type Coverage Table
+#### 5.4.7 Complete Resource Type Coverage Table
 
 The following table shows all Azure resource types that support diagnostic settings and their policy definition IDs:
 
@@ -2472,13 +2498,13 @@ The following table shows all Azure resource types that support diagnostic setti
 
 ---
 
-## Step 5: Configure Microsoft Entra ID (Azure AD) Logs
+## Step 6: Configure Microsoft Entra ID (Azure AD) Logs
 
 Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
 
 > **Important:** Entra ID diagnostic settings must be configured **in the source tenant (Atevet17)** by a user with appropriate permissions in that tenant. Azure Lighthouse does NOT provide access to configure Entra ID diagnostic settings cross-tenant.
 
-### 5.1 Prerequisites for Entra ID Logs
+### 6.1 Prerequisites for Entra ID Logs
 
 | Requirement | Description |
 |-------------|-------------|
@@ -2486,7 +2512,7 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 | **Permissions** | Global Administrator or Security Administrator in Atevet17 |
 | **Log Analytics Workspace** | Can send to workspace in Atevet12 (cross-tenant supported for data destination) |
 
-### 5.2 Available Entra ID Log Categories
+### 6.2 Available Entra ID Log Categories
 
 | Log Category | Description | License Required |
 |--------------|-------------|------------------|
@@ -2505,7 +2531,7 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 | **MicrosoftGraphActivityLogs** | Microsoft Graph API activity | P1/P2 |
 | **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | P1/P2 |
 
-### 5.3 Configure Entra ID Diagnostic Settings via Azure Portal
+### 6.3 Configure Entra ID Diagnostic Settings via Azure Portal
 
 **This must be done by an administrator in Atevet17:**
 
@@ -2531,7 +2557,7 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
      - **Log Analytics workspace:** `law-central-atevet12`
 6. Click **Save**
 
-### 5.4 Configure Entra ID Diagnostic Settings via PowerShell
+### 6.4 Configure Entra ID Diagnostic Settings via PowerShell
 
 ```powershell
 # Connect to Atevet17 tenant as Global Administrator
@@ -2577,7 +2603,7 @@ $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettin
 Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body
 ```
 
-### 5.5 Configure Entra ID Diagnostic Settings via Azure CLI
+### 6.5 Configure Entra ID Diagnostic Settings via Azure CLI
 
 ```bash
 # Login to Atevet17 tenant
@@ -2607,7 +2633,7 @@ az rest --method PUT \
     }"
 ```
 
-### 5.6 Configure via Microsoft Graph API
+### 6.6 Configure via Microsoft Graph API
 
 For automation scenarios, you can use Microsoft Graph API:
 
@@ -2622,7 +2648,7 @@ Connect-MgGraph -TenantId "<Atevet17-Tenant-ID>" -Scopes "AuditLog.Read.All", "D
 # Use the REST API approach shown above for programmatic configuration
 ```
 
-### 5.7 Verify Entra ID Diagnostic Settings
+### 6.7 Verify Entra ID Diagnostic Settings
 
 **Via Azure Portal:**
 1. Go to **Microsoft Entra ID** → **Monitoring** → **Diagnostic settings**
@@ -2642,7 +2668,7 @@ $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettin
 Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
 ```
 
-### 5.8 Query Entra ID Logs in Log Analytics
+### 6.8 Query Entra ID Logs in Log Analytics
 
 Once configured, Entra ID logs will appear in the following tables in your Log Analytics workspace:
 
@@ -2714,7 +2740,7 @@ MicrosoftGraphActivityLogs
 | order by count_ desc
 ```
 
-### 5.9 Important Considerations for Cross-Tenant Entra ID Logs
+### 6.9 Important Considerations for Cross-Tenant Entra ID Logs
 
 1. **Permissions:** The user configuring diagnostic settings must be a Global Administrator or Security Administrator in Atevet17. Azure Lighthouse delegation does NOT grant these permissions.
 
@@ -2731,7 +2757,7 @@ MicrosoftGraphActivityLogs
    - Filtering unnecessary log categories
    - Setting appropriate retention periods
 
-### 5.10 Automate Entra ID Diagnostic Settings with ARM Template
+### 6.10 Automate Entra ID Diagnostic Settings with ARM Template
 
 For repeatable deployments, use this ARM template:
 
@@ -2789,13 +2815,13 @@ az deployment tenant create \
 
 ---
 
-## Step 6: Configure Microsoft 365 Audit Logs
+## Step 7: Configure Microsoft 365 Audit Logs
 
 Microsoft 365 (Office 365) Audit Logs capture user and admin activities across Microsoft 365 services including Exchange Online, SharePoint Online, OneDrive for Business, Microsoft Teams, Power Platform, and more. These logs are essential for security monitoring, compliance, and incident investigation.
 
 > **Important:** Microsoft 365 Audit Logs are separate from Azure resource logs and Microsoft Entra ID logs. They require configuration through the Microsoft 365 Compliance Center or Microsoft Sentinel, and cannot be configured via Azure Lighthouse delegation.
 
-### 6.1 Prerequisites for Microsoft 365 Audit Logs
+### 7.1 Prerequisites for Microsoft 365 Audit Logs
 
 | Requirement | Description |
 |-------------|-------------|
@@ -2804,7 +2830,7 @@ Microsoft 365 (Office 365) Audit Logs capture user and admin activities across M
 | **Audit Logging** | Must be enabled in Microsoft 365 (enabled by default for most tenants) |
 | **Retention** | E3: 90 days, E5: 1 year (up to 10 years with add-on) |
 
-### 6.2 Available Microsoft 365 Log Categories
+### 7.2 Available Microsoft 365 Log Categories
 
 | Service | Log Types | Description |
 |---------|-----------|-------------|
@@ -2820,7 +2846,7 @@ Microsoft 365 (Office 365) Audit Logs capture user and admin activities across M
 | **Information Protection** | Label changes, Access | Sensitivity label activities |
 | **Compliance Manager** | Assessment activities | Compliance score changes |
 
-### 6.3 Enable Microsoft 365 Audit Logging
+### 7.3 Enable Microsoft 365 Audit Logging
 
 **Verify Audit Logging is Enabled:**
 
@@ -2842,7 +2868,7 @@ Set-AdminAuditLogConfig -UnifiedAuditLogIngestionEnabled $true
 3. If you see "Start recording user and admin activity", click it to enable
 4. Audit logging is enabled when you see the search interface
 
-### 6.4 Option A: Stream M365 Logs to Log Analytics via Microsoft Sentinel
+### 7.4 Option A: Stream M365 Logs to Log Analytics via Microsoft Sentinel
 
 The recommended approach for cross-tenant log collection is using Microsoft Sentinel with the Office 365 data connector.
 
@@ -2901,7 +2927,7 @@ $targetWorkspaceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/r
 # M365 audit logs flow through the Office 365 connector, not diagnostic settings
 ```
 
-### 6.5 Option B: Use Management Activity API for Custom Integration
+### 7.5 Option B: Use Management Activity API for Custom Integration
 
 For more control over M365 log collection, use the Office 365 Management Activity API:
 
@@ -3092,7 +3118,7 @@ function Send-LogAnalyticsData {
 }
 ```
 
-### 6.6 Option C: Use Microsoft Graph API for Audit Logs
+### 7.6 Option C: Use Microsoft Graph API for Audit Logs
 
 For programmatic access to M365 audit logs:
 
@@ -3112,7 +3138,7 @@ $signInLogs = Get-MgAuditLogSignIn -Top 100
 # Note: For Exchange, SharePoint, Teams specific logs, use Management Activity API
 ```
 
-### 6.7 Configure Audit Log Retention in Microsoft 365
+### 7.7 Configure Audit Log Retention in Microsoft 365
 
 **Via Microsoft 365 Compliance Center:**
 1. Go to https://compliance.microsoft.com
@@ -3137,7 +3163,7 @@ New-UnifiedAuditLogRetentionPolicy -Name "Extended Retention - All Logs" `
     -Priority 100
 ```
 
-### 6.8 Query Microsoft 365 Audit Logs
+### 7.8 Query Microsoft 365 Audit Logs
 
 **Via Microsoft 365 Compliance Center:**
 1. Go to https://compliance.microsoft.com
@@ -3175,7 +3201,7 @@ $userLogs = Search-UnifiedAuditLog -StartDate $startDate -EndDate $endDate `
 $exchangeLogs | Export-Csv -Path "ExchangeAuditLogs.csv" -NoTypeInformation
 ```
 
-### 6.9 M365 Audit Log Tables in Log Analytics
+### 7.9 M365 Audit Log Tables in Log Analytics
 
 When using Microsoft Sentinel Office 365 connector, logs appear in these tables:
 
@@ -3235,7 +3261,7 @@ OfficeActivity
 | order by TimeGenerated desc
 ```
 
-### 6.10 Cross-Tenant M365 Log Collection Architecture
+### 7.10 Cross-Tenant M365 Log Collection Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -3282,7 +3308,7 @@ OfficeActivity
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.11 Important Considerations for M365 Audit Logs
+### 7.11 Important Considerations for M365 Audit Logs
 
 1. **Licensing Requirements:**
    - E3/G3: 90-day audit log retention
@@ -3313,9 +3339,9 @@ OfficeActivity
 
 ---
 
-## Step 7: Centralize Logs in Log Analytics Workspace
+## Step 8: Centralize Logs in Log Analytics Workspace
 
-### 7.1 Verify Log Tables
+### 8.1 Verify Log Tables
 
 After configuration, the following tables should be populated in your Log Analytics workspace:
 
@@ -3339,7 +3365,7 @@ After configuration, the following tables should be populated in your Log Analyt
 | `OfficeActivity` | Microsoft 365 audit events |
 | `M365AuditLog_*` | Custom M365 logs (if using API) |
 
-### 7.2 Sample Queries
+### 8.2 Sample Queries
 
 **Query Activity Logs from Atevet17:**
 
@@ -3373,7 +3399,7 @@ Perf
 
 ---
 
-## Step 8: Enable Microsoft Sentinel and Data Connectors
+## Step 9: Enable Microsoft Sentinel and Data Connectors
 
 Now that all log sources are configured and data is flowing to the Log Analytics workspace, you can enable Microsoft Sentinel for advanced security analytics, threat detection, and incident response.
 
@@ -3383,7 +3409,7 @@ Now that all log sources are configured and data is flowing to the Log Analytics
 > - ✅ Troubleshoot any log collection issues without Sentinel complexity
 > - ✅ Sentinel charges apply immediately upon enablement
 
-### 8.1 Overview of Microsoft Sentinel
+### 9.1 Overview of Microsoft Sentinel
 
 Microsoft Sentinel is a cloud-native SIEM (Security Information and Event Management) and SOAR (Security Orchestration, Automation, and Response) solution built on top of Log Analytics. Enabling Sentinel provides:
 
@@ -3394,7 +3420,7 @@ Microsoft Sentinel is a cloud-native SIEM (Security Information and Event Manage
 - ✅ Threat intelligence integration
 - ✅ Investigation and hunting capabilities
 
-### 8.2 Deploy Microsoft Sentinel and Data Connectors using ARM Template
+### 9.2 Deploy Microsoft Sentinel and Data Connectors using ARM Template
 
 The recommended approach for deploying Microsoft Sentinel and data connectors is using an ARM template. This provides:
 - Repeatable, consistent deployments
@@ -3650,7 +3676,7 @@ New-AzResourceGroupDeployment `
     -TemplateParameterFile "sentinel-deployment.parameters.json"
 ```
 
-### 8.3 Configure Data Connectors via Azure Portal
+### 9.3 Configure Data Connectors via Azure Portal
 
 After deploying Sentinel, some data connectors require additional configuration through the Azure Portal due to OAuth consent requirements.
 
@@ -3701,7 +3727,7 @@ After deploying Sentinel, some data connectors require additional configuration 
    - ☑️ Microsoft Defender for Cloud Apps
 6. Click **Apply Changes**
 
-### 8.4 Verify Sentinel Deployment
+### 9.4 Verify Sentinel Deployment
 
 **Via Azure Portal:**
 
@@ -3731,7 +3757,7 @@ union withsource=TableName *
 | order by TableName asc
 ```
 
-### 8.5 Common Data Connectors Reference
+### 9.5 Common Data Connectors Reference
 
 | Connector | Content Hub Solution | Deployment Method | Required Permissions |
 |-----------|---------------------|-------------------|---------------------|
@@ -3743,7 +3769,7 @@ union withsource=TableName *
 | **Azure Key Vault** | Azure Key Vault | Via diagnostic settings | Key Vault Reader |
 | **Azure Firewall** | Azure Firewall | Via diagnostic settings | Network Contributor |
 
-### 8.6 Sentinel Cost Considerations
+### 9.6 Sentinel Cost Considerations
 
 Microsoft Sentinel has additional costs beyond Log Analytics:
 
@@ -3772,7 +3798,7 @@ Microsoft Sentinel has additional costs beyond Log Analytics:
 
 > **Note:** Prices are approximate and vary by region. Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for accurate estimates.
 
-### 8.7 Troubleshooting Data Connectors
+### 9.7 Troubleshooting Data Connectors
 
 **Issue: Connector shows "Connected" but no data**
 
@@ -3817,9 +3843,9 @@ SentinelHealth
 
 ---
 
-## Step 9: Verify Log Collection
+## Step 10: Verify Log Collection
 
-### 9.1 Check Diagnostic Settings
+### 10.1 Check Diagnostic Settings
 
 ```powershell
 # List all diagnostic settings for a subscription
@@ -3829,7 +3855,7 @@ Get-AzDiagnosticSetting -SubscriptionId "<Atevet17-Subscription-ID>"
 Get-AzDiagnosticSetting -ResourceId "<Resource-ID>"
 ```
 
-### 9.2 Verify Data in Log Analytics
+### 10.2 Verify Data in Log Analytics
 
 ```powershell
 # Query Log Analytics
@@ -3846,7 +3872,7 @@ $result = Invoke-AzOperationalInsightsQuery `
 $result.Results
 ```
 
-### 9.3 Monitor Data Ingestion
+### 10.3 Monitor Data Ingestion
 
 In Azure Portal:
 1. Go to **Log Analytics workspace** → `law-central-atevet12`
