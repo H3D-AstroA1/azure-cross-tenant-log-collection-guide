@@ -2890,100 +2890,198 @@ function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor
 function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
 function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
 
-# Supported resource types and their log categories
+# Supported resource types and their log categories with metrics
 $SupportedResourceTypes = @{
-    "Microsoft.KeyVault/vaults" = @(
-        @{ category = "AuditEvent"; enabled = $true },
-        @{ category = "AzurePolicyEvaluationDetails"; enabled = $true }
-    )
-    "Microsoft.Storage/storageAccounts/blobServices" = @(
-        @{ category = "StorageRead"; enabled = $true },
-        @{ category = "StorageWrite"; enabled = $true },
-        @{ category = "StorageDelete"; enabled = $true }
-    )
-    "Microsoft.Storage/storageAccounts/queueServices" = @(
-        @{ category = "StorageRead"; enabled = $true },
-        @{ category = "StorageWrite"; enabled = $true },
-        @{ category = "StorageDelete"; enabled = $true }
-    )
-    "Microsoft.Storage/storageAccounts/tableServices" = @(
-        @{ category = "StorageRead"; enabled = $true },
-        @{ category = "StorageWrite"; enabled = $true },
-        @{ category = "StorageDelete"; enabled = $true }
-    )
-    "Microsoft.Storage/storageAccounts/fileServices" = @(
-        @{ category = "StorageRead"; enabled = $true },
-        @{ category = "StorageWrite"; enabled = $true },
-        @{ category = "StorageDelete"; enabled = $true }
-    )
-    "Microsoft.Web/sites" = @(
-        @{ category = "AppServiceHTTPLogs"; enabled = $true },
-        @{ category = "AppServiceConsoleLogs"; enabled = $true },
-        @{ category = "AppServiceAppLogs"; enabled = $true },
-        @{ category = "AppServiceAuditLogs"; enabled = $true }
-    )
-    "Microsoft.Sql/servers/databases" = @(
-        @{ category = "SQLInsights"; enabled = $true },
-        @{ category = "AutomaticTuning"; enabled = $true },
-        @{ category = "Errors"; enabled = $true },
-        @{ category = "Deadlocks"; enabled = $true }
-    )
-    "Microsoft.Network/networkSecurityGroups" = @(
-        @{ category = "NetworkSecurityGroupEvent"; enabled = $true },
-        @{ category = "NetworkSecurityGroupRuleCounter"; enabled = $true }
-    )
-    "Microsoft.ContainerService/managedClusters" = @(
-        @{ category = "kube-apiserver"; enabled = $true },
-        @{ category = "kube-audit"; enabled = $true },
-        @{ category = "kube-controller-manager"; enabled = $true },
-        @{ category = "kube-scheduler"; enabled = $true },
-        @{ category = "cluster-autoscaler"; enabled = $true }
-    )
-    "Microsoft.DocumentDB/databaseAccounts" = @(
-        @{ category = "DataPlaneRequests"; enabled = $true },
-        @{ category = "QueryRuntimeStatistics"; enabled = $true },
-        @{ category = "ControlPlaneRequests"; enabled = $true }
-    )
-    "Microsoft.EventHub/namespaces" = @(
-        @{ category = "ArchiveLogs"; enabled = $true },
-        @{ category = "OperationalLogs"; enabled = $true },
-        @{ category = "AutoScaleLogs"; enabled = $true }
-    )
-    "Microsoft.ServiceBus/namespaces" = @(
-        @{ category = "OperationalLogs"; enabled = $true }
-    )
-    "Microsoft.Network/applicationGateways" = @(
-        @{ category = "ApplicationGatewayAccessLog"; enabled = $true },
-        @{ category = "ApplicationGatewayPerformanceLog"; enabled = $true },
-        @{ category = "ApplicationGatewayFirewallLog"; enabled = $true }
-    )
-    "Microsoft.Network/azureFirewalls" = @(
-        @{ category = "AzureFirewallApplicationRule"; enabled = $true },
-        @{ category = "AzureFirewallNetworkRule"; enabled = $true },
-        @{ category = "AzureFirewallDnsProxy"; enabled = $true }
-    )
-    "Microsoft.ApiManagement/service" = @(
-        @{ category = "GatewayLogs"; enabled = $true }
-    )
-    "Microsoft.Logic/workflows" = @(
-        @{ category = "WorkflowRuntime"; enabled = $true }
-    )
-    "Microsoft.ContainerRegistry/registries" = @(
-        @{ category = "ContainerRegistryRepositoryEvents"; enabled = $true },
-        @{ category = "ContainerRegistryLoginEvents"; enabled = $true }
-    )
-    "Microsoft.Cache/redis" = @(
-        @{ category = "ConnectedClientList"; enabled = $true }
-    )
-    "Microsoft.DataFactory/factories" = @(
-        @{ category = "ActivityRuns"; enabled = $true },
-        @{ category = "PipelineRuns"; enabled = $true },
-        @{ category = "TriggerRuns"; enabled = $true }
-    )
-    "Microsoft.CognitiveServices/accounts" = @(
-        @{ category = "Audit"; enabled = $true },
-        @{ category = "RequestResponse"; enabled = $true }
-    )
+    "Microsoft.KeyVault/vaults" = @{
+        logs = @(
+            @{ category = "AuditEvent"; enabled = $true },
+            @{ category = "AzurePolicyEvaluationDetails"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Storage/storageAccounts/blobServices" = @{
+        logs = @(
+            @{ category = "StorageRead"; enabled = $true },
+            @{ category = "StorageWrite"; enabled = $true },
+            @{ category = "StorageDelete"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "Transaction"; enabled = $true }
+        )
+    }
+    "Microsoft.Storage/storageAccounts/queueServices" = @{
+        logs = @(
+            @{ category = "StorageRead"; enabled = $true },
+            @{ category = "StorageWrite"; enabled = $true },
+            @{ category = "StorageDelete"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "Transaction"; enabled = $true }
+        )
+    }
+    "Microsoft.Storage/storageAccounts/tableServices" = @{
+        logs = @(
+            @{ category = "StorageRead"; enabled = $true },
+            @{ category = "StorageWrite"; enabled = $true },
+            @{ category = "StorageDelete"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "Transaction"; enabled = $true }
+        )
+    }
+    "Microsoft.Storage/storageAccounts/fileServices" = @{
+        logs = @(
+            @{ category = "StorageRead"; enabled = $true },
+            @{ category = "StorageWrite"; enabled = $true },
+            @{ category = "StorageDelete"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "Transaction"; enabled = $true }
+        )
+    }
+    "Microsoft.Web/sites" = @{
+        logs = @(
+            @{ category = "AppServiceHTTPLogs"; enabled = $true },
+            @{ category = "AppServiceConsoleLogs"; enabled = $true },
+            @{ category = "AppServiceAppLogs"; enabled = $true },
+            @{ category = "AppServiceAuditLogs"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Sql/servers/databases" = @{
+        logs = @(
+            @{ category = "SQLInsights"; enabled = $true },
+            @{ category = "AutomaticTuning"; enabled = $true },
+            @{ category = "Errors"; enabled = $true },
+            @{ category = "Deadlocks"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Network/networkSecurityGroups" = @{
+        logs = @(
+            @{ category = "NetworkSecurityGroupEvent"; enabled = $true },
+            @{ category = "NetworkSecurityGroupRuleCounter"; enabled = $true }
+        )
+        metrics = @()  # NSGs don't support metrics
+    }
+    "Microsoft.ContainerService/managedClusters" = @{
+        logs = @(
+            @{ category = "kube-apiserver"; enabled = $true },
+            @{ category = "kube-audit"; enabled = $true },
+            @{ category = "kube-controller-manager"; enabled = $true },
+            @{ category = "kube-scheduler"; enabled = $true },
+            @{ category = "cluster-autoscaler"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.DocumentDB/databaseAccounts" = @{
+        logs = @(
+            @{ category = "DataPlaneRequests"; enabled = $true },
+            @{ category = "QueryRuntimeStatistics"; enabled = $true },
+            @{ category = "ControlPlaneRequests"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.EventHub/namespaces" = @{
+        logs = @(
+            @{ category = "ArchiveLogs"; enabled = $true },
+            @{ category = "OperationalLogs"; enabled = $true },
+            @{ category = "AutoScaleLogs"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.ServiceBus/namespaces" = @{
+        logs = @(
+            @{ category = "OperationalLogs"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Network/applicationGateways" = @{
+        logs = @(
+            @{ category = "ApplicationGatewayAccessLog"; enabled = $true },
+            @{ category = "ApplicationGatewayPerformanceLog"; enabled = $true },
+            @{ category = "ApplicationGatewayFirewallLog"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Network/azureFirewalls" = @{
+        logs = @(
+            @{ category = "AzureFirewallApplicationRule"; enabled = $true },
+            @{ category = "AzureFirewallNetworkRule"; enabled = $true },
+            @{ category = "AzureFirewallDnsProxy"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.ApiManagement/service" = @{
+        logs = @(
+            @{ category = "GatewayLogs"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Logic/workflows" = @{
+        logs = @(
+            @{ category = "WorkflowRuntime"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.ContainerRegistry/registries" = @{
+        logs = @(
+            @{ category = "ContainerRegistryRepositoryEvents"; enabled = $true },
+            @{ category = "ContainerRegistryLoginEvents"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.Cache/redis" = @{
+        logs = @(
+            @{ category = "ConnectedClientList"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.DataFactory/factories" = @{
+        logs = @(
+            @{ category = "ActivityRuns"; enabled = $true },
+            @{ category = "PipelineRuns"; enabled = $true },
+            @{ category = "TriggerRuns"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
+    "Microsoft.CognitiveServices/accounts" = @{
+        logs = @(
+            @{ category = "Audit"; enabled = $true },
+            @{ category = "RequestResponse"; enabled = $true }
+        )
+        metrics = @(
+            @{ category = "AllMetrics"; enabled = $true }
+        )
+    }
 }
 
 # Results tracking
@@ -3085,7 +3183,8 @@ function Set-ResourceDiagnosticSetting {
         [string]$ResourceType,
         [string]$WorkspaceId,
         [string]$SettingName,
-        [array]$LogCategories
+        [array]$LogCategories,
+        [array]$MetricCategories = @()
     )
     
     try {
@@ -3095,13 +3194,18 @@ function Set-ResourceDiagnosticSetting {
             $logSettings += New-AzDiagnosticSettingLogSettingsObject -Category $cat.category -Enabled $cat.enabled
         }
         
-        # Build the metric settings
+        # Build the metric settings from provided categories
         $metricSettings = @()
-        try {
-            $metricSettings += New-AzDiagnosticSettingMetricSettingsObject -Category "AllMetrics" -Enabled $true
-        }
-        catch {
-            # Some resources don't support metrics
+        if ($MetricCategories -and $MetricCategories.Count -gt 0) {
+            foreach ($metric in $MetricCategories) {
+                try {
+                    $metricSettings += New-AzDiagnosticSettingMetricSettingsObject -Category $metric.category -Enabled $metric.enabled
+                }
+                catch {
+                    # Some resources don't support certain metric categories
+                    Write-Verbose "Could not add metric category $($metric.category): $($_.Exception.Message)"
+                }
+            }
         }
         
         # Create or update the diagnostic setting
@@ -3155,7 +3259,9 @@ function Set-StorageAccountDiagnostics {
         $resourceType = "Microsoft.Storage/storageAccounts/$service"
         
         if ($SupportedResourceTypes.ContainsKey($resourceType)) {
-            $logCategories = $SupportedResourceTypes[$resourceType]
+            $resourceConfig = $SupportedResourceTypes[$resourceType]
+            $logCategories = $resourceConfig.logs
+            $metricCategories = $resourceConfig.metrics
             
             try {
                 $result = Set-ResourceDiagnosticSetting `
@@ -3163,7 +3269,8 @@ function Set-StorageAccountDiagnostics {
                     -ResourceType $resourceType `
                     -WorkspaceId $WorkspaceId `
                     -SettingName $SettingName `
-                    -LogCategories $logCategories
+                    -LogCategories $logCategories `
+                    -MetricCategories $metricCategories
                 
                 $storageResults += $result
             }
@@ -3273,14 +3380,17 @@ foreach ($subId in $SubscriptionIds) {
                     }
                 }
                 else {
-                    $logCategories = $SupportedResourceTypes[$resourceType]
+                    $resourceConfig = $SupportedResourceTypes[$resourceType]
+                    $logCategories = $resourceConfig.logs
+                    $metricCategories = $resourceConfig.metrics
                     
                     $result = Set-ResourceDiagnosticSetting `
                         -ResourceId $resourceId `
                         -ResourceType $resourceType `
                         -WorkspaceId $WorkspaceResourceId `
                         -SettingName $DiagnosticSettingName `
-                        -LogCategories $logCategories
+                        -LogCategories $logCategories `
+                        -MetricCategories $metricCategories
                     
                     if ($result.Success) {
                         Write-Success "      ✓ Configured"
@@ -3841,6 +3951,679 @@ StorageBlobLogs
 | **Microsoft.Cache/redis** | ConnectedClientList |
 | **Microsoft.DataFactory/factories** | ActivityRuns, PipelineRuns, TriggerRuns |
 | **Microsoft.CognitiveServices/accounts** | Audit, RequestResponse |
+
+---
+
+### ARM Templates for Resource Diagnostic Settings
+
+In addition to the PowerShell script above, you can use ARM templates for declarative, repeatable deployments. These templates are useful for Infrastructure as Code (IaC) scenarios.
+
+#### Data Collection Rule Template
+
+Create a file named `data-collection-rule.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "dataCollectionRuleName": {
+            "type": "string",
+            "defaultValue": "dcr-vm-logs-atevet17",
+            "metadata": {
+                "description": "Name of the Data Collection Rule"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": "westus2",
+            "metadata": {
+                "description": "Location for the Data Collection Rule"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "workspaceName": {
+            "type": "string",
+            "defaultValue": "law-central-atevet12",
+            "metadata": {
+                "description": "Name of the Log Analytics workspace (used as destination name)"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/dataCollectionRules",
+            "apiVersion": "2022-06-01",
+            "name": "[parameters('dataCollectionRuleName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "description": "Data Collection Rule for VM logs from Atevet17 to Atevet12",
+                "dataSources": {
+                    "performanceCounters": [
+                        {
+                            "name": "perfCounterDataSource",
+                            "streams": ["Microsoft-Perf"],
+                            "samplingFrequencyInSeconds": 60,
+                            "counterSpecifiers": [
+                                "\\Processor(_Total)\\% Processor Time",
+                                "\\Memory\\Available MBytes",
+                                "\\Memory\\% Committed Bytes In Use",
+                                "\\LogicalDisk(_Total)\\% Free Space",
+                                "\\LogicalDisk(_Total)\\Free Megabytes",
+                                "\\PhysicalDisk(_Total)\\Avg. Disk Queue Length",
+                                "\\Network Interface(*)\\Bytes Total/sec"
+                            ]
+                        }
+                    ],
+                    "windowsEventLogs": [
+                        {
+                            "name": "windowsEventLogs",
+                            "streams": ["Microsoft-Event"],
+                            "xPathQueries": [
+                                "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
+                                "Security!*[System[(band(Keywords,13510798882111488))]]",
+                                "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
+                            ]
+                        }
+                    ],
+                    "syslog": [
+                        {
+                            "name": "syslogDataSource",
+                            "streams": ["Microsoft-Syslog"],
+                            "facilityNames": [
+                                "auth",
+                                "authpriv",
+                                "cron",
+                                "daemon",
+                                "kern",
+                                "syslog",
+                                "user"
+                            ],
+                            "logLevels": [
+                                "Debug",
+                                "Info",
+                                "Notice",
+                                "Warning",
+                                "Error",
+                                "Critical",
+                                "Alert",
+                                "Emergency"
+                            ]
+                        }
+                    ]
+                },
+                "destinations": {
+                    "logAnalytics": [
+                        {
+                            "name": "[parameters('workspaceName')]",
+                            "workspaceResourceId": "[parameters('workspaceResourceId')]"
+                        }
+                    ]
+                },
+                "dataFlows": [
+                    {
+                        "streams": ["Microsoft-Perf"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    },
+                    {
+                        "streams": ["Microsoft-Event"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    },
+                    {
+                        "streams": ["Microsoft-Syslog"],
+                        "destinations": ["[parameters('workspaceName')]"]
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+        "dataCollectionRuleId": {
+            "type": "string",
+            "value": "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dataCollectionRuleName'))]"
+        }
+    }
+}
+```
+
+**Deploy the Data Collection Rule:**
+
+```powershell
+# Connect to Atevet12 (managing tenant)
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Deploy the Data Collection Rule to Atevet12
+New-AzResourceGroupDeployment `
+    -Name "DataCollectionRule" `
+    -ResourceGroupName "rg-central-logging" `
+    -TemplateFile "data-collection-rule.json" `
+    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -workspaceName "law-central-atevet12"
+```
+
+#### Azure Monitor Agent Extension Template
+
+Create a file named `azure-monitor-agent.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the virtual machine"
+            }
+        },
+        "location": {
+            "type": "string",
+            "metadata": {
+                "description": "Location of the virtual machine"
+            }
+        },
+        "osType": {
+            "type": "string",
+            "allowedValues": ["Windows", "Linux"],
+            "metadata": {
+                "description": "Operating system type of the VM"
+            }
+        }
+    },
+    "variables": {
+        "extensionName": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]",
+        "extensionPublisher": "Microsoft.Azure.Monitor",
+        "extensionType": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "apiVersion": "2023-03-01",
+            "name": "[concat(parameters('vmName'), '/', variables('extensionName'))]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "publisher": "[variables('extensionPublisher')]",
+                "type": "[variables('extensionType')]",
+                "typeHandlerVersion": "1.0",
+                "autoUpgradeMinorVersion": true,
+                "enableAutomaticUpgrade": true
+            }
+        }
+    ]
+}
+```
+
+**Deploy the Azure Monitor Agent:**
+
+```powershell
+# Deploy to a Windows VM
+New-AzResourceGroupDeployment `
+    -Name "AzureMonitorAgent-Windows" `
+    -ResourceGroupName "<VM-Resource-Group>" `
+    -TemplateFile "azure-monitor-agent.json" `
+    -vmName "<VM-Name>" `
+    -location "westus2" `
+    -osType "Windows"
+
+# Deploy to a Linux VM
+New-AzResourceGroupDeployment `
+    -Name "AzureMonitorAgent-Linux" `
+    -ResourceGroupName "<VM-Resource-Group>" `
+    -TemplateFile "azure-monitor-agent.json" `
+    -vmName "<VM-Name>" `
+    -location "westus2" `
+    -osType "Linux"
+```
+
+#### DCR Association Template
+
+Create a file named `dcr-association.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "vmName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the virtual machine"
+            }
+        },
+        "dataCollectionRuleId": {
+            "type": "string",
+            "metadata": {
+                "description": "Resource ID of the Data Collection Rule"
+            }
+        }
+    },
+    "variables": {
+        "associationName": "[concat('dcr-association-', parameters('vmName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Compute/virtualMachines/providers/dataCollectionRuleAssociations",
+            "apiVersion": "2022-06-01",
+            "name": "[concat(parameters('vmName'), '/Microsoft.Insights/', variables('associationName'))]",
+            "properties": {
+                "dataCollectionRuleId": "[parameters('dataCollectionRuleId')]"
+            }
+        }
+    ]
+}
+```
+
+**Deploy the DCR Association:**
+
+```powershell
+# Associate DCR with a VM
+New-AzResourceGroupDeployment `
+    -Name "DCRAssociation" `
+    -ResourceGroupName "<VM-Resource-Group>" `
+    -TemplateFile "dcr-association.json" `
+    -vmName "<VM-Name>" `
+    -dataCollectionRuleId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.Insights/dataCollectionRules/dcr-vm-logs-atevet17"
+```
+
+#### Key Vault Diagnostic Settings Template
+
+Create a file named `keyvault-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "keyVaultName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Key Vault"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "SendToLogAnalytics",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('keyVaultName'), '/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    {
+                        "category": "AuditEvent",
+                        "enabled": true
+                    },
+                    {
+                        "category": "AzurePolicyEvaluationDetails",
+                        "enabled": true
+                    }
+                ],
+                "metrics": [
+                    {
+                        "category": "AllMetrics",
+                        "enabled": true
+                    }
+                ]
+            }
+        }
+    ]
+}
+```
+
+**Deploy Key Vault Diagnostic Settings:**
+
+```powershell
+# Deploy for a specific Key Vault
+New-AzResourceGroupDeployment `
+    -Name "KeyVaultDiagnostics" `
+    -ResourceGroupName "<Key-Vault-Resource-Group>" `
+    -TemplateFile "keyvault-diagnostic-settings.json" `
+    -keyVaultName "<Key-Vault-Name>" `
+    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Deploy for all Key Vaults in a subscription
+$keyVaults = Get-AzKeyVault
+foreach ($kv in $keyVaults) {
+    Write-Host "Configuring diagnostics for Key Vault: $($kv.VaultName)"
+    New-AzResourceGroupDeployment `
+        -Name "KeyVaultDiagnostics-$($kv.VaultName)" `
+        -ResourceGroupName $kv.ResourceGroupName `
+        -TemplateFile "keyvault-diagnostic-settings.json" `
+        -keyVaultName $kv.VaultName `
+        -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+}
+```
+
+#### Storage Account Diagnostic Settings Template
+
+Create a file named `storage-diagnostic-settings.json`:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Storage Account"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "SendToLogAnalytics",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts/blobServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/queueServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/tableServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts/fileServices/providers/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    { "category": "StorageRead", "enabled": true },
+                    { "category": "StorageWrite", "enabled": true },
+                    { "category": "StorageDelete", "enabled": true }
+                ],
+                "metrics": [
+                    { "category": "Transaction", "enabled": true }
+                ]
+            }
+        }
+    ]
+}
+```
+
+**Deploy Storage Account Diagnostic Settings:**
+
+```powershell
+# Deploy for a specific Storage Account
+New-AzResourceGroupDeployment `
+    -Name "StorageDiagnostics" `
+    -ResourceGroupName "<Storage-Account-Resource-Group>" `
+    -TemplateFile "storage-diagnostic-settings.json" `
+    -storageAccountName "<Storage-Account-Name>" `
+    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+---
+
+### Azure Policy for Automatic Diagnostic Settings
+
+To automatically configure diagnostic settings for all new resources, you can use Azure Policy. This ensures compliance and reduces manual configuration effort.
+
+#### Using Built-in Policy Initiative
+
+Azure provides built-in policies for enabling diagnostic settings. Here's how to assign them:
+
+```powershell
+# Connect to the managing tenant
+Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
+
+# Set context to the delegated subscription
+Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
+
+# Log Analytics Workspace Resource ID
+$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# Get built-in policy definitions for diagnostic settings
+$policyDefinitions = Get-AzPolicyDefinition | Where-Object {
+    $_.Properties.DisplayName -like "*diagnostic*" -and
+    $_.Properties.DisplayName -like "*Log Analytics*"
+}
+
+# Display available policies
+$policyDefinitions | Select-Object -Property @{N='Name';E={$_.Name}}, @{N='DisplayName';E={$_.Properties.DisplayName}} | Format-Table
+
+# Assign a policy for Key Vault diagnostic settings
+$keyVaultPolicy = Get-AzPolicyDefinition | Where-Object {
+    $_.Properties.DisplayName -like "*Key Vault*" -and
+    $_.Properties.DisplayName -like "*diagnostic*"
+} | Select-Object -First 1
+
+if ($keyVaultPolicy) {
+    New-AzPolicyAssignment `
+        -Name "KeyVaultDiagnosticsPolicy" `
+        -DisplayName "Enable diagnostic settings for Key Vaults" `
+        -PolicyDefinition $keyVaultPolicy `
+        -Scope "/subscriptions/<Atevet17-Subscription-ID>" `
+        -PolicyParameterObject @{
+            "logAnalytics" = $workspaceResourceId
+        } `
+        -Location "westus2" `
+        -IdentityType "SystemAssigned"
+    
+    Write-Host "Policy assigned for Key Vault diagnostic settings"
+}
+```
+
+#### Custom Policy for All Resource Types
+
+Create a custom policy initiative to cover multiple resource types:
+
+```powershell
+# Define resource types and their log categories
+$resourceTypes = @{
+    "Microsoft.KeyVault/vaults" = @("AuditEvent", "AzurePolicyEvaluationDetails")
+    "Microsoft.Storage/storageAccounts/blobServices" = @("StorageRead", "StorageWrite", "StorageDelete")
+    "Microsoft.Web/sites" = @("AppServiceHTTPLogs", "AppServiceConsoleLogs", "AppServiceAppLogs")
+    "Microsoft.Sql/servers/databases" = @("SQLInsights", "AutomaticTuning", "Errors", "Deadlocks")
+    "Microsoft.Network/networkSecurityGroups" = @("NetworkSecurityGroupEvent", "NetworkSecurityGroupRuleCounter")
+}
+
+$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+$subscriptionId = "<Atevet17-Subscription-ID>"
+
+foreach ($resourceType in $resourceTypes.Keys) {
+    $logCategories = $resourceTypes[$resourceType]
+    $policyName = "DiagSettings-$($resourceType.Replace('/', '-').Replace('.', '-'))"
+    
+    Write-Host "Creating policy for $resourceType..."
+    
+    # Create policy definition (simplified example)
+    $policyRule = @{
+        "if" = @{
+            "field" = "type"
+            "equals" = $resourceType
+        }
+        "then" = @{
+            "effect" = "deployIfNotExists"
+            "details" = @{
+                "type" = "Microsoft.Insights/diagnosticSettings"
+                "name" = "SendToLogAnalytics"
+                "existenceCondition" = @{
+                    "field" = "Microsoft.Insights/diagnosticSettings/workspaceId"
+                    "equals" = $workspaceResourceId
+                }
+                "roleDefinitionIds" = @(
+                    "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+                )
+                "deployment" = @{
+                    "properties" = @{
+                        "mode" = "incremental"
+                        "template" = @{
+                            "`$schema" = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+                            "contentVersion" = "1.0.0.0"
+                            "parameters" = @{
+                                "resourceName" = @{ "type" = "string" }
+                                "logAnalyticsWorkspaceId" = @{ "type" = "string" }
+                            }
+                            "resources" = @(
+                                @{
+                                    "type" = "$resourceType/providers/diagnosticSettings"
+                                    "apiVersion" = "2021-05-01-preview"
+                                    "name" = "[concat(parameters('resourceName'), '/Microsoft.Insights/SendToLogAnalytics')]"
+                                    "properties" = @{
+                                        "workspaceId" = "[parameters('logAnalyticsWorkspaceId')]"
+                                        "logs" = $logCategories | ForEach-Object { @{ "category" = $_; "enabled" = $true } }
+                                    }
+                                }
+                            )
+                        }
+                        "parameters" = @{
+                            "resourceName" = @{ "value" = "[field('name')]" }
+                            "logAnalyticsWorkspaceId" = @{ "value" = $workspaceResourceId }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    try {
+        $policyJson = $policyRule | ConvertTo-Json -Depth 20
+        
+        $policy = New-AzPolicyDefinition `
+            -Name $policyName `
+            -DisplayName "Enable diagnostic settings for $resourceType" `
+            -Policy $policyJson `
+            -Mode "Indexed" `
+            -ErrorAction Stop
+        
+        # Assign the policy
+        $assignment = New-AzPolicyAssignment `
+            -Name "$policyName-assignment" `
+            -PolicyDefinition $policy `
+            -Scope "/subscriptions/$subscriptionId" `
+            -Location "westus2" `
+            -IdentityType "SystemAssigned" `
+            -ErrorAction Stop
+        
+        # Grant the managed identity the required permissions
+        New-AzRoleAssignment `
+            -ObjectId $assignment.Identity.PrincipalId `
+            -RoleDefinitionName "Monitoring Contributor" `
+            -Scope "/subscriptions/$subscriptionId" `
+            -ErrorAction SilentlyContinue
+        
+        Write-Host "  Created and assigned policy for $resourceType" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "  Failed to create policy for $resourceType : $_"
+    }
+}
+```
+
+#### Remediation for Existing Resources
+
+After assigning policies, create remediation tasks to apply diagnostic settings to existing resources:
+
+```powershell
+# Get all policy assignments with diagnostic settings
+$assignments = Get-AzPolicyAssignment -Scope "/subscriptions/<Atevet17-Subscription-ID>" |
+    Where-Object { $_.Properties.DisplayName -like "*diagnostic*" }
+
+# Create remediation tasks
+foreach ($assignment in $assignments) {
+    Write-Host "Creating remediation for: $($assignment.Properties.DisplayName)"
+    
+    Start-AzPolicyRemediation `
+        -Name "remediate-$($assignment.Name)" `
+        -PolicyAssignmentId $assignment.PolicyAssignmentId `
+        -Scope "/subscriptions/<Atevet17-Subscription-ID>" `
+        -ErrorAction SilentlyContinue
+}
+
+# Check remediation status
+Get-AzPolicyRemediation -Scope "/subscriptions/<Atevet17-Subscription-ID>" |
+    Select-Object Name, ProvisioningState, @{N='DeploymentStatus';E={$_.DeploymentStatus.TotalDeployments}}
+```
+
+#### Monitor Policy Compliance
+
+Track the compliance status of your diagnostic settings policies:
+
+```powershell
+# Get compliance summary
+$compliance = Get-AzPolicyStateSummary -SubscriptionId "<Atevet17-Subscription-ID>"
+
+Write-Host "Policy Compliance Summary:"
+Write-Host "  Compliant: $($compliance.Results.ResourceDetails.CompliantResources)"
+Write-Host "  Non-Compliant: $($compliance.Results.ResourceDetails.NonCompliantResources)"
+
+# Get detailed non-compliant resources
+Get-AzPolicyState -SubscriptionId "<Atevet17-Subscription-ID>" `
+    -Filter "ComplianceState eq 'NonCompliant'" |
+    Where-Object { $_.PolicyDefinitionName -like "*DiagSettings*" } |
+    Select-Object ResourceId, PolicyDefinitionName, ComplianceState |
+    Format-Table
+```
 
 ---
 
