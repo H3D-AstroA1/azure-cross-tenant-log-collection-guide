@@ -13,8 +13,7 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 5. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
 7. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
-8. [Step 4b: Deploy Azure Policy for VM Monitoring](#step-4b-deploy-azure-policy-for-vm-monitoring)
-9. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
 
 ---
 
@@ -2786,11 +2785,37 @@ This is not an error. The script will update the existing diagnostic setting wit
 
 ## Step 4: Configure Virtual Machine Diagnostic Logs
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures Data Collection Rules (DCR), installs the Azure Monitor Agent, and creates DCR associations for VMs in the delegated subscriptions.
+> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures Data Collection Rules (DCR), installs the Azure Monitor Agent, creates DCR associations for VMs, and optionally deploys Azure Policy for automatic coverage of stopped and new VMs.
 
 Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs, and Linux Syslog data. This step covers configuring the Azure Monitor Agent (AMA) and Data Collection Rules (DCR) for VMs.
 
 > **Note:** Virtual Machines require a different approach than other Azure resources. Instead of diagnostic settings, VMs use the Azure Monitor Agent with Data Collection Rules to collect logs and metrics.
+
+### Why Azure Policy is Important
+
+When running this script, you may encounter VMs that are stopped/deallocated. Azure VM extensions cannot be installed on stopped VMs, resulting in errors like:
+
+```
+Installing Azure Monitor Agent...
+    ✗ Failed to install agent: Cannot modify extensions in the VM when the VM is not running.
+ErrorCode: OperationNotAllowed
+```
+
+The script handles this gracefully by:
+1. **Creating DCR associations** for stopped VMs (these will be active when VMs start)
+2. **Deploying Azure Policy** (when `-DeployPolicy` is enabled) to automatically:
+   - Install the Azure Monitor Agent when stopped VMs come back online
+   - Install the Azure Monitor Agent on newly created VMs
+   - Create DCR associations for new VMs
+
+### Built-in Policy Definitions Reference
+
+| Policy | Definition ID | Purpose |
+|--------|--------------|---------|
+| **AMA Windows** | `ca817e41-e85a-4783-bc7f-dc532d36235e` | Deploy Azure Monitor Agent on Windows VMs |
+| **AMA Linux** | `a4034bc6-ae50-406d-bf76-50f4ee5a7811` | Deploy Azure Monitor Agent on Linux VMs |
+| **DCR Windows** | `eab1f514-22e3-42e3-9a1f-e1dc9199355c` | Associate Windows VMs with DCR |
+| **DCR Linux** | `58e891b9-ce13-4ac3-86e4-ac3e1f20cb07` | Associate Linux VMs with DCR |
 
 ### Prerequisites
 
@@ -2799,25 +2824,31 @@ Before running this script, you need:
 - **Log Analytics Workspace Resource ID** (from Step 1)
 - **Delegated subscription IDs** (from the source tenant)
 - **Contributor** role on the delegated subscriptions
+- **Resource Policy Contributor** role (if deploying Azure Policy with `-DeployPolicy`)
 
 ### Script: `Configure-VMDiagnosticLogs.ps1`
 
 ```powershell
 <#
 .SYNOPSIS
-    Configures Virtual Machine diagnostic logs using Azure Monitor Agent and Data Collection Rules.
+    Configures Virtual Machine diagnostic logs using Azure Monitor Agent, Data Collection Rules, and Azure Policy.
 
 .DESCRIPTION
     This script is used as Step 4 in the Azure Cross-Tenant Log Collection setup.
     It configures VM log collection by:
     - Creating a Data Collection Rule (DCR) for VM logs
-    - Installing the Azure Monitor Agent on VMs
+    - Installing the Azure Monitor Agent on running VMs
     - Creating DCR associations to link VMs to the DCR
+    - Deploying Azure Policy for automatic agent installation on stopped/new VMs
     
     The script supports both Windows and Linux VMs and collects:
     - Performance counters (CPU, Memory, Disk, Network)
     - Windows Event Logs (Application, Security, System)
     - Linux Syslog
+    
+    Azure Policy ensures that:
+    - Stopped VMs get the agent when they come back online
+    - New VMs automatically get the agent and DCR association
 
 .PARAMETER WorkspaceResourceId
     The full resource ID of the Log Analytics workspace to send logs to.
@@ -2834,11 +2865,20 @@ Before running this script, you need:
 .PARAMETER Location
     Azure region for DCR deployment. Default: "westus2"
 
+.PARAMETER DeployPolicy
+    Deploy Azure Policy for automatic agent installation on stopped/new VMs. Default: $true
+
+.PARAMETER PolicyAssignmentPrefix
+    Prefix for policy assignment names. Default: "vm-monitoring"
+
 .PARAMETER SkipAgentInstallation
     Skip Azure Monitor Agent installation (useful if agents are already installed).
 
 .PARAMETER SkipDCRCreation
     Skip DCR creation (useful if DCR already exists).
+
+.PARAMETER SkipRemediation
+    Skip creating remediation tasks for existing non-compliant VMs.
 
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
@@ -2849,9 +2889,12 @@ Before running this script, you need:
 .EXAMPLE
     .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SubscriptionIds @("sub-id-1", "sub-id-2")
 
+.EXAMPLE
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -DeployPolicy $false
+
 .NOTES
     Author: Cross-Tenant Log Collection Guide
-    Requires: Az.Accounts, Az.Resources, Az.Compute, Az.Monitor modules
+    Requires: Az.Accounts, Az.Resources, Az.Compute, Az.Monitor, Az.PolicyInsights modules
     Should be run from the MANAGING tenant after Lighthouse delegation is complete
 #>
 
@@ -2873,10 +2916,19 @@ param(
     [string]$Location = "westus2",
 
     [Parameter(Mandatory = $false)]
+    [bool]$DeployPolicy = $true,
+
+    [Parameter(Mandatory = $false)]
+    [string]$PolicyAssignmentPrefix = "vm-monitoring",
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipAgentInstallation,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipDCRCreation,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipRemediation,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipVerification
@@ -2889,6 +2941,26 @@ function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor
 function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
 function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
 
+# Built-in Azure Policy Definition IDs for Azure Monitor Agent
+$PolicyDefinitions = @{
+    "AMA-Windows" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/ca817e41-e85a-4783-bc7f-dc532d36235e"
+        DisplayName = "Configure Windows virtual machines to run Azure Monitor Agent"
+    }
+    "AMA-Linux" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/a4034bc6-ae50-406d-bf76-50f4ee5a7811"
+        DisplayName = "Configure Linux virtual machines to run Azure Monitor Agent"
+    }
+    "DCR-Windows" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/eab1f514-22e3-42e3-9a1f-e1dc9199355c"
+        DisplayName = "Configure Windows VMs to be associated with a Data Collection Rule"
+    }
+    "DCR-Linux" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/58e891b9-ce13-4ac3-86e4-ac3e1f20cb07"
+        DisplayName = "Configure Linux VMs to be associated with a Data Collection Rule"
+    }
+}
+
 # Results tracking
 $results = @{
     WorkspaceResourceId = $WorkspaceResourceId
@@ -2900,6 +2972,9 @@ $results = @{
     VMsSkipped = @()
     AgentsInstalled = @()
     DCRAssociationsCreated = @()
+    PolicyAssignmentsCreated = @()
+    PolicyAssignmentsFailed = @()
+    RemediationTasksCreated = @()
     Errors = @()
 }
 
@@ -3262,6 +3337,180 @@ foreach ($subId in $SubscriptionIds) {
 }
 #endregion
 
+#region Deploy Azure Policy for Automatic Agent Installation
+if ($DeployPolicy -and $results.DataCollectionRuleId) {
+    Write-Host ""
+    Write-Info "Deploying Azure Policy for automatic agent installation..."
+    Write-Host ""
+    Write-Info "This ensures that:"
+    Write-Host "  - Stopped VMs get the agent when they come back online"
+    Write-Host "  - New VMs automatically get the agent and DCR association"
+    Write-Host ""
+    
+    foreach ($subId in $SubscriptionIds) {
+        Write-Info "Deploying policies to subscription: $subId"
+        
+        try {
+            Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
+            $scope = "/subscriptions/$subId"
+            
+            foreach ($policyKey in $PolicyDefinitions.Keys) {
+                $policyDef = $PolicyDefinitions[$policyKey]
+                $assignmentName = "$PolicyAssignmentPrefix-$policyKey-$($subId.Substring(0,8))"
+                
+                Write-Host "  Assigning policy: $($policyDef.DisplayName)"
+                
+                try {
+                    # Check if assignment already exists
+                    $existingAssignment = Get-AzPolicyAssignment -Name $assignmentName -Scope $scope -ErrorAction SilentlyContinue
+                    
+                    if ($existingAssignment) {
+                        Write-WarningMsg "    Policy assignment already exists. Skipping..."
+                        continue
+                    }
+                    
+                    # Get the policy definition
+                    $definition = Get-AzPolicyDefinition -Id $policyDef.Id -ErrorAction Stop
+                    
+                    # Prepare parameters based on policy type
+                    $policyParams = @{}
+                    if ($policyKey -like "DCR-*") {
+                        $policyParams = @{ "dcrResourceId" = $results.DataCollectionRuleId }
+                    }
+                    
+                    # Create the policy assignment with managed identity
+                    $assignmentParams = @{
+                        Name = $assignmentName
+                        DisplayName = "$($policyDef.DisplayName) - Cross-Tenant Monitoring"
+                        PolicyDefinition = $definition
+                        Scope = $scope
+                        Location = $Location
+                        IdentityType = "SystemAssigned"
+                        ErrorAction = "Stop"
+                    }
+                    
+                    if ($policyParams.Count -gt 0) {
+                        $assignmentParams["PolicyParameterObject"] = $policyParams
+                    }
+                    
+                    $assignment = New-AzPolicyAssignment @assignmentParams
+                    
+                    Write-Success "    ✓ Policy assigned successfully"
+                    $results.PolicyAssignmentsCreated += @{
+                        Name = $assignmentName
+                        PolicyKey = $policyKey
+                        SubscriptionId = $subId
+                        AssignmentId = $assignment.PolicyAssignmentId
+                        PrincipalId = $assignment.Identity.PrincipalId
+                    }
+                    
+                    # Grant the managed identity the required permissions
+                    Write-Host "    Granting permissions to managed identity..."
+                    Start-Sleep -Seconds 5
+                    
+                    try {
+                        New-AzRoleAssignment `
+                            -ObjectId $assignment.Identity.PrincipalId `
+                            -RoleDefinitionName "Contributor" `
+                            -Scope $scope `
+                            -ErrorAction SilentlyContinue | Out-Null
+                        Write-Success "    ✓ Contributor role assigned"
+                    }
+                    catch {
+                        if ($_.Exception.Message -notlike "*already exists*") {
+                            Write-WarningMsg "    ⚠ Could not assign Contributor role"
+                        }
+                    }
+                    
+                    # For DCR policies, also need Monitoring Contributor on the DCR
+                    if ($policyKey -like "DCR-*") {
+                        try {
+                            New-AzRoleAssignment `
+                                -ObjectId $assignment.Identity.PrincipalId `
+                                -RoleDefinitionName "Monitoring Contributor" `
+                                -Scope $results.DataCollectionRuleId `
+                                -ErrorAction SilentlyContinue | Out-Null
+                            Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
+                        }
+                        catch {
+                            if ($_.Exception.Message -notlike "*already exists*") {
+                                Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role"
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-ErrorMsg "    ✗ Failed to assign policy: $($_.Exception.Message)"
+                    $results.PolicyAssignmentsFailed += @{
+                        PolicyKey = $policyKey
+                        SubscriptionId = $subId
+                        Error = $_.Exception.Message
+                    }
+                    $results.Errors += "Policy $policyKey in $subId : $($_.Exception.Message)"
+                }
+            }
+        }
+        catch {
+            Write-ErrorMsg "  ✗ Failed to process subscription for policy: $($_.Exception.Message)"
+            $results.Errors += "Policy deployment in $subId : $($_.Exception.Message)"
+        }
+        
+        Write-Host ""
+    }
+    
+    #region Create Remediation Tasks
+    if (-not $SkipRemediation -and $results.PolicyAssignmentsCreated.Count -gt 0) {
+        Write-Host ""
+        Write-Info "Creating remediation tasks for existing non-compliant VMs..."
+        Write-Host ""
+        Write-Info "Note: Remediation tasks will apply policies to existing running VMs."
+        Write-Info "      Stopped VMs will be remediated automatically when they start."
+        Write-Host ""
+        
+        Write-Host "  Waiting 30 seconds for policy assignments to propagate..."
+        Start-Sleep -Seconds 30
+        
+        foreach ($assignment in $results.PolicyAssignmentsCreated) {
+            $remediationName = "remediate-$($assignment.Name)"
+            
+            Write-Host "  Creating remediation: $remediationName"
+            
+            try {
+                Set-AzContext -SubscriptionId $assignment.SubscriptionId -ErrorAction Stop | Out-Null
+                
+                $remediation = Start-AzPolicyRemediation `
+                    -Name $remediationName `
+                    -PolicyAssignmentId $assignment.AssignmentId `
+                    -Scope "/subscriptions/$($assignment.SubscriptionId)" `
+                    -ErrorAction Stop
+                
+                Write-Success "    ✓ Remediation task created"
+                $results.RemediationTasksCreated += @{
+                    Name = $remediationName
+                    PolicyKey = $assignment.PolicyKey
+                    SubscriptionId = $assignment.SubscriptionId
+                }
+            }
+            catch {
+                Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+            }
+        }
+    }
+    elseif ($SkipRemediation) {
+        Write-Host ""
+        Write-Info "Skipping remediation tasks (--SkipRemediation specified)"
+    }
+    #endregion
+}
+elseif (-not $DeployPolicy) {
+    Write-Host ""
+    Write-Info "Skipping Azure Policy deployment (-DeployPolicy is false)"
+    Write-Host ""
+    Write-WarningMsg "Note: Without Azure Policy, stopped VMs will NOT automatically get the agent"
+    Write-WarningMsg "      when they come back online. You will need to manually re-run this script."
+}
+#endregion
+
 #region Output Summary
 Write-Host ""
 Write-Header "======================================================================"
@@ -3280,6 +3529,12 @@ Write-Host "VMs Failed:                $($results.VMsFailed.Count)"
 Write-Host "Agents Installed:          $($results.AgentsInstalled.Count)"
 Write-Host "DCR Associations Created:  $($results.DCRAssociationsCreated.Count)"
 Write-Host ""
+
+if ($DeployPolicy) {
+    Write-Host "Policy Assignments:        $($results.PolicyAssignmentsCreated.Count)"
+    Write-Host "Remediation Tasks:         $($results.RemediationTasksCreated.Count)"
+    Write-Host ""
+}
 
 if ($results.VMsConfigured.Count -gt 0) {
     Write-Success "Successfully configured VMs:"
@@ -3302,8 +3557,26 @@ if ($results.VMsSkipped.Count -gt 0) {
         Write-WarningMsg "  ... and $($results.VMsSkipped.Count - 10) more"
     }
     Write-Host ""
-    Write-Info "Note: DCR associations were created for skipped VMs."
-    Write-Info "Start the VMs and re-run the script to install the Azure Monitor Agent."
+    if ($DeployPolicy) {
+        Write-Info "Note: Azure Policy has been deployed to automatically install the agent"
+        Write-Info "      when these VMs come back online."
+    }
+    else {
+        Write-Info "Note: DCR associations were created for skipped VMs."
+        Write-Info "Start the VMs and re-run the script to install the Azure Monitor Agent."
+    }
+    Write-Host ""
+}
+
+if ($results.PolicyAssignmentsCreated.Count -gt 0) {
+    Write-Success "Azure Policy Assignments Created:"
+    foreach ($assignment in $results.PolicyAssignmentsCreated) {
+        Write-Success "  ✓ $($assignment.PolicyKey)"
+    }
+    Write-Host ""
+    Write-Info "Azure Policy ensures that:"
+    Write-Host "  - Stopped VMs get the agent when they come back online"
+    Write-Host "  - New VMs automatically get the agent and DCR association"
     Write-Host ""
 }
 
@@ -3327,6 +3600,8 @@ $jsonOutput = @{
     vmsFailedCount = $results.VMsFailed.Count
     agentsInstalledCount = $results.AgentsInstalled.Count
     dcrAssociationsCreatedCount = $results.DCRAssociationsCreated.Count
+    policyAssignmentsCreatedCount = $results.PolicyAssignmentsCreated.Count
+    remediationTasksCreatedCount = $results.RemediationTasksCreated.Count
     errorsCount = $results.Errors.Count
 } | ConvertTo-Json -Depth 2
 
@@ -3357,12 +3632,11 @@ Write-Info "=== Next Steps ==="
 Write-Host ""
 Write-Host "1. Wait 5-15 minutes for VM logs to start flowing"
 Write-Host "2. Run the verification queries in Log Analytics"
-Write-Host "3. IMPORTANT: Deploy Azure Policy for automatic agent installation (see Step 4b below)"
-Write-Host "4. Proceed to Step 5: Configure Azure Resource Diagnostic Logs"
-Write-Host "5. Configure Microsoft Sentinel analytics rules for VM security events"
+Write-Host "3. Proceed to Step 5: Configure Azure Resource Diagnostic Logs"
+Write-Host "4. Configure Microsoft Sentinel analytics rules for VM security events"
 Write-Host ""
 
-if ($results.VMsSkipped.Count -gt 0) {
+if ($results.VMsSkipped.Count -gt 0 -and -not $DeployPolicy) {
     Write-WarningMsg "=== ACTION REQUIRED: Stopped VMs Detected ==="
     Write-Host ""
     Write-Host "The following VMs were skipped because they are not running:"
@@ -3371,10 +3645,20 @@ if ($results.VMsSkipped.Count -gt 0) {
     }
     Write-Host ""
     Write-Host "To ensure these VMs get the Azure Monitor Agent when they start:"
-    Write-Host "  1. Run Step 4b: Deploy-VMMonitoringPolicy.ps1 (RECOMMENDED)"
+    Write-Host "  1. Re-run this script with -DeployPolicy `$true (RECOMMENDED)"
     Write-Host "     This deploys Azure Policy for automatic agent installation"
     Write-Host ""
     Write-Host "  2. OR manually start the VMs and re-run this script"
+    Write-Host ""
+}
+elseif ($results.VMsSkipped.Count -gt 0 -and $DeployPolicy) {
+    Write-Success "=== AUTOMATIC COVERAGE ENABLED ==="
+    Write-Host ""
+    Write-Host "Azure Policy has been deployed. The following stopped VMs will"
+    Write-Host "automatically get the Azure Monitor Agent when they start:"
+    foreach ($skipped in $results.VMsSkipped) {
+        Write-Host "  - $($skipped.Name) ($($skipped.PowerState))"
+    }
     Write-Host ""
 }
 #endregion
@@ -3553,516 +3837,6 @@ Syslog
 2. Check that the Azure Monitor Agent is installed on the VM
 3. Ensure the DCR resource ID is correct
 4. Verify you have permissions on both the VM and DCR
-
----
-
-## Step 4b: Deploy Azure Policy for VM Monitoring
-
-> ⚠️ **IMPORTANT**: This step ensures that the Azure Monitor Agent (AMA) and Data Collection Rule (DCR) associations are automatically applied to:
-> - **Stopped VMs** when they come back online
-> - **New VMs** when they are created
->
-> This is essential for maintaining continuous monitoring coverage without manual intervention.
-
-### Why Azure Policy?
-
-When running the `Configure-VMDiagnosticLogs.ps1` script (Step 4), you may encounter VMs that are stopped/deallocated. Azure VM extensions cannot be installed on stopped VMs, resulting in errors like:
-
-```
-Installing Azure Monitor Agent...
-    ✗ Failed to install agent: Cannot modify extensions in the VM when the VM is not running.
-ErrorCode: OperationNotAllowed
-```
-
-While Step 4 creates DCR associations for stopped VMs (which will be active when VMs start), the Azure Monitor Agent still needs to be installed. **Azure Policy with `DeployIfNotExists` effect** solves this by:
-
-1. **Automatically deploying** the Azure Monitor Agent when VMs start or are created
-2. **Automatically creating** DCR associations for new VMs
-3. **Ensuring compliance** across all VMs in the subscription
-4. **Providing remediation** capabilities for existing non-compliant VMs
-
-### Prerequisites
-
-Before running this script, you need:
-- **Azure Lighthouse delegation** completed (Step 2)
-- **Data Collection Rule** created (from Step 4)
-- **DCR Resource ID** (from Step 4 output)
-- **Contributor** role on the delegated subscriptions
-- **Resource Policy Contributor** role (for policy assignments)
-
-### Built-in Policy Definitions Reference
-
-| Policy | Definition ID | Purpose |
-|--------|--------------|---------|
-| **AMA Windows** | `ca817e41-e85a-4783-bc7f-dc532d36235e` | Deploy Azure Monitor Agent on Windows VMs |
-| **AMA Linux** | `a4034bc6-ae50-406d-bf76-50f4ee5a7811` | Deploy Azure Monitor Agent on Linux VMs |
-| **DCR Windows** | `eab1f514-22e3-42e3-9a1f-e1dc9199355c` | Associate Windows VMs with DCR |
-| **DCR Linux** | `58e891b9-ce13-4ac3-86e4-ac3e1f20cb07` | Associate Linux VMs with DCR |
-
-### Script: `Deploy-VMMonitoringPolicy.ps1`
-
-```powershell
-<#
-.SYNOPSIS
-    Deploys Azure Policy for automatic Azure Monitor Agent installation and DCR association.
-
-.DESCRIPTION
-    This script is used as Step 4b in the Azure Cross-Tenant Log Collection setup.
-    It deploys Azure Policy assignments that automatically:
-    - Install Azure Monitor Agent on Windows and Linux VMs when they start or are created
-    - Associate VMs with a Data Collection Rule for log collection
-    
-    This ensures that stopped VMs get the agent when they come back online,
-    and new VMs are automatically configured for monitoring.
-
-.PARAMETER DataCollectionRuleId
-    The full resource ID of the Data Collection Rule to associate with VMs.
-
-.PARAMETER SubscriptionIds
-    Array of subscription IDs to assign policies to. If not provided, uses current subscription.
-
-.PARAMETER Location
-    Azure region for policy assignment managed identity. Default: "westus2"
-
-.PARAMETER PolicyAssignmentPrefix
-    Prefix for policy assignment names. Default: "vm-monitoring"
-
-.PARAMETER SkipRemediation
-    Skip creating remediation tasks for existing non-compliant VMs.
-
-.EXAMPLE
-    .\Deploy-VMMonitoringPolicy.ps1 -DataCollectionRuleId "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Insights/dataCollectionRules/dcr-vm-logs"
-
-.NOTES
-    Author: Cross-Tenant Log Collection Guide
-    Requires: Az.Accounts, Az.Resources, Az.PolicyInsights modules
-#>
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$DataCollectionRuleId,
-
-    [Parameter(Mandatory = $false)]
-    [string[]]$SubscriptionIds,
-
-    [Parameter(Mandatory = $false)]
-    [string]$Location = "westus2",
-
-    [Parameter(Mandatory = $false)]
-    [string]$PolicyAssignmentPrefix = "vm-monitoring",
-
-    [Parameter(Mandatory = $false)]
-    [switch]$SkipRemediation
-)
-
-# Color functions for output
-function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
-function Write-ErrorMsg { param($Message) Write-Host $Message -ForegroundColor Red }
-function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor Yellow }
-function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
-function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
-
-# Built-in Azure Policy Definition IDs for Azure Monitor Agent
-$PolicyDefinitions = @{
-    "AMA-Windows" = @{
-        Id = "/providers/Microsoft.Authorization/policyDefinitions/ca817e41-e85a-4783-bc7f-dc532d36235e"
-        DisplayName = "Configure Windows virtual machines to run Azure Monitor Agent"
-    }
-    "AMA-Linux" = @{
-        Id = "/providers/Microsoft.Authorization/policyDefinitions/a4034bc6-ae50-406d-bf76-50f4ee5a7811"
-        DisplayName = "Configure Linux virtual machines to run Azure Monitor Agent"
-    }
-    "DCR-Windows" = @{
-        Id = "/providers/Microsoft.Authorization/policyDefinitions/eab1f514-22e3-42e3-9a1f-e1dc9199355c"
-        DisplayName = "Configure Windows VMs to be associated with a Data Collection Rule"
-    }
-    "DCR-Linux" = @{
-        Id = "/providers/Microsoft.Authorization/policyDefinitions/58e891b9-ce13-4ac3-86e4-ac3e1f20cb07"
-        DisplayName = "Configure Linux VMs to be associated with a Data Collection Rule"
-    }
-}
-
-# Results tracking
-$results = @{
-    DataCollectionRuleId = $DataCollectionRuleId
-    SubscriptionsProcessed = @()
-    PolicyAssignmentsCreated = @()
-    PolicyAssignmentsFailed = @()
-    RemediationTasksCreated = @()
-    Errors = @()
-}
-
-# Main script execution
-Write-Host ""
-Write-Header "======================================================================"
-Write-Header "        Deploy Azure Policy for VM Monitoring - Step 4b               "
-Write-Header "======================================================================"
-Write-Host ""
-
-#region Check Azure Connection
-Write-Info "Checking Azure connection..."
-
-$context = Get-AzContext -ErrorAction SilentlyContinue
-if (-not $context) {
-    Write-ErrorMsg "Not connected to Azure. Please connect first."
-    Write-Host ""
-    Write-Info "Run: Connect-AzAccount -TenantId '<MANAGING-TENANT-ID>'"
-    exit 1
-}
-
-Write-Success "Connected as: $($context.Account.Id)"
-Write-Success "Current Tenant: $($context.Tenant.Id)"
-Write-Host ""
-#endregion
-
-#region Validate DCR Resource ID
-Write-Info "Validating Data Collection Rule resource ID..."
-
-if ($DataCollectionRuleId -notmatch "^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Insights/dataCollectionRules/[^/]+$") {
-    Write-ErrorMsg "Invalid Data Collection Rule resource ID format."
-    Write-ErrorMsg "Expected: /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Insights/dataCollectionRules/<name>"
-    exit 1
-}
-
-$dcrIdParts = $DataCollectionRuleId -split "/"
-$dcrSubscriptionId = $dcrIdParts[2]
-$dcrResourceGroup = $dcrIdParts[4]
-$dcrName = $dcrIdParts[8]
-
-Write-Success "  DCR Name: $dcrName"
-Write-Success "  Resource Group: $dcrResourceGroup"
-
-# Verify DCR exists
-try {
-    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
-    $dcr = Get-AzDataCollectionRule -Name $dcrName -ResourceGroupName $dcrResourceGroup -ErrorAction Stop
-    Write-Success "  ✓ Data Collection Rule verified"
-}
-catch {
-    Write-ErrorMsg "  ✗ Data Collection Rule not found. Please run Step 4 first."
-    exit 1
-}
-Write-Host ""
-#endregion
-
-#region Get Subscriptions
-if (-not $SubscriptionIds -or $SubscriptionIds.Count -eq 0) {
-    $SubscriptionIds = @($context.Subscription.Id)
-    Write-Info "No subscriptions specified. Using current subscription."
-}
-
-Write-Info "Subscriptions to configure: $($SubscriptionIds.Count)"
-foreach ($subId in $SubscriptionIds) {
-    Write-Host "  - $subId"
-}
-Write-Host ""
-#endregion
-
-#region Deploy Policy Assignments
-Write-Info "Deploying Azure Policy assignments..."
-Write-Host ""
-
-foreach ($subId in $SubscriptionIds) {
-    $results.SubscriptionsProcessed += $subId
-    
-    Write-Info "Processing subscription: $subId"
-    
-    try {
-        Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
-        $subName = (Get-AzContext).Subscription.Name
-        Write-Host "  Subscription name: $subName"
-        Write-Host ""
-        
-        $scope = "/subscriptions/$subId"
-        
-        foreach ($policyKey in $PolicyDefinitions.Keys) {
-            $policyDef = $PolicyDefinitions[$policyKey]
-            $assignmentName = "$PolicyAssignmentPrefix-$policyKey-$($subId.Substring(0,8))"
-            
-            Write-Host "  Assigning policy: $($policyDef.DisplayName)"
-            
-            try {
-                # Check if assignment already exists
-                $existingAssignment = Get-AzPolicyAssignment -Name $assignmentName -Scope $scope -ErrorAction SilentlyContinue
-                
-                if ($existingAssignment) {
-                    Write-WarningMsg "    Policy assignment already exists. Skipping..."
-                    continue
-                }
-                
-                # Get the policy definition
-                $definition = Get-AzPolicyDefinition -Id $policyDef.Id -ErrorAction Stop
-                
-                # Prepare parameters based on policy type
-                $policyParams = @{}
-                if ($policyKey -like "DCR-*") {
-                    $policyParams = @{ "dcrResourceId" = $DataCollectionRuleId }
-                }
-                
-                # Create the policy assignment with managed identity
-                $assignmentParams = @{
-                    Name = $assignmentName
-                    DisplayName = "$($policyDef.DisplayName) - Cross-Tenant Monitoring"
-                    PolicyDefinition = $definition
-                    Scope = $scope
-                    Location = $Location
-                    IdentityType = "SystemAssigned"
-                    ErrorAction = "Stop"
-                }
-                
-                if ($policyParams.Count -gt 0) {
-                    $assignmentParams["PolicyParameterObject"] = $policyParams
-                }
-                
-                $assignment = New-AzPolicyAssignment @assignmentParams
-                
-                Write-Success "    ✓ Policy assigned successfully"
-                $results.PolicyAssignmentsCreated += @{
-                    Name = $assignmentName
-                    PolicyKey = $policyKey
-                    SubscriptionId = $subId
-                    AssignmentId = $assignment.PolicyAssignmentId
-                    PrincipalId = $assignment.Identity.PrincipalId
-                }
-                
-                # Grant the managed identity the required permissions
-                Write-Host "    Granting permissions to managed identity..."
-                Start-Sleep -Seconds 5
-                
-                try {
-                    New-AzRoleAssignment `
-                        -ObjectId $assignment.Identity.PrincipalId `
-                        -RoleDefinitionName "Contributor" `
-                        -Scope $scope `
-                        -ErrorAction SilentlyContinue | Out-Null
-                    Write-Success "    ✓ Contributor role assigned"
-                }
-                catch {
-                    if ($_.Exception.Message -notlike "*already exists*") {
-                        Write-WarningMsg "    ⚠ Could not assign Contributor role"
-                    }
-                }
-                
-                # For DCR policies, also need Monitoring Contributor on the DCR
-                if ($policyKey -like "DCR-*") {
-                    try {
-                        New-AzRoleAssignment `
-                            -ObjectId $assignment.Identity.PrincipalId `
-                            -RoleDefinitionName "Monitoring Contributor" `
-                            -Scope $DataCollectionRuleId `
-                            -ErrorAction SilentlyContinue | Out-Null
-                        Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
-                    }
-                    catch {
-                        if ($_.Exception.Message -notlike "*already exists*") {
-                            Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role"
-                        }
-                    }
-                }
-            }
-            catch {
-                Write-ErrorMsg "    ✗ Failed to assign policy: $($_.Exception.Message)"
-                $results.PolicyAssignmentsFailed += @{
-                    PolicyKey = $policyKey
-                    SubscriptionId = $subId
-                    Error = $_.Exception.Message
-                }
-                $results.Errors += "Policy $policyKey in $subId : $($_.Exception.Message)"
-            }
-            
-            Write-Host ""
-        }
-    }
-    catch {
-        Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
-        $results.Errors += "Subscription $subId : $($_.Exception.Message)"
-    }
-}
-#endregion
-
-#region Create Remediation Tasks
-if (-not $SkipRemediation -and $results.PolicyAssignmentsCreated.Count -gt 0) {
-    Write-Host ""
-    Write-Info "Creating remediation tasks for existing non-compliant VMs..."
-    Write-Host ""
-    Write-Info "Note: Remediation tasks will apply policies to existing running VMs."
-    Write-Info "      Stopped VMs will be remediated automatically when they start."
-    Write-Host ""
-    
-    Write-Host "  Waiting 30 seconds for policy assignments to propagate..."
-    Start-Sleep -Seconds 30
-    
-    foreach ($assignment in $results.PolicyAssignmentsCreated) {
-        $remediationName = "remediate-$($assignment.Name)"
-        
-        Write-Host "  Creating remediation: $remediationName"
-        
-        try {
-            Set-AzContext -SubscriptionId $assignment.SubscriptionId -ErrorAction Stop | Out-Null
-            
-            $remediation = Start-AzPolicyRemediation `
-                -Name $remediationName `
-                -PolicyAssignmentId $assignment.AssignmentId `
-                -Scope "/subscriptions/$($assignment.SubscriptionId)" `
-                -ErrorAction Stop
-            
-            Write-Success "    ✓ Remediation task created"
-            $results.RemediationTasksCreated += @{
-                Name = $remediationName
-                PolicyKey = $assignment.PolicyKey
-                SubscriptionId = $assignment.SubscriptionId
-            }
-        }
-        catch {
-            Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
-        }
-    }
-}
-elseif ($SkipRemediation) {
-    Write-Host ""
-    Write-Info "Skipping remediation tasks (--SkipRemediation specified)"
-}
-#endregion
-
-#region Output Summary
-Write-Host ""
-Write-Header "======================================================================"
-Write-Header "                              SUMMARY                                 "
-Write-Header "======================================================================"
-Write-Host ""
-
-Write-Host "Data Collection Rule:      $dcrName"
-Write-Host "DCR Resource ID:           $DataCollectionRuleId"
-Write-Host ""
-Write-Host "Subscriptions Processed:   $($results.SubscriptionsProcessed.Count)"
-Write-Host "Policy Assignments:        $($results.PolicyAssignmentsCreated.Count)"
-Write-Host "Remediation Tasks:         $($results.RemediationTasksCreated.Count)"
-Write-Host ""
-
-if ($results.PolicyAssignmentsCreated.Count -gt 0) {
-    Write-Success "Policy Assignments Created:"
-    foreach ($assignment in $results.PolicyAssignmentsCreated) {
-        Write-Success "  ✓ $($assignment.PolicyKey)"
-    }
-    Write-Host ""
-}
-
-if ($results.Errors.Count -gt 0) {
-    Write-WarningMsg "Errors encountered:"
-    foreach ($err in $results.Errors | Select-Object -First 5) {
-        Write-ErrorMsg "  - $err"
-    }
-    Write-Host ""
-}
-
-Write-Info "=== How Azure Policy Works ==="
-Write-Host ""
-Write-Host "The deployed policies use 'DeployIfNotExists' effect which means:"
-Write-Host ""
-Write-Host "1. NEW VMs: When a new VM is created, Azure Policy automatically:"
-Write-Host "   - Installs the Azure Monitor Agent extension"
-Write-Host "   - Creates a DCR association to link the VM to your DCR"
-Write-Host ""
-Write-Host "2. STOPPED VMs: When a stopped VM starts, Azure Policy automatically:"
-Write-Host "   - Detects the VM is non-compliant (missing agent/association)"
-Write-Host "   - Triggers a remediation deployment"
-Write-Host "   - Installs the Azure Monitor Agent"
-Write-Host "   - Creates the DCR association"
-Write-Host ""
-Write-Host "3. EXISTING VMs: The remediation tasks apply policies to running VMs"
-Write-Host "   that don't have the agent or DCR association configured."
-Write-Host ""
-
-Write-Info "=== Next Steps ==="
-Write-Host ""
-Write-Host "1. Wait 15-30 minutes for policy evaluation to complete"
-Write-Host "2. Check policy compliance using: Get-AzPolicyStateSummary"
-Write-Host "3. Start any stopped VMs to trigger automatic agent installation"
-Write-Host "4. Verify VM logs are flowing to Log Analytics"
-Write-Host "5. Proceed to Step 5: Configure Azure Resource Diagnostic Logs"
-Write-Host ""
-#endregion
-
-return $results
-```
-
-### Usage Examples
-
-#### Basic Usage (Single Subscription)
-
-```powershell
-# Connect to the managing tenant first
-Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
-
-# Get the DCR Resource ID from Step 4 output
-$dcrResourceId = "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.Insights/dataCollectionRules/dcr-vm-logs"
-
-# Deploy Azure Policy for VM monitoring
-.\Deploy-VMMonitoringPolicy.ps1 -DataCollectionRuleId $dcrResourceId
-```
-
-#### Multiple Subscriptions
-
-```powershell
-# Deploy policies to multiple delegated subscriptions
-.\Deploy-VMMonitoringPolicy.ps1 `
-    -DataCollectionRuleId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.Insights/dataCollectionRules/dcr-vm-logs" `
-    -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
-```
-
-#### Using Output from Step 4
-
-```powershell
-# If you saved the output from Step 4
-$step4Output = .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central"
-
-# Use the DCR ID from Step 4 output
-.\Deploy-VMMonitoringPolicy.ps1 -DataCollectionRuleId $step4Output.DataCollectionRuleId
-```
-
-### Troubleshooting
-
-#### Permission Denied for Policy Assignment
-
-**Error:** `The client does not have authorization to perform action 'Microsoft.Authorization/policyAssignments/write'`
-
-**Solution:**
-- You need **Resource Policy Contributor** or **Owner** role on the subscription
-- Verify Azure Lighthouse delegation includes sufficient permissions
-
-#### VMs Not Getting Agent After Starting
-
-**Issue:** Stopped VMs don't get the Azure Monitor Agent after starting
-
-**Solution:**
-1. Check policy compliance status:
-   ```powershell
-   Get-AzPolicyState -SubscriptionId "<sub-id>" -Filter "ComplianceState eq 'NonCompliant'"
-   ```
-2. Verify the policy assignment exists and is enabled
-3. Policy evaluation can take 15-30 minutes after VM starts
-4. Manually trigger remediation if needed:
-   ```powershell
-   Start-AzPolicyRemediation -Name "manual-remediation" -PolicyAssignmentId "<assignment-id>"
-   ```
-
-### Verify Policy Compliance
-
-After deploying policies, use these commands to verify compliance:
-
-```powershell
-# Get compliance summary
-$summary = Get-AzPolicyStateSummary
-Write-Host "Compliant: $($summary.Results.ResourceDetails.CompliantResources)"
-Write-Host "Non-Compliant: $($summary.Results.ResourceDetails.NonCompliantResources)"
-
-# List non-compliant VMs
-Get-AzPolicyState -Filter "ComplianceState eq 'NonCompliant'" |
-    Where-Object { $_.PolicyDefinitionName -like "*Monitor*Agent*" } |
-    Select-Object ResourceId, PolicyDefinitionName, ComplianceState
-```
 
 ---
 
