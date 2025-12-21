@@ -3382,7 +3382,16 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     $existingAssignment = Get-AzPolicyAssignment -Name $assignmentName -Scope $scope -ErrorAction SilentlyContinue
                     
                     if ($existingAssignment) {
-                        Write-WarningMsg "    Policy assignment already exists. Skipping..."
+                        Write-WarningMsg "    Policy assignment already exists. Adding to remediation list..."
+                        # Add existing assignment to the list for remediation
+                        $results.PolicyAssignmentsCreated += @{
+                            Name = $assignmentName
+                            PolicyKey = $policyKey
+                            SubscriptionId = $subId
+                            AssignmentId = $existingAssignment.PolicyAssignmentId
+                            PrincipalId = $existingAssignment.Identity.PrincipalId
+                            Existing = $true
+                        }
                         continue
                     }
                     
