@@ -3426,6 +3426,9 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     # NOTE: Using direct parameters instead of splatting to ensure IdentityType is applied correctly
                     Write-Host "    Creating policy assignment with managed identity..."
                     
+                    # Pre-construct the assignment ID (needed for cross-tenant scenarios where object properties may be empty)
+                    $constructedAssignmentId = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments/$assignmentName"
+                    
                     if ($policyParams.Count -gt 0) {
                         $assignment = New-AzPolicyAssignment `
                             -Name $assignmentName `
@@ -3448,16 +3451,24 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                             -ErrorAction Stop
                     }
                     
+                    # Get the assignment ID - try multiple properties, fall back to constructed ID
+                    $assignmentId = $assignment.PolicyAssignmentId
+                    if (-not $assignmentId) { $assignmentId = $assignment.ResourceId }
+                    if (-not $assignmentId) { $assignmentId = $assignment.Id }
+                    if (-not $assignmentId) { $assignmentId = $constructedAssignmentId }
+                    
+                    Write-Host "      Assignment ID: $assignmentId"
+                    
                     # Verify the managed identity was created
                     if (-not $assignment.Identity -or -not $assignment.Identity.PrincipalId) {
                         Write-WarningMsg "    ⚠ Policy assigned but managed identity was NOT created!"
                         Write-WarningMsg "      This is a known issue with some Az module versions."
                         Write-WarningMsg "      Attempting to update the assignment to add identity..."
                         
-                        # Try to update the assignment to add the identity
+                        # Try to update the assignment to add the identity using the constructed ID
                         try {
                             $assignment = Set-AzPolicyAssignment `
-                                -Id $assignment.PolicyAssignmentId `
+                                -Id $assignmentId `
                                 -IdentityType "SystemAssigned" `
                                 -Location $Location `
                                 -ErrorAction Stop
@@ -3484,7 +3495,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         Name = $assignmentName
                         PolicyKey = $policyKey
                         SubscriptionId = $subId
-                        AssignmentId = $assignment.PolicyAssignmentId
+                        AssignmentId = $assignmentId
                         PrincipalId = $assignment.Identity.PrincipalId
                     }
                     
