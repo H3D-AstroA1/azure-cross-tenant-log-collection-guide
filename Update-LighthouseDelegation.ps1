@@ -369,3 +369,78 @@ Write-Host ""
 Write-Host "3. The Azure Policy assignments should now succeed!"
 Write-Host ""
 #endregion
+
+<#
+================================================================================
+                              USAGE EXAMPLES
+================================================================================
+
+IMPORTANT: This script must be run from the SOURCE tenant (e.g., Atevet17),
+           NOT the managing tenant (e.g., Atevet12).
+
+--------------------------------------------------------------------------------
+STEP 1: Connect to the SOURCE tenant
+--------------------------------------------------------------------------------
+
+    Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+
+    # Example:
+    Connect-AzAccount -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+--------------------------------------------------------------------------------
+STEP 2: Run the Update-LighthouseDelegation script
+--------------------------------------------------------------------------------
+
+    .\Update-LighthouseDelegation.ps1 `
+        -ManagingTenantId "<MANAGING-TENANT-ID>" `
+        -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>" `
+        -SubscriptionId "<SUBSCRIPTION-ID-TO-DELEGATE>"
+
+    # Example with actual values:
+    .\Update-LighthouseDelegation.ps1 `
+        -ManagingTenantId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
+        -SecurityGroupObjectId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
+        -SubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+--------------------------------------------------------------------------------
+STEP 3: After delegation is updated, switch to the MANAGING tenant
+--------------------------------------------------------------------------------
+
+    Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
+
+    # Example:
+    Connect-AzAccount -TenantId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+
+--------------------------------------------------------------------------------
+STEP 4: Re-run the Configure-VMDiagnosticLogs script
+--------------------------------------------------------------------------------
+
+    .\Configure-VMDiagnosticLogs.ps1 `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/<RG>/providers/Microsoft.OperationalInsights/workspaces/<WORKSPACE-NAME>"
+
+    # Example:
+    .\Configure-VMDiagnosticLogs.ps1 `
+        -WorkspaceResourceId "/subscriptions/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central"
+
+--------------------------------------------------------------------------------
+OPTIONAL: Custom security group display name
+--------------------------------------------------------------------------------
+
+    .\Update-LighthouseDelegation.ps1 `
+        -ManagingTenantId "<MANAGING-TENANT-ID>" `
+        -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>" `
+        -SubscriptionId "<SUBSCRIPTION-ID>" `
+        -SecurityGroupDisplayName "My-Custom-Lighthouse-Group"
+
+--------------------------------------------------------------------------------
+OPTIONAL: Custom registration definition name
+--------------------------------------------------------------------------------
+
+    .\Update-LighthouseDelegation.ps1 `
+        -ManagingTenantId "<MANAGING-TENANT-ID>" `
+        -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>" `
+        -SubscriptionId "<SUBSCRIPTION-ID>" `
+        -RegistrationDefinitionName "Custom Log Collection Delegation"
+
+================================================================================
+#>
