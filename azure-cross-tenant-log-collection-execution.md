@@ -1379,6 +1379,9 @@ Before running this script, you need:
 .PARAMETER IncludeContributorRole
     Include Contributor role in the delegation. Default: $true
 
+.PARAMETER IncludeResourcePolicyContributorRole
+    Include Resource Policy Contributor role in the delegation. Required for Azure Policy assignments. Default: $true
+
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
 
@@ -1418,6 +1421,9 @@ param(
     [bool]$IncludeContributorRole = $true,
 
     [Parameter(Mandatory = $false)]
+    [bool]$IncludeResourcePolicyContributorRole = $true,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipVerification
 )
 
@@ -1435,6 +1441,7 @@ $roleDefinitions = @{
     "MonitoringReader" = "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
     "LogAnalyticsReader" = "73c42c96-874c-492b-b04d-ab87d138a893"
     "MonitoringContributor" = "749f88d5-cbae-40b8-bcfc-e573ddc772fa"
+    "ResourcePolicyContributor" = "36243c78-bf99-498c-9df9-86d9f8d28608"
 }
 
 # Results tracking
@@ -1527,7 +1534,16 @@ if ($IncludeContributorRole) {
     Write-Success "  Including Contributor role (for configuring diagnostic settings)"
 }
 
-Write-Success "  Roles configured: Reader, Monitoring Reader, Log Analytics Reader$(if($IncludeContributorRole){', Contributor'})"
+if ($IncludeResourcePolicyContributorRole) {
+    $authorizations += @{
+        principalId = $SecurityGroupObjectId
+        roleDefinitionId = $roleDefinitions["ResourcePolicyContributor"]
+        principalIdDisplayName = $SecurityGroupDisplayName
+    }
+    Write-Success "  Including Resource Policy Contributor role (for Azure Policy assignments)"
+}
+
+Write-Success "  Roles configured: Reader, Monitoring Reader, Log Analytics Reader$(if($IncludeContributorRole){', Contributor'})$(if($IncludeResourcePolicyContributorRole){', Resource Policy Contributor'})"
 Write-Host ""
 #endregion
 
@@ -2020,6 +2036,7 @@ Get-AzManagedServicesAssignment
 | **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Configure diagnostic settings |
 | **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data |
 | **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Query Log Analytics |
+| **Resource Policy Contributor** | `36243c78-bf99-498c-9df9-86d9f8d28608` | Create Azure Policy assignments |
 
 ---
 
