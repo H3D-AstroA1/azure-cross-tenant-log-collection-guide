@@ -3384,15 +3384,25 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     if ($existingAssignment) {
                         Write-WarningMsg "    Policy assignment already exists. Adding to remediation list..."
                         # Add existing assignment to the list for remediation
-                        # Note: Get-AzPolicyAssignment returns ResourceId, not PolicyAssignmentId
+                        # Construct the assignment ID manually as a fallback
+                        $assignmentId = $existingAssignment.ResourceId
+                        if (-not $assignmentId) {
+                            $assignmentId = $existingAssignment.PolicyAssignmentId
+                        }
+                        if (-not $assignmentId) {
+                            # Construct manually if properties are not available
+                            $assignmentId = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments/$assignmentName"
+                        }
+                        
                         $results.PolicyAssignmentsCreated += @{
                             Name = $assignmentName
                             PolicyKey = $policyKey
                             SubscriptionId = $subId
-                            AssignmentId = $existingAssignment.ResourceId
+                            AssignmentId = $assignmentId
                             PrincipalId = $existingAssignment.Identity.PrincipalId
                             Existing = $true
                         }
+                        Write-Host "      Assignment ID: $assignmentId"
                         continue
                     }
                     
