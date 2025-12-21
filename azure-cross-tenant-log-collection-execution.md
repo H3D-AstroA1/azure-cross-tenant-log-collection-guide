@@ -3403,6 +3403,13 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                             Existing = $true
                         }
                         Write-Host "      Assignment ID: $assignmentId"
+                        
+                        # Check if existing assignment has a managed identity
+                        if (-not $existingAssignment.Identity.PrincipalId) {
+                            Write-WarningMsg "    ⚠ Existing assignment has no managed identity!"
+                            Write-WarningMsg "      The policy cannot perform remediation without an identity."
+                            Write-WarningMsg "      Delete the assignment and re-run the script to fix this."
+                        }
                         continue
                     }
                     
@@ -3416,23 +3423,63 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     }
                     
                     # Create the policy assignment with managed identity
-                    $assignmentParams = @{
-                        Name = $assignmentName
-                        DisplayName = "$($policyDef.DisplayName) - Cross-Tenant Monitoring"
-                        PolicyDefinition = $definition
-                        Scope = $scope
-                        Location = $Location
-                        IdentityType = "SystemAssigned"
-                        ErrorAction = "Stop"
-                    }
+                    # NOTE: Using direct parameters instead of splatting to ensure IdentityType is applied correctly
+                    Write-Host "    Creating policy assignment with managed identity..."
                     
                     if ($policyParams.Count -gt 0) {
-                        $assignmentParams["PolicyParameterObject"] = $policyParams
+                        $assignment = New-AzPolicyAssignment `
+                            -Name $assignmentName `
+                            -DisplayName "$($policyDef.DisplayName) - Cross-Tenant Monitoring" `
+                            -PolicyDefinition $definition `
+                            -Scope $scope `
+                            -Location $Location `
+                            -IdentityType "SystemAssigned" `
+                            -PolicyParameterObject $policyParams `
+                            -ErrorAction Stop
+                    }
+                    else {
+                        $assignment = New-AzPolicyAssignment `
+                            -Name $assignmentName `
+                            -DisplayName "$($policyDef.DisplayName) - Cross-Tenant Monitoring" `
+                            -PolicyDefinition $definition `
+                            -Scope $scope `
+                            -Location $Location `
+                            -IdentityType "SystemAssigned" `
+                            -ErrorAction Stop
                     }
                     
-                    $assignment = New-AzPolicyAssignment @assignmentParams
+                    # Verify the managed identity was created
+                    if (-not $assignment.Identity -or -not $assignment.Identity.PrincipalId) {
+                        Write-WarningMsg "    ⚠ Policy assigned but managed identity was NOT created!"
+                        Write-WarningMsg "      This is a known issue with some Az module versions."
+                        Write-WarningMsg "      Attempting to update the assignment to add identity..."
+                        
+                        # Try to update the assignment to add the identity
+                        try {
+                            $assignment = Set-AzPolicyAssignment `
+                                -Id $assignment.PolicyAssignmentId `
+                                -IdentityType "SystemAssigned" `
+                                -Location $Location `
+                                -ErrorAction Stop
+                            
+                            if ($assignment.Identity -and $assignment.Identity.PrincipalId) {
+                                Write-Success "    ✓ Managed identity added via update"
+                            }
+                            else {
+                                Write-ErrorMsg "    ✗ Failed to add managed identity. Remediation will not work."
+                                $results.Errors += "Policy $policyKey : Managed identity not created"
+                            }
+                        }
+                        catch {
+                            Write-ErrorMsg "    ✗ Failed to update assignment: $($_.Exception.Message)"
+                            $results.Errors += "Policy $policyKey : $($_.Exception.Message)"
+                        }
+                    }
+                    else {
+                        Write-Success "    ✓ Policy assigned with managed identity"
+                        Write-Host "      Identity Principal ID: $($assignment.Identity.PrincipalId)"
+                    }
                     
-                    Write-Success "    ✓ Policy assigned successfully"
                     $results.PolicyAssignmentsCreated += @{
                         Name = $assignmentName
                         PolicyKey = $policyKey
@@ -3441,39 +3488,74 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         PrincipalId = $assignment.Identity.PrincipalId
                     }
                     
-                    # Grant the managed identity the required permissions
-                    Write-Host "    Granting permissions to managed identity..."
-                    Start-Sleep -Seconds 5
-                    
-                    try {
-                        New-AzRoleAssignment `
-                            -ObjectId $assignment.Identity.PrincipalId `
-                            -RoleDefinitionName "Contributor" `
-                            -Scope $scope `
-                            -ErrorAction SilentlyContinue | Out-Null
-                        Write-Success "    ✓ Contributor role assigned"
-                    }
-                    catch {
-                        if ($_.Exception.Message -notlike "*already exists*") {
-                            Write-WarningMsg "    ⚠ Could not assign Contributor role"
-                        }
-                    }
-                    
-                    # For DCR policies, also need Monitoring Contributor on the DCR
-                    if ($policyKey -like "DCR-*") {
-                        try {
-                            New-AzRoleAssignment `
-                                -ObjectId $assignment.Identity.PrincipalId `
-                                -RoleDefinitionName "Monitoring Contributor" `
-                                -Scope $results.DataCollectionRuleId `
-                                -ErrorAction SilentlyContinue | Out-Null
-                            Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
-                        }
-                        catch {
-                            if ($_.Exception.Message -notlike "*already exists*") {
-                                Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role"
+                    # Only grant permissions if we have a valid identity
+                    if ($assignment.Identity -and $assignment.Identity.PrincipalId) {
+                        # Grant the managed identity the required permissions
+                        Write-Host "    Granting permissions to managed identity..."
+                        Write-Host "    Waiting 15 seconds for identity to propagate in Azure AD..."
+                        Start-Sleep -Seconds 15
+                        
+                        # Retry logic for role assignment (identity propagation can take time)
+                        $maxRetries = 3
+                        $retryCount = 0
+                        $roleAssigned = $false
+                        
+                        while (-not $roleAssigned -and $retryCount -lt $maxRetries) {
+                            try {
+                                New-AzRoleAssignment `
+                                    -ObjectId $assignment.Identity.PrincipalId `
+                                    -RoleDefinitionName "Contributor" `
+                                    -Scope $scope `
+                                    -ErrorAction Stop | Out-Null
+                                Write-Success "    ✓ Contributor role assigned"
+                                $roleAssigned = $true
+                            }
+                            catch {
+                                if ($_.Exception.Message -like "*already exists*") {
+                                    Write-Success "    ✓ Contributor role already assigned"
+                                    $roleAssigned = $true
+                                }
+                                elseif ($_.Exception.Message -like "*does not exist*" -or $_.Exception.Message -like "*PrincipalNotFound*") {
+                                    $retryCount++
+                                    if ($retryCount -lt $maxRetries) {
+                                        Write-WarningMsg "    ⚠ Identity not yet available, retrying in 10 seconds... (attempt $retryCount of $maxRetries)"
+                                        Start-Sleep -Seconds 10
+                                    }
+                                    else {
+                                        Write-ErrorMsg "    ✗ Could not assign Contributor role after $maxRetries attempts"
+                                        Write-ErrorMsg "      The identity may need more time to propagate."
+                                        Write-ErrorMsg "      You can manually assign the role later."
+                                    }
+                                }
+                                else {
+                                    Write-WarningMsg "    ⚠ Could not assign Contributor role: $($_.Exception.Message)"
+                                    $roleAssigned = $true  # Don't retry for other errors
+                                }
                             }
                         }
+                        
+                        # For DCR policies, also need Monitoring Contributor on the DCR
+                        if ($policyKey -like "DCR-*") {
+                            try {
+                                New-AzRoleAssignment `
+                                    -ObjectId $assignment.Identity.PrincipalId `
+                                    -RoleDefinitionName "Monitoring Contributor" `
+                                    -Scope $results.DataCollectionRuleId `
+                                    -ErrorAction Stop | Out-Null
+                                Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
+                            }
+                            catch {
+                                if ($_.Exception.Message -like "*already exists*") {
+                                    Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                                }
+                                else {
+                                    Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role: $($_.Exception.Message)"
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        Write-WarningMsg "    ⚠ Skipping role assignments - no managed identity available"
                     }
                 }
                 catch {
