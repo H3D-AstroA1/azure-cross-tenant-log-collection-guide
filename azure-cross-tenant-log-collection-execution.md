@@ -3364,6 +3364,73 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
     Write-Host "  - New VMs automatically get the agent and DCR association"
     Write-Host ""
     
+    # Function to create policy assignment using REST API (works reliably in cross-tenant scenarios)
+    function New-PolicyAssignmentWithIdentity {
+        param(
+            [string]$SubscriptionId,
+            [string]$AssignmentName,
+            [string]$DisplayName,
+            [string]$PolicyDefinitionId,
+            [string]$Scope,
+            [string]$Location,
+            [hashtable]$Parameters = @{}
+        )
+        
+        $assignmentId = "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/policyAssignments/$AssignmentName"
+        
+        # Build the request body
+        $body = @{
+            location = $Location
+            identity = @{
+                type = "SystemAssigned"
+            }
+            properties = @{
+                displayName = $DisplayName
+                policyDefinitionId = $PolicyDefinitionId
+                scope = $Scope
+                enforcementMode = "Default"
+            }
+        }
+        
+        # Add parameters if provided
+        if ($Parameters.Count -gt 0) {
+            $parameterValues = @{}
+            foreach ($key in $Parameters.Keys) {
+                $parameterValues[$key] = @{ value = $Parameters[$key] }
+            }
+            $body.properties.parameters = $parameterValues
+        }
+        
+        $jsonBody = $body | ConvertTo-Json -Depth 10
+        
+        # Use REST API to create the assignment
+        $response = Invoke-AzRestMethod `
+            -Path "$assignmentId`?api-version=2022-06-01" `
+            -Method PUT `
+            -Payload $jsonBody
+        
+        if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
+            $result = $response.Content | ConvertFrom-Json
+            return @{
+                Success = $true
+                AssignmentId = $assignmentId
+                PrincipalId = $result.identity.principalId
+                TenantId = $result.identity.tenantId
+                Response = $result
+            }
+        }
+        else {
+            $errorContent = $response.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $errorMessage = if ($errorContent.error.message) { $errorContent.error.message } else { $response.Content }
+            return @{
+                Success = $false
+                AssignmentId = $assignmentId
+                Error = $errorMessage
+                StatusCode = $response.StatusCode
+            }
+        }
+    }
+    
     foreach ($subId in $SubscriptionIds) {
         Write-Info "Deploying policies to subscription: $subId"
         
@@ -3413,160 +3480,111 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         continue
                     }
                     
-                    # Get the policy definition
-                    $definition = Get-AzPolicyDefinition -Id $policyDef.Id -ErrorAction Stop
-                    
                     # Prepare parameters based on policy type
                     $policyParams = @{}
                     if ($policyKey -like "DCR-*") {
                         $policyParams = @{ "dcrResourceId" = $results.DataCollectionRuleId }
                     }
                     
-                    # Create the policy assignment with managed identity
-                    # NOTE: Using direct parameters instead of splatting to ensure IdentityType is applied correctly
-                    Write-Host "    Creating policy assignment with managed identity..."
+                    # Create the policy assignment using REST API (more reliable for cross-tenant)
+                    Write-Host "    Creating policy assignment with managed identity (using REST API)..."
                     
-                    # Pre-construct the assignment ID (needed for cross-tenant scenarios where object properties may be empty)
-                    $constructedAssignmentId = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments/$assignmentName"
+                    $assignmentResult = New-PolicyAssignmentWithIdentity `
+                        -SubscriptionId $subId `
+                        -AssignmentName $assignmentName `
+                        -DisplayName "$($policyDef.DisplayName) - Cross-Tenant Monitoring" `
+                        -PolicyDefinitionId $policyDef.Id `
+                        -Scope $scope `
+                        -Location $Location `
+                        -Parameters $policyParams
                     
-                    if ($policyParams.Count -gt 0) {
-                        $assignment = New-AzPolicyAssignment `
-                            -Name $assignmentName `
-                            -DisplayName "$($policyDef.DisplayName) - Cross-Tenant Monitoring" `
-                            -PolicyDefinition $definition `
-                            -Scope $scope `
-                            -Location $Location `
-                            -IdentityType "SystemAssigned" `
-                            -PolicyParameterObject $policyParams `
-                            -ErrorAction Stop
-                    }
-                    else {
-                        $assignment = New-AzPolicyAssignment `
-                            -Name $assignmentName `
-                            -DisplayName "$($policyDef.DisplayName) - Cross-Tenant Monitoring" `
-                            -PolicyDefinition $definition `
-                            -Scope $scope `
-                            -Location $Location `
-                            -IdentityType "SystemAssigned" `
-                            -ErrorAction Stop
-                    }
-                    
-                    # Get the assignment ID - try multiple properties, fall back to constructed ID
-                    $assignmentId = $assignment.PolicyAssignmentId
-                    if (-not $assignmentId) { $assignmentId = $assignment.ResourceId }
-                    if (-not $assignmentId) { $assignmentId = $assignment.Id }
-                    if (-not $assignmentId) { $assignmentId = $constructedAssignmentId }
-                    
-                    Write-Host "      Assignment ID: $assignmentId"
-                    
-                    # Verify the managed identity was created
-                    if (-not $assignment.Identity -or -not $assignment.Identity.PrincipalId) {
-                        Write-WarningMsg "    ⚠ Policy assigned but managed identity was NOT created!"
-                        Write-WarningMsg "      This is a known issue with some Az module versions."
-                        Write-WarningMsg "      Attempting to update the assignment to add identity..."
-                        
-                        # Try to update the assignment to add the identity using the constructed ID
-                        try {
-                            $assignment = Set-AzPolicyAssignment `
-                                -Id $assignmentId `
-                                -IdentityType "SystemAssigned" `
-                                -Location $Location `
-                                -ErrorAction Stop
-                            
-                            if ($assignment.Identity -and $assignment.Identity.PrincipalId) {
-                                Write-Success "    ✓ Managed identity added via update"
-                            }
-                            else {
-                                Write-ErrorMsg "    ✗ Failed to add managed identity. Remediation will not work."
-                                $results.Errors += "Policy $policyKey : Managed identity not created"
-                            }
-                        }
-                        catch {
-                            Write-ErrorMsg "    ✗ Failed to update assignment: $($_.Exception.Message)"
-                            $results.Errors += "Policy $policyKey : $($_.Exception.Message)"
-                        }
-                    }
-                    else {
+                    if ($assignmentResult.Success) {
                         Write-Success "    ✓ Policy assigned with managed identity"
-                        Write-Host "      Identity Principal ID: $($assignment.Identity.PrincipalId)"
-                    }
-                    
-                    $results.PolicyAssignmentsCreated += @{
-                        Name = $assignmentName
-                        PolicyKey = $policyKey
-                        SubscriptionId = $subId
-                        AssignmentId = $assignmentId
-                        PrincipalId = $assignment.Identity.PrincipalId
-                    }
-                    
-                    # Only grant permissions if we have a valid identity
-                    if ($assignment.Identity -and $assignment.Identity.PrincipalId) {
+                        Write-Host "      Assignment ID: $($assignmentResult.AssignmentId)"
+                        Write-Host "      Identity Principal ID: $($assignmentResult.PrincipalId)"
+                        
+                        $results.PolicyAssignmentsCreated += @{
+                            Name = $assignmentName
+                            PolicyKey = $policyKey
+                            SubscriptionId = $subId
+                            AssignmentId = $assignmentResult.AssignmentId
+                            PrincipalId = $assignmentResult.PrincipalId
+                        }
+                        
                         # Grant the managed identity the required permissions
-                        Write-Host "    Granting permissions to managed identity..."
-                        Write-Host "    Waiting 15 seconds for identity to propagate in Azure AD..."
-                        Start-Sleep -Seconds 15
-                        
-                        # Retry logic for role assignment (identity propagation can take time)
-                        $maxRetries = 3
-                        $retryCount = 0
-                        $roleAssigned = $false
-                        
-                        while (-not $roleAssigned -and $retryCount -lt $maxRetries) {
-                            try {
-                                New-AzRoleAssignment `
-                                    -ObjectId $assignment.Identity.PrincipalId `
-                                    -RoleDefinitionName "Contributor" `
-                                    -Scope $scope `
-                                    -ErrorAction Stop | Out-Null
-                                Write-Success "    ✓ Contributor role assigned"
-                                $roleAssigned = $true
-                            }
-                            catch {
-                                if ($_.Exception.Message -like "*already exists*") {
-                                    Write-Success "    ✓ Contributor role already assigned"
+                        if ($assignmentResult.PrincipalId) {
+                            Write-Host "    Granting permissions to managed identity..."
+                            Write-Host "    Waiting 20 seconds for identity to propagate in Azure AD..."
+                            Start-Sleep -Seconds 20
+                            
+                            # Retry logic for role assignment (identity propagation can take time)
+                            $maxRetries = 5
+                            $retryCount = 0
+                            $roleAssigned = $false
+                            
+                            while (-not $roleAssigned -and $retryCount -lt $maxRetries) {
+                                try {
+                                    New-AzRoleAssignment `
+                                        -ObjectId $assignmentResult.PrincipalId `
+                                        -RoleDefinitionName "Contributor" `
+                                        -Scope $scope `
+                                        -ErrorAction Stop | Out-Null
+                                    Write-Success "    ✓ Contributor role assigned"
                                     $roleAssigned = $true
                                 }
-                                elseif ($_.Exception.Message -like "*does not exist*" -or $_.Exception.Message -like "*PrincipalNotFound*") {
-                                    $retryCount++
-                                    if ($retryCount -lt $maxRetries) {
-                                        Write-WarningMsg "    ⚠ Identity not yet available, retrying in 10 seconds... (attempt $retryCount of $maxRetries)"
-                                        Start-Sleep -Seconds 10
+                                catch {
+                                    if ($_.Exception.Message -like "*already exists*" -or $_.Exception.Message -like "*Conflict*") {
+                                        Write-Success "    ✓ Contributor role already assigned"
+                                        $roleAssigned = $true
+                                    }
+                                    elseif ($_.Exception.Message -like "*does not exist*" -or $_.Exception.Message -like "*PrincipalNotFound*") {
+                                        $retryCount++
+                                        if ($retryCount -lt $maxRetries) {
+                                            Write-WarningMsg "    ⚠ Identity not yet available, retrying in 15 seconds... (attempt $retryCount of $maxRetries)"
+                                            Start-Sleep -Seconds 15
+                                        }
+                                        else {
+                                            Write-ErrorMsg "    ✗ Could not assign Contributor role after $maxRetries attempts"
+                                            Write-ErrorMsg "      The identity may need more time to propagate."
+                                            Write-ErrorMsg "      You can manually assign the role later."
+                                        }
                                     }
                                     else {
-                                        Write-ErrorMsg "    ✗ Could not assign Contributor role after $maxRetries attempts"
-                                        Write-ErrorMsg "      The identity may need more time to propagate."
-                                        Write-ErrorMsg "      You can manually assign the role later."
+                                        Write-WarningMsg "    ⚠ Could not assign Contributor role: $($_.Exception.Message)"
+                                        $roleAssigned = $true  # Don't retry for other errors
                                     }
                                 }
-                                else {
-                                    Write-WarningMsg "    ⚠ Could not assign Contributor role: $($_.Exception.Message)"
-                                    $roleAssigned = $true  # Don't retry for other errors
-                                }
                             }
-                        }
-                        
-                        # For DCR policies, also need Monitoring Contributor on the DCR
-                        if ($policyKey -like "DCR-*") {
-                            try {
-                                New-AzRoleAssignment `
-                                    -ObjectId $assignment.Identity.PrincipalId `
-                                    -RoleDefinitionName "Monitoring Contributor" `
-                                    -Scope $results.DataCollectionRuleId `
-                                    -ErrorAction Stop | Out-Null
-                                Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
-                            }
-                            catch {
-                                if ($_.Exception.Message -like "*already exists*") {
-                                    Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                            
+                            # For DCR policies, also need Monitoring Contributor on the DCR
+                            if ($policyKey -like "DCR-*") {
+                                try {
+                                    New-AzRoleAssignment `
+                                        -ObjectId $assignmentResult.PrincipalId `
+                                        -RoleDefinitionName "Monitoring Contributor" `
+                                        -Scope $results.DataCollectionRuleId `
+                                        -ErrorAction Stop | Out-Null
+                                    Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
                                 }
-                                else {
-                                    Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role: $($_.Exception.Message)"
+                                catch {
+                                    if ($_.Exception.Message -like "*already exists*" -or $_.Exception.Message -like "*Conflict*") {
+                                        Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                                    }
+                                    else {
+                                        Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role: $($_.Exception.Message)"
+                                    }
                                 }
                             }
                         }
                     }
                     else {
-                        Write-WarningMsg "    ⚠ Skipping role assignments - no managed identity available"
+                        Write-ErrorMsg "    ✗ Failed to create policy assignment: $($assignmentResult.Error)"
+                        $results.PolicyAssignmentsFailed += @{
+                            PolicyKey = $policyKey
+                            SubscriptionId = $subId
+                            Error = $assignmentResult.Error
+                        }
+                        $results.Errors += "Policy $policyKey in $subId : $($assignmentResult.Error)"
                     }
                 }
                 catch {
