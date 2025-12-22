@@ -1382,6 +1382,10 @@ Before running this script, you need:
 .PARAMETER IncludeResourcePolicyContributorRole
     Include Resource Policy Contributor role in the delegation. Required for Azure Policy assignments. Default: $true
 
+.PARAMETER IncludeUserAccessAdministratorRole
+    Include User Access Administrator role in the delegation. Required for assigning roles to managed identities
+    created by Azure Policy. This is added as an eligible authorization requiring PIM activation. Default: $true
+
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
 
@@ -1424,6 +1428,9 @@ param(
     [bool]$IncludeResourcePolicyContributorRole = $true,
 
     [Parameter(Mandatory = $false)]
+    [bool]$IncludeUserAccessAdministratorRole = $true,
+
+    [Parameter(Mandatory = $false)]
     [switch]$SkipVerification
 )
 
@@ -1442,6 +1449,7 @@ $roleDefinitions = @{
     "LogAnalyticsReader" = "73c42c96-874c-492b-b04d-ab87d138a893"
     "MonitoringContributor" = "749f88d5-cbae-40b8-bcfc-e573ddc772fa"
     "ResourcePolicyContributor" = "36243c78-bf99-498c-9df9-86d9f8d28608"
+    "UserAccessAdministrator" = "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9"
 }
 
 # Results tracking
@@ -1543,7 +1551,23 @@ if ($IncludeResourcePolicyContributorRole) {
     Write-Success "  Including Resource Policy Contributor role (for Azure Policy assignments)"
 }
 
-Write-Success "  Roles configured: Reader, Monitoring Reader, Log Analytics Reader$(if($IncludeContributorRole){', Contributor'})$(if($IncludeResourcePolicyContributorRole){', Resource Policy Contributor'})"
+if ($IncludeUserAccessAdministratorRole) {
+    $authorizations += @{
+        principalId = $SecurityGroupObjectId
+        roleDefinitionId = $roleDefinitions["UserAccessAdministrator"]
+        principalIdDisplayName = $SecurityGroupDisplayName
+        # Note: For production, consider using delegatedRoleDefinitionIds to limit which roles can be assigned
+        # delegatedRoleDefinitionIds = @($roleDefinitions["Contributor"], $roleDefinitions["MonitoringContributor"])
+    }
+    Write-Success "  Including User Access Administrator role (for assigning roles to policy managed identities)"
+    Write-WarningMsg "  ⚠ User Access Administrator is a privileged role - ensure this is required for your scenario"
+}
+
+$rolesList = "Reader, Monitoring Reader, Log Analytics Reader"
+if ($IncludeContributorRole) { $rolesList += ", Contributor" }
+if ($IncludeResourcePolicyContributorRole) { $rolesList += ", Resource Policy Contributor" }
+if ($IncludeUserAccessAdministratorRole) { $rolesList += ", User Access Administrator" }
+Write-Success "  Roles configured: $rolesList"
 Write-Host ""
 #endregion
 
@@ -2037,6 +2061,7 @@ Get-AzManagedServicesAssignment
 | **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data |
 | **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Query Log Analytics |
 | **Resource Policy Contributor** | `36243c78-bf99-498c-9df9-86d9f8d28608` | Create Azure Policy assignments |
+| **User Access Administrator** | `18d7d88d-d35e-4fb5-a5c3-7773c20a72d9` | Assign roles to policy managed identities |
 
 ---
 
@@ -2825,6 +2850,26 @@ The script handles this gracefully by:
    - Install the Azure Monitor Agent on newly created VMs
    - Create DCR associations for new VMs
 
+### Important: Managed Identity Role Assignment
+
+Azure Policy uses managed identities to perform remediation actions. These managed identities are created in the **source tenant** and need **Contributor** role to install VM extensions.
+
+**Cross-Tenant Limitation**: Azure Lighthouse typically cannot assign roles to managed identities created in the source tenant because User Access Administrator is a privileged role with restrictions.
+
+**Solution Options**:
+
+1. **Option A: Source Tenant Admin Assigns Roles** (Recommended)
+   - The script outputs the managed identity principal IDs
+   - A source tenant admin assigns Contributor role to these identities
+   - This is a one-time setup per subscription
+
+2. **Option B: Add User Access Administrator to Lighthouse** (Complex)
+   - Requires adding User Access Administrator as an eligible authorization
+   - Must use `delegatedRoleDefinitionIds` to limit assignable roles
+   - May require Azure AD Premium P2 for PIM activation
+
+The script supports both approaches and will guide you through the process.
+
 ### Built-in Policy Definitions Reference
 
 | Policy | Definition ID | Purpose |
@@ -2866,9 +2911,15 @@ Before running this script, you need:
     Azure Policy ensures that:
     - Stopped VMs get the agent when they come back online
     - New VMs automatically get the agent and DCR association
+    
+    SOURCE TENANT ADMIN MODE:
+    When run with -AssignRolesAsSourceAdmin, the script can be used by a source tenant
+    administrator to assign roles to policy managed identities. This is required when
+    Azure Lighthouse cannot assign roles due to cross-tenant restrictions.
 
 .PARAMETER WorkspaceResourceId
     The full resource ID of the Log Analytics workspace to send logs to.
+    Not required when using -AssignRolesAsSourceAdmin.
 
 .PARAMETER SubscriptionIds
     Array of subscription IDs to configure. If not provided, uses current subscription.
@@ -2900,6 +2951,11 @@ Before running this script, you need:
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
 
+.PARAMETER AssignRolesAsSourceAdmin
+    Run in SOURCE TENANT ADMIN mode to assign roles to policy managed identities.
+    This mode discovers existing policy assignments and assigns Contributor role to their
+    managed identities. Use this when the managing tenant cannot assign roles via Lighthouse.
+
 .EXAMPLE
     .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 
@@ -2909,15 +2965,20 @@ Before running this script, you need:
 .EXAMPLE
     .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -DeployPolicy $false
 
+.EXAMPLE
+    # SOURCE TENANT ADMIN: Assign roles to policy managed identities
+    .\Configure-VMDiagnosticLogs.ps1 -AssignRolesAsSourceAdmin -SubscriptionIds @("sub-id-1")
+
 .NOTES
     Author: Cross-Tenant Log Collection Guide
     Requires: Az.Accounts, Az.Resources, Az.Compute, Az.Monitor, Az.PolicyInsights modules
     Should be run from the MANAGING tenant after Lighthouse delegation is complete
+    OR from the SOURCE tenant with -AssignRolesAsSourceAdmin for role assignment
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$WorkspaceResourceId,
 
     [Parameter(Mandatory = $false)]
@@ -2948,7 +3009,10 @@ param(
     [switch]$SkipRemediation,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipVerification
+    [switch]$SkipVerification,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$AssignRolesAsSourceAdmin
 )
 
 # Color functions for output
@@ -3018,7 +3082,277 @@ Write-Success "Current Tenant: $($context.Tenant.Id)"
 Write-Host ""
 #endregion
 
+#region Source Tenant Admin Mode - Assign Roles to Policy Managed Identities
+if ($AssignRolesAsSourceAdmin) {
+    Write-Host ""
+    Write-Header "======================================================================"
+    Write-Header "    SOURCE TENANT ADMIN MODE - Assign Roles to Policy Identities     "
+    Write-Header "======================================================================"
+    Write-Host ""
+    
+    Write-Info "This mode assigns Contributor role to policy managed identities."
+    Write-Info "Run this after the managing tenant has deployed Azure Policy assignments."
+    Write-Host ""
+    
+    # Get subscriptions
+    if (-not $SubscriptionIds -or $SubscriptionIds.Count -eq 0) {
+        $SubscriptionIds = @($context.Subscription.Id)
+        Write-Info "No subscriptions specified. Using current subscription: $($context.Subscription.Name)"
+    }
+    
+    $adminResults = @{
+        SubscriptionsProcessed = @()
+        PolicyAssignmentsFound = @()
+        RoleAssignmentsCreated = @()
+        RoleAssignmentsFailed = @()
+        RemediationTasksCreated = @()
+        Errors = @()
+    }
+    
+    foreach ($subId in $SubscriptionIds) {
+        Write-Info "Processing subscription: $subId"
+        $adminResults.SubscriptionsProcessed += $subId
+        
+        try {
+            Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
+            $subName = (Get-AzContext).Subscription.Name
+            Write-Host "  Subscription name: $subName"
+            
+            $scope = "/subscriptions/$subId"
+            
+            # Discover policy assignments with managed identities
+            Write-Host "  Discovering policy assignments with managed identities..."
+            
+            $policyAssignments = Get-AzPolicyAssignment -Scope $scope -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like "$PolicyAssignmentPrefix*" -and $_.Identity -and $_.Identity.PrincipalId }
+            
+            if (-not $policyAssignments -or $policyAssignments.Count -eq 0) {
+                Write-WarningMsg "  No policy assignments found with prefix '$PolicyAssignmentPrefix'"
+                Write-Host "  Looking for all policy assignments with managed identities..."
+                
+                $policyAssignments = Get-AzPolicyAssignment -Scope $scope -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Identity -and $_.Identity.PrincipalId }
+            }
+            
+            if (-not $policyAssignments -or $policyAssignments.Count -eq 0) {
+                Write-WarningMsg "  No policy assignments with managed identities found in this subscription."
+                continue
+            }
+            
+            Write-Success "  Found $($policyAssignments.Count) policy assignment(s) with managed identities"
+            Write-Host ""
+            
+            foreach ($assignment in $policyAssignments) {
+                $principalId = $assignment.Identity.PrincipalId
+                $displayName = $assignment.Properties.DisplayName
+                $assignmentId = $assignment.PolicyAssignmentId
+                if (-not $assignmentId) {
+                    $assignmentId = $assignment.ResourceId
+                }
+                if (-not $assignmentId) {
+                    $assignmentId = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments/$($assignment.Name)"
+                }
+                
+                Write-Host "  Policy: $displayName"
+                Write-Host "    Principal ID: $principalId"
+                
+                $adminResults.PolicyAssignmentsFound += @{
+                    Name = $assignment.Name
+                    DisplayName = $displayName
+                    PrincipalId = $principalId
+                    AssignmentId = $assignmentId
+                    SubscriptionId = $subId
+                }
+                
+                # Check if Contributor role is already assigned
+                $existingRole = Get-AzRoleAssignment -ObjectId $principalId -Scope $scope -RoleDefinitionName "Contributor" -ErrorAction SilentlyContinue
+                
+                if ($existingRole) {
+                    Write-Success "    ✓ Contributor role already assigned"
+                    $adminResults.RoleAssignmentsCreated += @{
+                        PrincipalId = $principalId
+                        Role = "Contributor"
+                        Scope = $scope
+                        AlreadyExisted = $true
+                    }
+                }
+                else {
+                    Write-Host "    Assigning Contributor role..."
+                    try {
+                        New-AzRoleAssignment `
+                            -ObjectId $principalId `
+                            -RoleDefinitionName "Contributor" `
+                            -Scope $scope `
+                            -ErrorAction Stop | Out-Null
+                        
+                        Write-Success "    ✓ Contributor role assigned"
+                        $adminResults.RoleAssignmentsCreated += @{
+                            PrincipalId = $principalId
+                            Role = "Contributor"
+                            Scope = $scope
+                            AlreadyExisted = $false
+                        }
+                    }
+                    catch {
+                        Write-ErrorMsg "    ✗ Failed to assign role: $($_.Exception.Message)"
+                        $adminResults.RoleAssignmentsFailed += @{
+                            PrincipalId = $principalId
+                            Role = "Contributor"
+                            Scope = $scope
+                            Error = $_.Exception.Message
+                        }
+                        $adminResults.Errors += "Role assignment for $principalId : $($_.Exception.Message)"
+                    }
+                }
+                
+                # For DCR-related policies, also assign Monitoring Contributor on the DCR if we have the DCR ID
+                if ($assignment.Name -like "*DCR*" -and $DataCollectionRuleName) {
+                    # Try to find the DCR
+                    $dcr = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ErrorAction SilentlyContinue | Select-Object -First 1
+                    if ($dcr) {
+                        Write-Host "    Assigning Monitoring Contributor on DCR..."
+                        $existingDcrRole = Get-AzRoleAssignment -ObjectId $principalId -Scope $dcr.Id -RoleDefinitionName "Monitoring Contributor" -ErrorAction SilentlyContinue
+                        
+                        if ($existingDcrRole) {
+                            Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                        }
+                        else {
+                            try {
+                                New-AzRoleAssignment `
+                                    -ObjectId $principalId `
+                                    -RoleDefinitionName "Monitoring Contributor" `
+                                    -Scope $dcr.Id `
+                                    -ErrorAction Stop | Out-Null
+                                
+                                Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
+                                $adminResults.RoleAssignmentsCreated += @{
+                                    PrincipalId = $principalId
+                                    Role = "Monitoring Contributor"
+                                    Scope = $dcr.Id
+                                    AlreadyExisted = $false
+                                }
+                            }
+                            catch {
+                                Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor on DCR: $($_.Exception.Message)"
+                            }
+                        }
+                    }
+                }
+                
+                Write-Host ""
+            }
+            
+            # Create remediation tasks if roles were assigned
+            if (-not $SkipRemediation -and $adminResults.RoleAssignmentsCreated.Count -gt 0) {
+                Write-Host ""
+                Write-Info "Creating remediation tasks for existing non-compliant VMs..."
+                Write-Host ""
+                
+                Write-Host "  Waiting 15 seconds for role assignments to propagate..."
+                Start-Sleep -Seconds 15
+                
+                foreach ($found in ($adminResults.PolicyAssignmentsFound | Where-Object { $_.SubscriptionId -eq $subId })) {
+                    $remediationName = "remediate-$($found.Name)-$(Get-Date -Format 'yyyyMMddHHmmss')"
+                    
+                    Write-Host "  Creating remediation: $remediationName"
+                    
+                    try {
+                        $remediation = Start-AzPolicyRemediation `
+                            -Name $remediationName `
+                            -PolicyAssignmentId $found.AssignmentId `
+                            -Scope $scope `
+                            -ErrorAction Stop
+                        
+                        Write-Success "    ✓ Remediation task created"
+                        $adminResults.RemediationTasksCreated += @{
+                            Name = $remediationName
+                            PolicyAssignment = $found.Name
+                            Status = $remediation.ProvisioningState
+                        }
+                    }
+                    catch {
+                        Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                        $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
+                    }
+                }
+            }
+        }
+        catch {
+            Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
+            $adminResults.Errors += "Subscription $subId : $($_.Exception.Message)"
+        }
+        
+        Write-Host ""
+    }
+    
+    # Output summary for source tenant admin mode
+    Write-Host ""
+    Write-Header "======================================================================"
+    Write-Header "                              SUMMARY                                 "
+    Write-Header "======================================================================"
+    Write-Host ""
+    
+    Write-Host "Subscriptions Processed:   $($adminResults.SubscriptionsProcessed.Count)"
+    Write-Host "Policy Assignments Found:  $($adminResults.PolicyAssignmentsFound.Count)"
+    Write-Host "Role Assignments Created:  $($adminResults.RoleAssignmentsCreated.Count)"
+    Write-Host "Role Assignments Failed:   $($adminResults.RoleAssignmentsFailed.Count)"
+    Write-Host "Remediation Tasks Created: $($adminResults.RemediationTasksCreated.Count)"
+    Write-Host ""
+    
+    if ($adminResults.RoleAssignmentsCreated.Count -gt 0) {
+        Write-Success "Successfully assigned roles:"
+        foreach ($role in $adminResults.RoleAssignmentsCreated) {
+            $status = if ($role.AlreadyExisted) { "(already existed)" } else { "(newly assigned)" }
+            Write-Success "  ✓ $($role.Role) to $($role.PrincipalId) $status"
+        }
+        Write-Host ""
+    }
+    
+    if ($adminResults.RoleAssignmentsFailed.Count -gt 0) {
+        Write-ErrorMsg "Failed role assignments:"
+        foreach ($failed in $adminResults.RoleAssignmentsFailed) {
+            Write-ErrorMsg "  ✗ $($failed.Role) to $($failed.PrincipalId)"
+            Write-ErrorMsg "    Error: $($failed.Error)"
+        }
+        Write-Host ""
+    }
+    
+    if ($adminResults.RemediationTasksCreated.Count -gt 0) {
+        Write-Success "Remediation tasks created:"
+        foreach ($task in $adminResults.RemediationTasksCreated) {
+            Write-Success "  ✓ $($task.Name) - $($task.Status)"
+        }
+        Write-Host ""
+    }
+    
+    if ($adminResults.Errors.Count -gt 0) {
+        Write-WarningMsg "Errors encountered:"
+        foreach ($err in $adminResults.Errors) {
+            Write-ErrorMsg "  - $err"
+        }
+        Write-Host ""
+    }
+    
+    Write-Info "=== Next Steps ==="
+    Write-Host ""
+    Write-Host "1. Wait for remediation tasks to complete (check status in Azure Portal)"
+    Write-Host "2. Verify VMs are getting the Azure Monitor Agent installed"
+    Write-Host "3. Check Log Analytics workspace for incoming VM data"
+    Write-Host ""
+    
+    # Return results and exit (don't continue with normal mode)
+    return $adminResults
+}
+#endregion
+
 #region Validate Workspace Resource ID
+# WorkspaceResourceId is required when not in AssignRolesAsSourceAdmin mode
+if (-not $WorkspaceResourceId) {
+    Write-ErrorMsg "WorkspaceResourceId is required."
+    Write-ErrorMsg "Use -WorkspaceResourceId parameter or -AssignRolesAsSourceAdmin for source tenant admin mode."
+    exit 1
+}
+
 Write-Info "Validating workspace resource ID..."
 
 if ($WorkspaceResourceId -notmatch "^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.OperationalInsights/workspaces/[^/]+$") {
@@ -3502,6 +3836,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         Write-Success "    ✓ Policy assigned with managed identity"
                         Write-Host "      Assignment ID: $($assignmentResult.AssignmentId)"
                         Write-Host "      Identity Principal ID: $($assignmentResult.PrincipalId)"
+                        Write-Host "      Identity Tenant ID: $($assignmentResult.TenantId)"
                         
                         $results.PolicyAssignmentsCreated += @{
                             Name = $assignmentName
@@ -3509,20 +3844,25 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                             SubscriptionId = $subId
                             AssignmentId = $assignmentResult.AssignmentId
                             PrincipalId = $assignmentResult.PrincipalId
+                            TenantId = $assignmentResult.TenantId
+                            RoleAssigned = $false
                         }
                         
-                        # Grant the managed identity the required permissions
+                        # Attempt to grant the managed identity the required permissions
+                        # This may fail in cross-tenant scenarios without User Access Administrator
                         if ($assignmentResult.PrincipalId) {
-                            Write-Host "    Granting permissions to managed identity..."
+                            Write-Host "    Attempting to grant permissions to managed identity..."
                             Write-Host "    Waiting 20 seconds for identity to propagate in Azure AD..."
                             Start-Sleep -Seconds 20
                             
                             # Retry logic for role assignment (identity propagation can take time)
-                            $maxRetries = 5
+                            $maxRetries = 3
                             $retryCount = 0
                             $roleAssigned = $false
+                            $roleAssignmentFailed = $false
+                            $roleAssignmentError = ""
                             
-                            while (-not $roleAssigned -and $retryCount -lt $maxRetries) {
+                            while (-not $roleAssigned -and -not $roleAssignmentFailed -and $retryCount -lt $maxRetries) {
                                 try {
                                     New-AzRoleAssignment `
                                         -ObjectId $assignmentResult.PrincipalId `
@@ -3531,33 +3871,57 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                                         -ErrorAction Stop | Out-Null
                                     Write-Success "    ✓ Contributor role assigned"
                                     $roleAssigned = $true
+                                    # Update the results
+                                    $results.PolicyAssignmentsCreated[-1].RoleAssigned = $true
                                 }
                                 catch {
                                     if ($_.Exception.Message -like "*already exists*" -or $_.Exception.Message -like "*Conflict*") {
                                         Write-Success "    ✓ Contributor role already assigned"
                                         $roleAssigned = $true
+                                        $results.PolicyAssignmentsCreated[-1].RoleAssigned = $true
                                     }
                                     elseif ($_.Exception.Message -like "*does not exist*" -or $_.Exception.Message -like "*PrincipalNotFound*") {
                                         $retryCount++
                                         if ($retryCount -lt $maxRetries) {
-                                            Write-WarningMsg "    ⚠ Identity not yet available, retrying in 15 seconds... (attempt $retryCount of $maxRetries)"
-                                            Start-Sleep -Seconds 15
+                                            Write-WarningMsg "    ⚠ Identity not yet available, retrying in 10 seconds... (attempt $retryCount of $maxRetries)"
+                                            Start-Sleep -Seconds 10
                                         }
                                         else {
-                                            Write-ErrorMsg "    ✗ Could not assign Contributor role after $maxRetries attempts"
-                                            Write-ErrorMsg "      The identity may need more time to propagate."
-                                            Write-ErrorMsg "      You can manually assign the role later."
+                                            $roleAssignmentFailed = $true
+                                            $roleAssignmentError = "Identity not found after $maxRetries attempts"
                                         }
                                     }
+                                    elseif ($_.Exception.Message -like "*AuthorizationFailed*" -or $_.Exception.Message -like "*does not have authorization*") {
+                                        # This is expected in cross-tenant scenarios without User Access Administrator
+                                        $roleAssignmentFailed = $true
+                                        $roleAssignmentError = "No permission to assign roles (User Access Administrator required)"
+                                    }
                                     else {
-                                        Write-WarningMsg "    ⚠ Could not assign Contributor role: $($_.Exception.Message)"
-                                        $roleAssigned = $true  # Don't retry for other errors
+                                        $roleAssignmentFailed = $true
+                                        $roleAssignmentError = $_.Exception.Message
                                     }
                                 }
                             }
                             
+                            if ($roleAssignmentFailed) {
+                                Write-WarningMsg "    ⚠ Could not assign Contributor role: $roleAssignmentError"
+                                Write-WarningMsg "    → Manual role assignment required (see instructions at end of script)"
+                                
+                                # Track identities that need manual role assignment
+                                if (-not $results.IdentitiesNeedingRoles) {
+                                    $results.IdentitiesNeedingRoles = @()
+                                }
+                                $results.IdentitiesNeedingRoles += @{
+                                    PrincipalId = $assignmentResult.PrincipalId
+                                    PolicyKey = $policyKey
+                                    SubscriptionId = $subId
+                                    Scope = $scope
+                                    RoleNeeded = "Contributor"
+                                }
+                            }
+                            
                             # For DCR policies, also need Monitoring Contributor on the DCR
-                            if ($policyKey -like "DCR-*") {
+                            if ($policyKey -like "DCR-*" -and $roleAssigned) {
                                 try {
                                     New-AzRoleAssignment `
                                         -ObjectId $assignmentResult.PrincipalId `
@@ -3571,7 +3935,17 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                                         Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
                                     }
                                     else {
-                                        Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role: $($_.Exception.Message)"
+                                        Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role on DCR"
+                                        if (-not $results.IdentitiesNeedingRoles) {
+                                            $results.IdentitiesNeedingRoles = @()
+                                        }
+                                        $results.IdentitiesNeedingRoles += @{
+                                            PrincipalId = $assignmentResult.PrincipalId
+                                            PolicyKey = $policyKey
+                                            SubscriptionId = $subId
+                                            Scope = $results.DataCollectionRuleId
+                                            RoleNeeded = "Monitoring Contributor"
+                                        }
                                     }
                                 }
                             }
@@ -3809,6 +4183,81 @@ elseif ($results.VMsSkipped.Count -gt 0 -and $DeployPolicy) {
     }
     Write-Host ""
 }
+
+#region Manual Role Assignment Instructions
+if ($results.IdentitiesNeedingRoles -and $results.IdentitiesNeedingRoles.Count -gt 0) {
+    Write-Host ""
+    Write-ErrorMsg "╔══════════════════════════════════════════════════════════════════════╗"
+    Write-ErrorMsg "║  ACTION REQUIRED: Manual Role Assignment Needed                       ║"
+    Write-ErrorMsg "╚══════════════════════════════════════════════════════════════════════╝"
+    Write-Host ""
+    Write-Host "The script could not assign roles to the policy managed identities."
+    Write-Host "This is expected in cross-tenant scenarios without User Access Administrator."
+    Write-Host ""
+    Write-Host "A SOURCE TENANT ADMIN must run the following commands to enable remediation:"
+    Write-Host ""
+    Write-Info "# Connect to the SOURCE tenant (where the VMs are located)"
+    Write-Host "Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'"
+    Write-Host ""
+    
+    # Group by subscription for cleaner output
+    $groupedBySubscription = $results.IdentitiesNeedingRoles | Group-Object -Property SubscriptionId
+    
+    foreach ($subGroup in $groupedBySubscription) {
+        Write-Info "# For subscription: $($subGroup.Name)"
+        Write-Host "Set-AzContext -SubscriptionId '$($subGroup.Name)'"
+        Write-Host ""
+        
+        foreach ($identity in $subGroup.Group) {
+            Write-Host "# Assign $($identity.RoleNeeded) for $($identity.PolicyKey) policy"
+            Write-Host "New-AzRoleAssignment ``"
+            Write-Host "    -ObjectId '$($identity.PrincipalId)' ``"
+            Write-Host "    -RoleDefinitionName '$($identity.RoleNeeded)' ``"
+            Write-Host "    -Scope '$($identity.Scope)'"
+            Write-Host ""
+        }
+    }
+    
+    Write-Host "After assigning the roles, run remediation tasks to apply policies to existing VMs:"
+    Write-Host ""
+    Write-Info "# Create remediation tasks"
+    foreach ($assignment in $results.PolicyAssignmentsCreated | Where-Object { -not $_.RoleAssigned }) {
+        Write-Host "Start-AzPolicyRemediation -Name 'remediate-$($assignment.Name)' -PolicyAssignmentId '$($assignment.AssignmentId)' -Scope '/subscriptions/$($assignment.SubscriptionId)'"
+    }
+    Write-Host ""
+    
+    # Output as a single script block for easy copy-paste
+    Write-Info "=== Complete Script for Source Tenant Admin ==="
+    Write-Host ""
+    Write-Host "# Copy and run this entire script block in the SOURCE tenant:"
+    Write-Host "# ----------------------------------------------------------------"
+    
+    $scriptBlock = @"
+# Connect to the source tenant
+Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'
+
+"@
+    
+    foreach ($subGroup in $groupedBySubscription) {
+        $scriptBlock += "# Subscription: $($subGroup.Name)`n"
+        $scriptBlock += "Set-AzContext -SubscriptionId '$($subGroup.Name)'`n`n"
+        
+        foreach ($identity in $subGroup.Group) {
+            $scriptBlock += "# $($identity.PolicyKey) - $($identity.RoleNeeded)`n"
+            $scriptBlock += "New-AzRoleAssignment -ObjectId '$($identity.PrincipalId)' -RoleDefinitionName '$($identity.RoleNeeded)' -Scope '$($identity.Scope)' -ErrorAction SilentlyContinue`n`n"
+        }
+    }
+    
+    $scriptBlock += "# Create remediation tasks`n"
+    foreach ($assignment in $results.PolicyAssignmentsCreated | Where-Object { -not $_.RoleAssigned }) {
+        $scriptBlock += "Start-AzPolicyRemediation -Name 'remediate-$($assignment.Name)' -PolicyAssignmentId '$($assignment.AssignmentId)' -Scope '/subscriptions/$($assignment.SubscriptionId)' -ErrorAction SilentlyContinue`n"
+    }
+    
+    Write-Host $scriptBlock
+    Write-Host "# ----------------------------------------------------------------"
+    Write-Host ""
+}
+#endregion
 #endregion
 
 # Return results object
@@ -3856,6 +4305,73 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 .\Configure-VMDiagnosticLogs.ps1 `
     -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -SkipAgentInstallation
+```
+
+#### Source Tenant Admin Mode (Assign Roles to Policy Managed Identities)
+
+When Azure Policy is deployed, it creates managed identities in the **source tenant** that need **Contributor** role to install VM extensions. Due to cross-tenant restrictions, Azure Lighthouse typically cannot assign these roles.
+
+The `-AssignRolesAsSourceAdmin` parameter allows a source tenant administrator to:
+1. Discover existing policy assignments with managed identities
+2. Assign Contributor role to those identities
+3. Create remediation tasks to apply policies to existing VMs
+
+```powershell
+# SOURCE TENANT ADMIN: Connect to the source tenant
+Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+
+# Assign roles to policy managed identities and create remediation tasks
+.\Configure-VMDiagnosticLogs.ps1 `
+    -AssignRolesAsSourceAdmin `
+    -SubscriptionIds @("<SOURCE-SUBSCRIPTION-ID>")
+
+# With custom policy assignment prefix (if you used a different prefix)
+.\Configure-VMDiagnosticLogs.ps1 `
+    -AssignRolesAsSourceAdmin `
+    -SubscriptionIds @("<SOURCE-SUBSCRIPTION-ID>") `
+    -PolicyAssignmentPrefix "custom-prefix"
+```
+
+**When to use this mode:**
+- After the managing tenant has deployed Azure Policy assignments
+- When the script outputs "ACTION REQUIRED: Manual Role Assignment Needed"
+- When remediation tasks fail due to missing permissions
+
+**Expected output:**
+```
+======================================================================
+    SOURCE TENANT ADMIN MODE - Assign Roles to Policy Identities
+======================================================================
+
+This mode assigns Contributor role to policy managed identities.
+Run this after the managing tenant has deployed Azure Policy assignments.
+
+Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  Subscription name: Production-Subscription
+  Discovering policy assignments with managed identities...
+  Found 4 policy assignment(s) with managed identities
+
+  Policy: Configure Windows virtual machines to run Azure Monitor Agent
+    Principal ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    ✓ Contributor role assigned
+
+  Policy: Configure Linux virtual machines to run Azure Monitor Agent
+    Principal ID: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+    ✓ Contributor role assigned
+
+Creating remediation tasks for existing non-compliant VMs...
+
+  Creating remediation: remediate-vm-monitoring-AMA-Windows-aaaaaaaa
+    ✓ Remediation task created
+
+======================================================================
+                              SUMMARY
+======================================================================
+
+Subscriptions Processed:   1
+Policy Assignments Found:  4
+Role Assignments Created:  4
+Remediation Tasks Created: 4
 ```
 
 ### Expected Output
