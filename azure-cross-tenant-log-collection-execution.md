@@ -4592,11 +4592,11 @@ function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan 
 function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
 
 # Supported resource types and their log categories with metrics
+# Note: Using categoryGroup is the modern approach; individual categories shown for reference
 $SupportedResourceTypes = @{
     "Microsoft.KeyVault/vaults" = @{
         logs = @(
-            @{ category = "AuditEvent"; enabled = $true },
-            @{ category = "AzurePolicyEvaluationDetails"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -5429,9 +5429,11 @@ StorageBlobLogs
 
 ### Supported Resource Types Reference
 
-| Resource Type | Log Categories |
-|--------------|----------------|
-| **Microsoft.KeyVault/vaults** | AuditEvent, AzurePolicyEvaluationDetails |
+> **Note:** Azure now supports **category groups** (`allLogs`, `audit`) in addition to individual log categories. Using category groups is recommended as they automatically include all current and future log categories.
+
+| Resource Type | Log Categories / Category Groups |
+|--------------|----------------------------------|
+| **Microsoft.KeyVault/vaults** | Category Groups: `allLogs`, `audit` <br> Individual: AuditEvent, AzurePolicyEvaluationDetails |
 | **Microsoft.Storage/storageAccounts** | StorageRead, StorageWrite, StorageDelete (per service) |
 | **Microsoft.Web/sites** | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
 | **Microsoft.Sql/servers/databases** | SQLInsights, AutomaticTuning, Errors, Deadlocks |
@@ -5495,11 +5497,11 @@ Create a file named `keyvault-diagnostic-settings.json`:
                 "workspaceId": "[parameters('workspaceResourceId')]",
                 "logs": [
                     {
-                        "category": "AuditEvent",
+                        "categoryGroup": "allLogs",
                         "enabled": true
                     },
                     {
-                        "category": "AzurePolicyEvaluationDetails",
+                        "categoryGroup": "audit",
                         "enabled": true
                     }
                 ],
@@ -5514,6 +5516,8 @@ Create a file named `keyvault-diagnostic-settings.json`:
     ]
 }
 ```
+
+> **Note:** Azure Key Vault diagnostic settings support both individual log categories (`AuditEvent`, `AzurePolicyEvaluationDetails`) and category groups (`allLogs`, `audit`). Using category groups is the recommended approach as it automatically includes all current and future log categories. If you need to use individual categories for backward compatibility, replace `categoryGroup` with `category` and use `AuditEvent` instead of `allLogs`.
 
 **Deploy Key Vault Diagnostic Settings:**
 
@@ -5730,6 +5734,7 @@ Create a file named `generic-diagnostic-settings.json` that can be used for any 
 
 ```powershell
 # Deploy for any resource using the generic template
+# Using category groups (recommended approach)
 New-AzResourceGroupDeployment `
     -Name "GenericDiagnostics" `
     -ResourceGroupName "<Resource-Group>" `
@@ -5737,8 +5742,7 @@ New-AzResourceGroupDeployment `
     -resourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/<provider>/<type>/<name>" `
     -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -logCategories @(
-        @{ category = "AuditEvent"; enabled = $true },
-        @{ category = "AllLogs"; enabled = $true }
+        @{ categoryGroup = "allLogs"; enabled = $true }
     )
 ```
 
@@ -5760,9 +5764,9 @@ Create a file named `diagnostic-settings-parameters.json` for reusable configura
         "resourceConfigurations": {
             "value": {
                 "keyVaults": {
+                    "comment": "Using category groups (recommended) - includes all current and future log categories",
                     "logCategories": [
-                        { "category": "AuditEvent", "enabled": true },
-                        { "category": "AzurePolicyEvaluationDetails", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "storageAccounts": {
@@ -5887,8 +5891,9 @@ Create a custom policy initiative to cover multiple resource types:
 
 ```powershell
 # Define resource types and their log categories
+# Note: For Key Vault, you can also use categoryGroup "allLogs" instead of individual categories
 $resourceTypes = @{
-    "Microsoft.KeyVault/vaults" = @("AuditEvent", "AzurePolicyEvaluationDetails")
+    "Microsoft.KeyVault/vaults" = @("allLogs")  # Using category group (recommended)
     "Microsoft.Storage/storageAccounts/blobServices" = @("StorageRead", "StorageWrite", "StorageDelete")
     "Microsoft.Web/sites" = @("AppServiceHTTPLogs", "AppServiceConsoleLogs", "AppServiceAppLogs")
     "Microsoft.Sql/servers/databases" = @("SQLInsights", "AutomaticTuning", "Errors", "Deadlocks")
