@@ -6138,6 +6138,187 @@ New-AzResourceGroupDeployment `
     -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
 
+#### Generic Resource Diagnostic Settings Template
+
+Create a file named `generic-diagnostic-settings.json` that can be used for any resource type:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the resource to configure"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "SendToLogAnalytics",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        },
+        "logCategories": {
+            "type": "array",
+            "defaultValue": [],
+            "metadata": {
+                "description": "Array of log category objects with 'category' and 'enabled' properties"
+            }
+        },
+        "metricCategories": {
+            "type": "array",
+            "defaultValue": [
+                {
+                    "category": "AllMetrics",
+                    "enabled": true
+                }
+            ],
+            "metadata": {
+                "description": "Array of metric category objects"
+            }
+        }
+    },
+    "variables": {
+        "resourceName": "[last(split(parameters('resourceId'), '/'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "scope": "[parameters('resourceId')]",
+            "name": "[parameters('diagnosticSettingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": "[parameters('logCategories')]",
+                "metrics": "[parameters('metricCategories')]"
+            }
+        }
+    ],
+    "outputs": {
+        "diagnosticSettingId": {
+            "type": "string",
+            "value": "[extensionResourceId(parameters('resourceId'), 'Microsoft.Insights/diagnosticSettings', parameters('diagnosticSettingName'))]"
+        },
+        "resourceName": {
+            "type": "string",
+            "value": "[variables('resourceName')]"
+        }
+    }
+}
+```
+
+**Deploy Generic Diagnostic Settings:**
+
+```powershell
+# Deploy for any resource using the generic template
+New-AzResourceGroupDeployment `
+    -Name "GenericDiagnostics" `
+    -ResourceGroupName "<Resource-Group>" `
+    -TemplateFile "generic-diagnostic-settings.json" `
+    -resourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/<provider>/<type>/<name>" `
+    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -logCategories @(
+        @{ category = "AuditEvent"; enabled = $true },
+        @{ category = "AllLogs"; enabled = $true }
+    )
+```
+
+#### Parameters File Template
+
+Create a file named `diagnostic-settings-parameters.json` for reusable configurations:
+
+```json
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workspaceResourceId": {
+            "value": "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+        },
+        "diagnosticSettingName": {
+            "value": "SendToLogAnalytics"
+        },
+        "resourceConfigurations": {
+            "value": {
+                "keyVaults": {
+                    "logCategories": [
+                        { "category": "AuditEvent", "enabled": true },
+                        { "category": "AzurePolicyEvaluationDetails", "enabled": true }
+                    ]
+                },
+                "storageAccounts": {
+                    "logCategories": [
+                        { "category": "StorageRead", "enabled": true },
+                        { "category": "StorageWrite", "enabled": true },
+                        { "category": "StorageDelete", "enabled": true }
+                    ]
+                },
+                "sqlDatabases": {
+                    "logCategories": [
+                        { "category": "SQLInsights", "enabled": true },
+                        { "category": "AutomaticTuning", "enabled": true },
+                        { "category": "Errors", "enabled": true },
+                        { "category": "Deadlocks", "enabled": true }
+                    ]
+                },
+                "networkSecurityGroups": {
+                    "logCategories": [
+                        { "category": "NetworkSecurityGroupEvent", "enabled": true },
+                        { "category": "NetworkSecurityGroupRuleCounter", "enabled": true }
+                    ]
+                },
+                "webApps": {
+                    "logCategories": [
+                        { "category": "AppServiceHTTPLogs", "enabled": true },
+                        { "category": "AppServiceConsoleLogs", "enabled": true },
+                        { "category": "AppServiceAppLogs", "enabled": true },
+                        { "category": "AppServiceAuditLogs", "enabled": true }
+                    ]
+                },
+                "aksCluster": {
+                    "logCategories": [
+                        { "category": "kube-apiserver", "enabled": true },
+                        { "category": "kube-audit", "enabled": true },
+                        { "category": "kube-controller-manager", "enabled": true },
+                        { "category": "kube-scheduler", "enabled": true },
+                        { "category": "cluster-autoscaler", "enabled": true }
+                    ]
+                },
+                "cosmosDb": {
+                    "logCategories": [
+                        { "category": "DataPlaneRequests", "enabled": true },
+                        { "category": "QueryRuntimeStatistics", "enabled": true },
+                        { "category": "ControlPlaneRequests", "enabled": true }
+                    ]
+                },
+                "eventHub": {
+                    "logCategories": [
+                        { "category": "ArchiveLogs", "enabled": true },
+                        { "category": "OperationalLogs", "enabled": true },
+                        { "category": "AutoScaleLogs", "enabled": true }
+                    ]
+                },
+                "azureFirewall": {
+                    "logCategories": [
+                        { "category": "AzureFirewallApplicationRule", "enabled": true },
+                        { "category": "AzureFirewallNetworkRule", "enabled": true },
+                        { "category": "AzureFirewallDnsProxy", "enabled": true }
+                    ]
+                }
+            }
+        }
+    }
+}
+```
+
 ---
 
 ### Azure Policy for Automatic Diagnostic Settings
