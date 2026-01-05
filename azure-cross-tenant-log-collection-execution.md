@@ -4591,8 +4591,8 @@ function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor
 function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
 function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
 
-# Supported resource types and their log categories with metrics
-# Note: Using categoryGroup is the modern approach; individual categories shown for reference
+# Supported resource types - using categoryGroup "allLogs" for all resources (recommended)
+# This automatically captures all current and future log categories
 $SupportedResourceTypes = @{
     "Microsoft.KeyVault/vaults" = @{
         logs = @(
@@ -4604,9 +4604,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Storage/storageAccounts/blobServices" = @{
         logs = @(
-            @{ category = "StorageRead"; enabled = $true },
-            @{ category = "StorageWrite"; enabled = $true },
-            @{ category = "StorageDelete"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "Transaction"; enabled = $true }
@@ -4614,9 +4612,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Storage/storageAccounts/queueServices" = @{
         logs = @(
-            @{ category = "StorageRead"; enabled = $true },
-            @{ category = "StorageWrite"; enabled = $true },
-            @{ category = "StorageDelete"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "Transaction"; enabled = $true }
@@ -4624,9 +4620,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Storage/storageAccounts/tableServices" = @{
         logs = @(
-            @{ category = "StorageRead"; enabled = $true },
-            @{ category = "StorageWrite"; enabled = $true },
-            @{ category = "StorageDelete"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "Transaction"; enabled = $true }
@@ -4634,9 +4628,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Storage/storageAccounts/fileServices" = @{
         logs = @(
-            @{ category = "StorageRead"; enabled = $true },
-            @{ category = "StorageWrite"; enabled = $true },
-            @{ category = "StorageDelete"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "Transaction"; enabled = $true }
@@ -4644,10 +4636,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Web/sites" = @{
         logs = @(
-            @{ category = "AppServiceHTTPLogs"; enabled = $true },
-            @{ category = "AppServiceConsoleLogs"; enabled = $true },
-            @{ category = "AppServiceAppLogs"; enabled = $true },
-            @{ category = "AppServiceAuditLogs"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4655,10 +4644,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Sql/servers/databases" = @{
         logs = @(
-            @{ category = "SQLInsights"; enabled = $true },
-            @{ category = "AutomaticTuning"; enabled = $true },
-            @{ category = "Errors"; enabled = $true },
-            @{ category = "Deadlocks"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4666,18 +4652,13 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Network/networkSecurityGroups" = @{
         logs = @(
-            @{ category = "NetworkSecurityGroupEvent"; enabled = $true },
-            @{ category = "NetworkSecurityGroupRuleCounter"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @()  # NSGs don't support metrics
     }
     "Microsoft.ContainerService/managedClusters" = @{
         logs = @(
-            @{ category = "kube-apiserver"; enabled = $true },
-            @{ category = "kube-audit"; enabled = $true },
-            @{ category = "kube-controller-manager"; enabled = $true },
-            @{ category = "kube-scheduler"; enabled = $true },
-            @{ category = "cluster-autoscaler"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4685,9 +4666,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.DocumentDB/databaseAccounts" = @{
         logs = @(
-            @{ category = "DataPlaneRequests"; enabled = $true },
-            @{ category = "QueryRuntimeStatistics"; enabled = $true },
-            @{ category = "ControlPlaneRequests"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4695,9 +4674,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.EventHub/namespaces" = @{
         logs = @(
-            @{ category = "ArchiveLogs"; enabled = $true },
-            @{ category = "OperationalLogs"; enabled = $true },
-            @{ category = "AutoScaleLogs"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4705,7 +4682,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.ServiceBus/namespaces" = @{
         logs = @(
-            @{ category = "OperationalLogs"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4713,9 +4690,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Network/applicationGateways" = @{
         logs = @(
-            @{ category = "ApplicationGatewayAccessLog"; enabled = $true },
-            @{ category = "ApplicationGatewayPerformanceLog"; enabled = $true },
-            @{ category = "ApplicationGatewayFirewallLog"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -4723,9 +4698,7 @@ $SupportedResourceTypes = @{
     }
     "Microsoft.Network/azureFirewalls" = @{
         logs = @(
-            @{ category = "AzureFirewallApplicationRule"; enabled = $true },
-            @{ category = "AzureFirewallNetworkRule"; enabled = $true },
-            @{ category = "AzureFirewallDnsProxy"; enabled = $true }
+            @{ categoryGroup = "allLogs"; enabled = $true }
         )
         metrics = @(
             @{ category = "AllMetrics"; enabled = $true }
@@ -5429,27 +5402,27 @@ StorageBlobLogs
 
 ### Supported Resource Types Reference
 
-> **Note:** Azure now supports **category groups** in addition to individual log categories. Using `allLogs` category group is recommended as it automatically includes all current and future log categories.
+> **Note:** All Azure resources support the `allLogs` **category group** which automatically captures all current and future log categories. This is the **recommended approach** for diagnostic settings. Individual categories are listed below for reference only.
 
-| Resource Type | Log Categories / Category Groups |
-|--------------|----------------------------------|
-| **Microsoft.KeyVault/vaults** | **Recommended:** `allLogs` (category group) <br> Individual: AuditEvent, AzurePolicyEvaluationDetails |
-| **Microsoft.Storage/storageAccounts** | StorageRead, StorageWrite, StorageDelete (per service) |
-| **Microsoft.Web/sites** | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
-| **Microsoft.Sql/servers/databases** | SQLInsights, AutomaticTuning, Errors, Deadlocks |
-| **Microsoft.Network/networkSecurityGroups** | NetworkSecurityGroupEvent, NetworkSecurityGroupRuleCounter |
-| **Microsoft.ContainerService/managedClusters** | kube-apiserver, kube-audit, kube-controller-manager, kube-scheduler, cluster-autoscaler |
-| **Microsoft.DocumentDB/databaseAccounts** | DataPlaneRequests, QueryRuntimeStatistics, ControlPlaneRequests |
-| **Microsoft.EventHub/namespaces** | ArchiveLogs, OperationalLogs, AutoScaleLogs |
-| **Microsoft.ServiceBus/namespaces** | OperationalLogs |
-| **Microsoft.Network/applicationGateways** | ApplicationGatewayAccessLog, ApplicationGatewayPerformanceLog, ApplicationGatewayFirewallLog |
-| **Microsoft.Network/azureFirewalls** | AzureFirewallApplicationRule, AzureFirewallNetworkRule, AzureFirewallDnsProxy |
-| **Microsoft.ApiManagement/service** | GatewayLogs |
-| **Microsoft.Logic/workflows** | WorkflowRuntime |
-| **Microsoft.ContainerRegistry/registries** | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents |
-| **Microsoft.Cache/redis** | ConnectedClientList |
-| **Microsoft.DataFactory/factories** | ActivityRuns, PipelineRuns, TriggerRuns |
-| **Microsoft.CognitiveServices/accounts** | Audit, RequestResponse |
+| Resource Type | Recommended | Individual Categories (for reference) |
+|--------------|-------------|---------------------------------------|
+| **Microsoft.KeyVault/vaults** | `allLogs` | AuditEvent, AzurePolicyEvaluationDetails |
+| **Microsoft.Storage/storageAccounts** | `allLogs` | StorageRead, StorageWrite, StorageDelete (per service) |
+| **Microsoft.Web/sites** | `allLogs` | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
+| **Microsoft.Sql/servers/databases** | `allLogs` | SQLInsights, AutomaticTuning, Errors, Deadlocks |
+| **Microsoft.Network/networkSecurityGroups** | `allLogs` | NetworkSecurityGroupEvent, NetworkSecurityGroupRuleCounter |
+| **Microsoft.ContainerService/managedClusters** | `allLogs` | kube-apiserver, kube-audit, kube-controller-manager, kube-scheduler, cluster-autoscaler |
+| **Microsoft.DocumentDB/databaseAccounts** | `allLogs` | DataPlaneRequests, QueryRuntimeStatistics, ControlPlaneRequests |
+| **Microsoft.EventHub/namespaces** | `allLogs` | ArchiveLogs, OperationalLogs, AutoScaleLogs |
+| **Microsoft.ServiceBus/namespaces** | `allLogs` | OperationalLogs |
+| **Microsoft.Network/applicationGateways** | `allLogs` | ApplicationGatewayAccessLog, ApplicationGatewayPerformanceLog, ApplicationGatewayFirewallLog |
+| **Microsoft.Network/azureFirewalls** | `allLogs` | AzureFirewallApplicationRule, AzureFirewallNetworkRule, AzureFirewallDnsProxy |
+| **Microsoft.ApiManagement/service** | `allLogs` | GatewayLogs |
+| **Microsoft.Logic/workflows** | `allLogs` | WorkflowRuntime |
+| **Microsoft.ContainerRegistry/registries** | `allLogs` | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents |
+| **Microsoft.Cache/redis** | `allLogs` | ConnectedClientList |
+| **Microsoft.DataFactory/factories** | `allLogs` | ActivityRuns, PipelineRuns, TriggerRuns |
+| **Microsoft.CognitiveServices/accounts** | `allLogs` | Audit, RequestResponse |
 
 ---
 
@@ -5576,9 +5549,7 @@ Create a file named `storage-diagnostic-settings.json`:
             "properties": {
                 "workspaceId": "[parameters('workspaceResourceId')]",
                 "logs": [
-                    { "category": "StorageRead", "enabled": true },
-                    { "category": "StorageWrite", "enabled": true },
-                    { "category": "StorageDelete", "enabled": true }
+                    { "categoryGroup": "allLogs", "enabled": true }
                 ],
                 "metrics": [
                     { "category": "Transaction", "enabled": true }
@@ -5592,9 +5563,7 @@ Create a file named `storage-diagnostic-settings.json`:
             "properties": {
                 "workspaceId": "[parameters('workspaceResourceId')]",
                 "logs": [
-                    { "category": "StorageRead", "enabled": true },
-                    { "category": "StorageWrite", "enabled": true },
-                    { "category": "StorageDelete", "enabled": true }
+                    { "categoryGroup": "allLogs", "enabled": true }
                 ],
                 "metrics": [
                     { "category": "Transaction", "enabled": true }
@@ -5608,9 +5577,7 @@ Create a file named `storage-diagnostic-settings.json`:
             "properties": {
                 "workspaceId": "[parameters('workspaceResourceId')]",
                 "logs": [
-                    { "category": "StorageRead", "enabled": true },
-                    { "category": "StorageWrite", "enabled": true },
-                    { "category": "StorageDelete", "enabled": true }
+                    { "categoryGroup": "allLogs", "enabled": true }
                 ],
                 "metrics": [
                     { "category": "Transaction", "enabled": true }
@@ -5624,9 +5591,7 @@ Create a file named `storage-diagnostic-settings.json`:
             "properties": {
                 "workspaceId": "[parameters('workspaceResourceId')]",
                 "logs": [
-                    { "category": "StorageRead", "enabled": true },
-                    { "category": "StorageWrite", "enabled": true },
-                    { "category": "StorageDelete", "enabled": true }
+                    { "categoryGroup": "allLogs", "enabled": true }
                 ],
                 "metrics": [
                     { "category": "Transaction", "enabled": true }
@@ -5679,9 +5644,14 @@ Create a file named `generic-diagnostic-settings.json` that can be used for any 
         },
         "logCategories": {
             "type": "array",
-            "defaultValue": [],
+            "defaultValue": [
+                {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                }
+            ],
             "metadata": {
-                "description": "Array of log category objects with 'category' and 'enabled' properties"
+                "description": "Array of log category objects. Use categoryGroup 'allLogs' (recommended) or individual category names"
             }
         },
         "metricCategories": {
@@ -5758,70 +5728,51 @@ Create a file named `diagnostic-settings-parameters.json` for reusable configura
             "value": "SendToLogAnalytics"
         },
         "resourceConfigurations": {
+            "comment": "Using categoryGroup 'allLogs' for all resources - recommended approach that captures all current and future log categories",
             "value": {
                 "keyVaults": {
-                    "comment": "Using category groups (recommended) - includes all current and future log categories",
                     "logCategories": [
                         { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "storageAccounts": {
                     "logCategories": [
-                        { "category": "StorageRead", "enabled": true },
-                        { "category": "StorageWrite", "enabled": true },
-                        { "category": "StorageDelete", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "sqlDatabases": {
                     "logCategories": [
-                        { "category": "SQLInsights", "enabled": true },
-                        { "category": "AutomaticTuning", "enabled": true },
-                        { "category": "Errors", "enabled": true },
-                        { "category": "Deadlocks", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "networkSecurityGroups": {
                     "logCategories": [
-                        { "category": "NetworkSecurityGroupEvent", "enabled": true },
-                        { "category": "NetworkSecurityGroupRuleCounter", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "webApps": {
                     "logCategories": [
-                        { "category": "AppServiceHTTPLogs", "enabled": true },
-                        { "category": "AppServiceConsoleLogs", "enabled": true },
-                        { "category": "AppServiceAppLogs", "enabled": true },
-                        { "category": "AppServiceAuditLogs", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "aksCluster": {
                     "logCategories": [
-                        { "category": "kube-apiserver", "enabled": true },
-                        { "category": "kube-audit", "enabled": true },
-                        { "category": "kube-controller-manager", "enabled": true },
-                        { "category": "kube-scheduler", "enabled": true },
-                        { "category": "cluster-autoscaler", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "cosmosDb": {
                     "logCategories": [
-                        { "category": "DataPlaneRequests", "enabled": true },
-                        { "category": "QueryRuntimeStatistics", "enabled": true },
-                        { "category": "ControlPlaneRequests", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "eventHub": {
                     "logCategories": [
-                        { "category": "ArchiveLogs", "enabled": true },
-                        { "category": "OperationalLogs", "enabled": true },
-                        { "category": "AutoScaleLogs", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 },
                 "azureFirewall": {
                     "logCategories": [
-                        { "category": "AzureFirewallApplicationRule", "enabled": true },
-                        { "category": "AzureFirewallNetworkRule", "enabled": true },
-                        { "category": "AzureFirewallDnsProxy", "enabled": true }
+                        { "categoryGroup": "allLogs", "enabled": true }
                     ]
                 }
             }
