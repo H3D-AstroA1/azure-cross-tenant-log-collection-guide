@@ -5429,11 +5429,11 @@ StorageBlobLogs
 
 ### Supported Resource Types Reference
 
-> **Note:** Azure now supports **category groups** (`allLogs`, `audit`) in addition to individual log categories. Using category groups is recommended as they automatically include all current and future log categories.
+> **Note:** Azure now supports **category groups** in addition to individual log categories. Using `allLogs` category group is recommended as it automatically includes all current and future log categories.
 
 | Resource Type | Log Categories / Category Groups |
 |--------------|----------------------------------|
-| **Microsoft.KeyVault/vaults** | Category Groups: `allLogs`, `audit` <br> Individual: AuditEvent, AzurePolicyEvaluationDetails |
+| **Microsoft.KeyVault/vaults** | **Recommended:** `allLogs` (category group) <br> Individual: AuditEvent, AzurePolicyEvaluationDetails |
 | **Microsoft.Storage/storageAccounts** | StorageRead, StorageWrite, StorageDelete (per service) |
 | **Microsoft.Web/sites** | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
 | **Microsoft.Sql/servers/databases** | SQLInsights, AutomaticTuning, Errors, Deadlocks |
@@ -5499,10 +5499,6 @@ Create a file named `keyvault-diagnostic-settings.json`:
                     {
                         "categoryGroup": "allLogs",
                         "enabled": true
-                    },
-                    {
-                        "categoryGroup": "audit",
-                        "enabled": true
                     }
                 ],
                 "metrics": [
@@ -5517,7 +5513,7 @@ Create a file named `keyvault-diagnostic-settings.json`:
 }
 ```
 
-> **Note:** Azure Key Vault diagnostic settings support both individual log categories (`AuditEvent`, `AzurePolicyEvaluationDetails`) and category groups (`allLogs`, `audit`). Using category groups is the recommended approach as it automatically includes all current and future log categories. If you need to use individual categories for backward compatibility, replace `categoryGroup` with `category` and use `AuditEvent` instead of `allLogs`.
+> **Note:** Azure Key Vault supports two category groups: `allLogs` (includes AuditEvent + AzurePolicyEvaluationDetails) and `audit` (includes only AuditEvent). Using `allLogs` is recommended as it captures all log categories and is future-proof. If you need to use individual categories for backward compatibility, replace `categoryGroup` with `category` and specify `AuditEvent` and/or `AzurePolicyEvaluationDetails`.
 
 **Deploy Key Vault Diagnostic Settings:**
 
