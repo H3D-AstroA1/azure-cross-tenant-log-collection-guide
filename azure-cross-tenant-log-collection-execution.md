@@ -4520,7 +4520,7 @@ Before running this script, you need:
     Configures diagnostic settings for Azure resources to send logs to a centralized Log Analytics workspace.
 
 .DESCRIPTION
-    This script is used as Step 4 in the Azure Cross-Tenant Log Collection setup.
+    This script is used as Step 5 in the Azure Cross-Tenant Log Collection setup.
     It configures diagnostic settings on Azure resources in delegated subscriptions to send
     logs to a centralized Log Analytics workspace.
     
@@ -4814,7 +4814,7 @@ $results = @{
 # Main script execution
 Write-Host ""
 Write-Header "======================================================================"
-Write-Header "        Configure Resource Diagnostic Logs - Step 4                   "
+Write-Header "        Configure Resource Diagnostic Logs - Step 5                   "
 Write-Header "======================================================================"
 Write-Host ""
 
@@ -5500,7 +5500,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 
 ```
 ======================================================================
-        Configure Resource Diagnostic Logs - Step 4
+        Configure Resource Diagnostic Logs - Step 5
 ======================================================================
 
 Checking Azure connection...
