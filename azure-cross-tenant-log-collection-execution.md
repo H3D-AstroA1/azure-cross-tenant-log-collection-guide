@@ -4545,12 +4545,6 @@ Before running this script, you need:
     Array of resource types to configure. If not provided, configures all supported types.
     Example: @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 
-.PARAMETER IncludeVMs
-    Include Virtual Machine configuration (Azure Monitor Agent and Data Collection Rules). Default: $false
-
-.PARAMETER DataCollectionRuleName
-    Name for the Data Collection Rule (if IncludeVMs is true). Default: "dcr-vm-logs"
-
 .PARAMETER Location
     Azure region for DCR deployment. Default: "westus2"
 
@@ -4562,9 +4556,6 @@ Before running this script, you need:
 
 .EXAMPLE
     .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
-
-.EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -IncludeVMs $true
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
@@ -4585,12 +4576,6 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string[]]$ResourceTypes,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$IncludeVMs = $false,
-
-    [Parameter(Mandatory = $false)]
-    [string]$DataCollectionRuleName = "dcr-vm-logs",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
@@ -5132,195 +5117,6 @@ foreach ($subId in $SubscriptionIds) {
 }
 #endregion
 
-#region Configure VMs with Azure Monitor Agent
-if ($IncludeVMs) {
-    Write-Info "Configuring Virtual Machines with Azure Monitor Agent..."
-    Write-Host ""
-    
-    foreach ($subId in $SubscriptionIds) {
-        try {
-            Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
-            
-            $vms = Get-AzVM -ErrorAction SilentlyContinue
-            
-            if ($vms.Count -eq 0) {
-                Write-Host "  No VMs found in subscription $subId"
-                continue
-            }
-            
-            Write-Host "  Found $($vms.Count) VM(s) in subscription $subId"
-            
-            # Create Data Collection Rule if it doesn't exist
-            Write-Host "  Checking Data Collection Rule..."
-            
-            $dcr = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $workspaceResourceGroup -ErrorAction SilentlyContinue
-            
-            if (-not $dcr) {
-                Write-Host "  Creating Data Collection Rule: $DataCollectionRuleName"
-                
-                $dcrTemplate = @{
-                    '$schema' = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
-                    contentVersion = "1.0.0.0"
-                    resources = @(
-                        @{
-                            type = "Microsoft.Insights/dataCollectionRules"
-                            apiVersion = "2022-06-01"
-                            name = $DataCollectionRuleName
-                            location = $Location
-                            properties = @{
-                                description = "Data Collection Rule for VM logs"
-                                dataSources = @{
-                                    performanceCounters = @(
-                                        @{
-                                            name = "perfCounterDataSource"
-                                            streams = @("Microsoft-Perf")
-                                            samplingFrequencyInSeconds = 60
-                                            counterSpecifiers = @(
-                                                "\\Processor(_Total)\\% Processor Time",
-                                                "\\Memory\\Available MBytes",
-                                                "\\Memory\\% Committed Bytes In Use",
-                                                "\\LogicalDisk(_Total)\\% Free Space",
-                                                "\\LogicalDisk(_Total)\\Free Megabytes"
-                                            )
-                                        }
-                                    )
-                                    windowsEventLogs = @(
-                                        @{
-                                            name = "windowsEventLogs"
-                                            streams = @("Microsoft-Event")
-                                            xPathQueries = @(
-                                                "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
-                                                "Security!*[System[(band(Keywords,13510798882111488))]]",
-                                                "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
-                                            )
-                                        }
-                                    )
-                                    syslog = @(
-                                        @{
-                                            name = "syslogDataSource"
-                                            streams = @("Microsoft-Syslog")
-                                            facilityNames = @("auth", "authpriv", "cron", "daemon", "kern", "syslog", "user")
-                                            logLevels = @("Debug", "Info", "Notice", "Warning", "Error", "Critical", "Alert", "Emergency")
-                                        }
-                                    )
-                                }
-                                destinations = @{
-                                    logAnalytics = @(
-                                        @{
-                                            name = $workspaceName
-                                            workspaceResourceId = $WorkspaceResourceId
-                                        }
-                                    )
-                                }
-                                dataFlows = @(
-                                    @{
-                                        streams = @("Microsoft-Perf")
-                                        destinations = @($workspaceName)
-                                    },
-                                    @{
-                                        streams = @("Microsoft-Event")
-                                        destinations = @($workspaceName)
-                                    },
-                                    @{
-                                        streams = @("Microsoft-Syslog")
-                                        destinations = @($workspaceName)
-                                    }
-                                )
-                            }
-                        }
-                    )
-                }
-                
-                $tempDir = [System.IO.Path]::GetTempPath()
-                $dcrTemplatePath = Join-Path $tempDir "dcr-template.json"
-                $dcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $dcrTemplatePath -Encoding UTF8
-                
-                Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
-                
-                New-AzResourceGroupDeployment `
-                    -Name "DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
-                    -ResourceGroupName $workspaceResourceGroup `
-                    -TemplateFile $dcrTemplatePath `
-                    -ErrorAction Stop | Out-Null
-                
-                Remove-Item -Path $dcrTemplatePath -Force -ErrorAction SilentlyContinue
-                
-                $dcr = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $workspaceResourceGroup
-                Write-Success "  ✓ Data Collection Rule created"
-                
-                Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
-            }
-            else {
-                Write-Success "  ✓ Data Collection Rule already exists"
-            }
-            
-            $dcrId = $dcr.Id
-            
-            foreach ($vm in $vms) {
-                Write-Host "  Configuring VM: $($vm.Name)"
-                
-                try {
-                    $osType = $vm.StorageProfile.OsDisk.OsType
-                    $extensionName = if ($osType -eq "Windows") { "AzureMonitorWindowsAgent" } else { "AzureMonitorLinuxAgent" }
-                    
-                    $existingExtension = Get-AzVMExtension -ResourceGroupName $vm.ResourceGroupName -VMName $vm.Name -Name $extensionName -ErrorAction SilentlyContinue
-                    
-                    if (-not $existingExtension) {
-                        Write-Host "    Installing Azure Monitor Agent..."
-                        
-                        Set-AzVMExtension `
-                            -ResourceGroupName $vm.ResourceGroupName `
-                            -VMName $vm.Name `
-                            -Name $extensionName `
-                            -Publisher "Microsoft.Azure.Monitor" `
-                            -ExtensionType $extensionName `
-                            -TypeHandlerVersion "1.0" `
-                            -EnableAutomaticUpgrade $true `
-                            -ErrorAction Stop | Out-Null
-                        
-                        Write-Success "    ✓ Azure Monitor Agent installed"
-                    }
-                    else {
-                        Write-Success "    ✓ Azure Monitor Agent already installed"
-                    }
-                    
-                    Write-Host "    Creating DCR association..."
-                    
-                    $associationName = "dcr-association-$($vm.Name)"
-                    
-                    $existingAssociation = Get-AzDataCollectionRuleAssociation -TargetResourceId $vm.Id -AssociationName $associationName -ErrorAction SilentlyContinue
-                    
-                    if (-not $existingAssociation) {
-                        New-AzDataCollectionRuleAssociation `
-                            -TargetResourceId $vm.Id `
-                            -AssociationName $associationName `
-                            -RuleId $dcrId `
-                            -ErrorAction Stop | Out-Null
-                        
-                        Write-Success "    ✓ DCR association created"
-                    }
-                    else {
-                        Write-Success "    ✓ DCR association already exists"
-                    }
-                    
-                    $results.VMsConfigured += $vm.Id
-                }
-                catch {
-                    Write-ErrorMsg "    ✗ Failed: $($_.Exception.Message)"
-                    $results.Errors += "VM $($vm.Name): $($_.Exception.Message)"
-                }
-            }
-        }
-        catch {
-            Write-ErrorMsg "  ✗ Failed to process VMs: $($_.Exception.Message)"
-            $results.Errors += "VMs in $subId : $($_.Exception.Message)"
-        }
-        
-        Write-Host ""
-    }
-}
-#endregion
-
 #region Verification
 if (-not $SkipVerification -and $results.ResourcesConfigured.Count -gt 0) {
     Write-Info "Verifying diagnostic settings configuration..."
@@ -5359,9 +5155,6 @@ Write-Host ""
 
 Write-Host "Resources Configured:      $($results.ResourcesConfigured.Count)"
 Write-Host "Resources Failed:          $($results.ResourcesFailed.Count)"
-if ($IncludeVMs) {
-    Write-Host "VMs Configured:            $($results.VMsConfigured.Count)"
-}
 Write-Host ""
 
 if ($results.ResourcesConfigured.Count -gt 0) {
@@ -5405,7 +5198,6 @@ $jsonOutput = @{
     subscriptionsProcessed = $results.SubscriptionsProcessed
     resourcesConfiguredCount = $results.ResourcesConfigured.Count
     resourcesFailedCount = $results.ResourcesFailed.Count
-    vmsConfiguredCount = $results.VMsConfigured.Count
     errorsCount = $results.Errors.Count
 } | ConvertTo-Json -Depth 2
 
@@ -5475,16 +5267,6 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 .\Configure-ResourceDiagnosticLogs.ps1 `
     -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
-```
-
-#### Include Virtual Machines
-
-```powershell
-# Configure resource diagnostics AND VM monitoring
-.\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -IncludeVMs $true `
-    -DataCollectionRuleName "dcr-cross-tenant-vm-logs"
 ```
 
 #### Custom Diagnostic Setting Name
@@ -5581,7 +5363,6 @@ Successfully configured resources:
   "subscriptionsProcessed": ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
   "resourcesConfiguredCount": 12,
   "resourcesFailedCount": 0,
-  "vmsConfiguredCount": 0,
   "errorsCount": 0
 }
 
@@ -5672,279 +5453,9 @@ StorageBlobLogs
 
 ### ARM Templates for Resource Diagnostic Settings
 
-In addition to the PowerShell script above, you can use ARM templates for declarative, repeatable deployments. These templates are useful for Infrastructure as Code (IaC) scenarios.
+The following ARM templates provide declarative, repeatable deployments for resource diagnostic settings. These templates are useful for Infrastructure as Code (IaC) scenarios.
 
-#### Data Collection Rule Template
-
-Create a file named `data-collection-rule.json`:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "dataCollectionRuleName": {
-            "type": "string",
-            "defaultValue": "dcr-vm-logs-atevet17",
-            "metadata": {
-                "description": "Name of the Data Collection Rule"
-            }
-        },
-        "location": {
-            "type": "string",
-            "defaultValue": "westus2",
-            "metadata": {
-                "description": "Location for the Data Collection Rule"
-            }
-        },
-        "workspaceResourceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Full resource ID of the Log Analytics workspace"
-            }
-        },
-        "workspaceName": {
-            "type": "string",
-            "defaultValue": "law-central-atevet12",
-            "metadata": {
-                "description": "Name of the Log Analytics workspace (used as destination name)"
-            }
-        }
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Insights/dataCollectionRules",
-            "apiVersion": "2022-06-01",
-            "name": "[parameters('dataCollectionRuleName')]",
-            "location": "[parameters('location')]",
-            "properties": {
-                "description": "Data Collection Rule for VM logs from Atevet17 to Atevet12",
-                "dataSources": {
-                    "performanceCounters": [
-                        {
-                            "name": "perfCounterDataSource",
-                            "streams": ["Microsoft-Perf"],
-                            "samplingFrequencyInSeconds": 60,
-                            "counterSpecifiers": [
-                                "\\Processor(_Total)\\% Processor Time",
-                                "\\Memory\\Available MBytes",
-                                "\\Memory\\% Committed Bytes In Use",
-                                "\\LogicalDisk(_Total)\\% Free Space",
-                                "\\LogicalDisk(_Total)\\Free Megabytes",
-                                "\\PhysicalDisk(_Total)\\Avg. Disk Queue Length",
-                                "\\Network Interface(*)\\Bytes Total/sec"
-                            ]
-                        }
-                    ],
-                    "windowsEventLogs": [
-                        {
-                            "name": "windowsEventLogs",
-                            "streams": ["Microsoft-Event"],
-                            "xPathQueries": [
-                                "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
-                                "Security!*[System[(band(Keywords,13510798882111488))]]",
-                                "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
-                            ]
-                        }
-                    ],
-                    "syslog": [
-                        {
-                            "name": "syslogDataSource",
-                            "streams": ["Microsoft-Syslog"],
-                            "facilityNames": [
-                                "auth",
-                                "authpriv",
-                                "cron",
-                                "daemon",
-                                "kern",
-                                "syslog",
-                                "user"
-                            ],
-                            "logLevels": [
-                                "Debug",
-                                "Info",
-                                "Notice",
-                                "Warning",
-                                "Error",
-                                "Critical",
-                                "Alert",
-                                "Emergency"
-                            ]
-                        }
-                    ]
-                },
-                "destinations": {
-                    "logAnalytics": [
-                        {
-                            "name": "[parameters('workspaceName')]",
-                            "workspaceResourceId": "[parameters('workspaceResourceId')]"
-                        }
-                    ]
-                },
-                "dataFlows": [
-                    {
-                        "streams": ["Microsoft-Perf"],
-                        "destinations": ["[parameters('workspaceName')]"]
-                    },
-                    {
-                        "streams": ["Microsoft-Event"],
-                        "destinations": ["[parameters('workspaceName')]"]
-                    },
-                    {
-                        "streams": ["Microsoft-Syslog"],
-                        "destinations": ["[parameters('workspaceName')]"]
-                    }
-                ]
-            }
-        }
-    ],
-    "outputs": {
-        "dataCollectionRuleId": {
-            "type": "string",
-            "value": "[resourceId('Microsoft.Insights/dataCollectionRules', parameters('dataCollectionRuleName'))]"
-        }
-    }
-}
-```
-
-**Deploy the Data Collection Rule:**
-
-```powershell
-# Connect to Atevet12 (managing tenant)
-Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
-
-# Deploy the Data Collection Rule to Atevet12
-New-AzResourceGroupDeployment `
-    -Name "DataCollectionRule" `
-    -ResourceGroupName "rg-central-logging" `
-    -TemplateFile "data-collection-rule.json" `
-    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -workspaceName "law-central-atevet12"
-```
-
-#### Azure Monitor Agent Extension Template
-
-Create a file named `azure-monitor-agent.json`:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "vmName": {
-            "type": "string",
-            "metadata": {
-                "description": "Name of the virtual machine"
-            }
-        },
-        "location": {
-            "type": "string",
-            "metadata": {
-                "description": "Location of the virtual machine"
-            }
-        },
-        "osType": {
-            "type": "string",
-            "allowedValues": ["Windows", "Linux"],
-            "metadata": {
-                "description": "Operating system type of the VM"
-            }
-        }
-    },
-    "variables": {
-        "extensionName": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]",
-        "extensionPublisher": "Microsoft.Azure.Monitor",
-        "extensionType": "[if(equals(parameters('osType'), 'Windows'), 'AzureMonitorWindowsAgent', 'AzureMonitorLinuxAgent')]"
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Compute/virtualMachines/extensions",
-            "apiVersion": "2023-03-01",
-            "name": "[concat(parameters('vmName'), '/', variables('extensionName'))]",
-            "location": "[parameters('location')]",
-            "properties": {
-                "publisher": "[variables('extensionPublisher')]",
-                "type": "[variables('extensionType')]",
-                "typeHandlerVersion": "1.0",
-                "autoUpgradeMinorVersion": true,
-                "enableAutomaticUpgrade": true
-            }
-        }
-    ]
-}
-```
-
-**Deploy the Azure Monitor Agent:**
-
-```powershell
-# Deploy to a Windows VM
-New-AzResourceGroupDeployment `
-    -Name "AzureMonitorAgent-Windows" `
-    -ResourceGroupName "<VM-Resource-Group>" `
-    -TemplateFile "azure-monitor-agent.json" `
-    -vmName "<VM-Name>" `
-    -location "westus2" `
-    -osType "Windows"
-
-# Deploy to a Linux VM
-New-AzResourceGroupDeployment `
-    -Name "AzureMonitorAgent-Linux" `
-    -ResourceGroupName "<VM-Resource-Group>" `
-    -TemplateFile "azure-monitor-agent.json" `
-    -vmName "<VM-Name>" `
-    -location "westus2" `
-    -osType "Linux"
-```
-
-#### DCR Association Template
-
-Create a file named `dcr-association.json`:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "vmName": {
-            "type": "string",
-            "metadata": {
-                "description": "Name of the virtual machine"
-            }
-        },
-        "dataCollectionRuleId": {
-            "type": "string",
-            "metadata": {
-                "description": "Resource ID of the Data Collection Rule"
-            }
-        }
-    },
-    "variables": {
-        "associationName": "[concat('dcr-association-', parameters('vmName'))]"
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Compute/virtualMachines/providers/dataCollectionRuleAssociations",
-            "apiVersion": "2022-06-01",
-            "name": "[concat(parameters('vmName'), '/Microsoft.Insights/', variables('associationName'))]",
-            "properties": {
-                "dataCollectionRuleId": "[parameters('dataCollectionRuleId')]"
-            }
-        }
-    ]
-}
-```
-
-**Deploy the DCR Association:**
-
-```powershell
-# Associate DCR with a VM
-New-AzResourceGroupDeployment `
-    -Name "DCRAssociation" `
-    -ResourceGroupName "<VM-Resource-Group>" `
-    -TemplateFile "dcr-association.json" `
-    -vmName "<VM-Name>" `
-    -dataCollectionRuleId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.Insights/dataCollectionRules/dcr-vm-logs-atevet17"
-```
+> **Note:** Virtual Machine diagnostic logs (using Azure Monitor Agent and Data Collection Rules) are covered in [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs). This section focuses on resource-level diagnostic settings for Azure PaaS services.
 
 #### Key Vault Diagnostic Settings Template
 
