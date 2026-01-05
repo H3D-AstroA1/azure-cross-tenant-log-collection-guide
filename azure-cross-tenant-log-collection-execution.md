@@ -1,4 +1,4 @@
-# Azure Cross-Tenant Log Collection - Execution Scripts
+﻿# Azure Cross-Tenant Log Collection - Execution Scripts
 
 This document contains PowerShell scripts for automating the Azure cross-tenant log collection setup process. These scripts complement the main guide ([azure-cross-tenant-log-collection-guide.md](azure-cross-tenant-log-collection-guide.md)).
 
@@ -19,7 +19,7 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 
 ## Important: Where to Run These Scripts
 
-> ⚠️ **CRITICAL**: These scripts must be run from the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
+> âš ï¸ **CRITICAL**: These scripts must be run from the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
 
 ### Cross-Tenant Architecture Overview
 
@@ -27,43 +27,43 @@ In a cross-tenant log collection scenario, there are two tenants:
 
 | Tenant | Role | Example | What Runs Here |
 |--------|------|---------|----------------|
-| **Source Tenant** | Customer/Resource Owner | Atevet17 | ✅ **Run these scripts here** |
+| **Source Tenant** | Customer/Resource Owner | Atevet17 | âœ… **Run these scripts here** |
 | **Managing Tenant** | MSP/Security Team | Atevet12 | Log Analytics Workspace, Sentinel |
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        SOURCE TENANT (Atevet17)                         │
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  📜 Run these scripts here:                                      │   │
-│  │     • Register-ManagedServices.ps1                               │   │
-│  │     • Azure Lighthouse ARM template deployment                   │   │
-│  │     • Diagnostic settings configuration                          │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
-│  │ Subscription │  │ Subscription │  │ Subscription │                  │
-│  │      A       │  │      B       │  │      C       │                  │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                  │
-│         │                 │                 │                           │
-│         └─────────────────┼─────────────────┘                           │
-│                           │                                             │
-│                           │ Logs flow via                               │
-│                           │ Azure Lighthouse                            │
-│                           ▼                                             │
-└─────────────────────────────────────────────────────────────────────────┘
-                            │
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      MANAGING TENANT (Atevet12)                         │
-│                                                                         │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
-│  │  (Receives logs)                   (Security monitoring)         │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                        SOURCE TENANT (Atevet17)                         â”‚
+â”‚                                                                         â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”   â”‚
+â”‚  â”‚  ðŸ“œ Run these scripts here:                                      â”‚   â”‚
+â”‚  â”‚     â€¢ Register-ManagedServices.ps1                               â”‚   â”‚
+â”‚  â”‚     â€¢ Azure Lighthouse ARM template deployment                   â”‚   â”‚
+â”‚  â”‚     â€¢ Diagnostic settings configuration                          â”‚   â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜   â”‚
+â”‚                                                                         â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                  â”‚
+â”‚  â”‚ Subscription â”‚  â”‚ Subscription â”‚  â”‚ Subscription â”‚                  â”‚
+â”‚  â”‚      A       â”‚  â”‚      B       â”‚  â”‚      C       â”‚                  â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜                  â”‚
+â”‚         â”‚                 â”‚                 â”‚                           â”‚
+â”‚         â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                           â”‚
+â”‚                           â”‚                                             â”‚
+â”‚                           â”‚ Logs flow via                               â”‚
+â”‚                           â”‚ Azure Lighthouse                            â”‚
+â”‚                           â–¼                                             â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                            â”‚
+                            â”‚
+                            â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                      MANAGING TENANT (Atevet12)                         â”‚
+â”‚                                                                         â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”‚
+â”‚  â”‚  Log Analytics Workspace  â”€â”€â”€â”€â”€â”€â–º  Microsoft Sentinel            â”‚  â”‚
+â”‚  â”‚  (Receives logs)                   (Security monitoring)         â”‚  â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â”‚
+â”‚                                                                         â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ### Why Run from the Source Tenant?
@@ -129,7 +129,7 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 ## Step 0: Register Resource Providers
 
-> ✅ **RECOMMENDED for Azure Cloud Shell** - No additional setup required!
+> âœ… **RECOMMENDED for Azure Cloud Shell** - No additional setup required!
 
 This PowerShell script checks and registers the `Microsoft.ManagedServices` resource provider across all subscriptions in a tenant. This is required before deploying Azure Lighthouse.
 
@@ -579,7 +579,7 @@ Connect-AzAccount -TenantId "<CORRECT-TENANT-ID>"
 
 ## Step 1: Create Security Group and Log Analytics Workspace
 
-> ⚠️ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Atevet12), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
+> âš ï¸ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Atevet12), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
 
 This PowerShell script automates the preparation of the managing tenant by:
 1. Creating a security group for delegated access
@@ -1305,7 +1305,7 @@ Install-Module Microsoft.Graph.Groups -Scope CurrentUser
 **Solution:**
 - You need **Global Administrator** or **Groups Administrator** role in Azure AD
 - Or create the security group manually via Azure Portal:
-  1. Go to **Azure Active Directory** → **Groups** → **New group**
+  1. Go to **Azure Active Directory** â†’ **Groups** â†’ **New group**
   2. Group type: **Security**
   3. Enter the group name and description
   4. Note the **Object ID** after creation
@@ -1323,7 +1323,7 @@ Install-Module Microsoft.Graph.Groups -Scope CurrentUser
 
 ## Step 2: Deploy Azure Lighthouse
 
-> ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (Atevet17). Azure Lighthouse delegation is deployed FROM the customer tenant TO grant access to the managing tenant.
+> âš ï¸ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (Atevet17). Azure Lighthouse delegation is deployed FROM the customer tenant TO grant access to the managing tenant.
 
 This PowerShell script automates the Azure Lighthouse onboarding process by:
 1. Creating and deploying the Registration Definition
@@ -1560,7 +1560,7 @@ if ($IncludeUserAccessAdministratorRole) {
         # delegatedRoleDefinitionIds = @($roleDefinitions["Contributor"], $roleDefinitions["MonitoringContributor"])
     }
     Write-Success "  Including User Access Administrator role (for assigning roles to policy managed identities)"
-    Write-WarningMsg "  ⚠ User Access Administrator is a privileged role - ensure this is required for your scenario"
+    Write-WarningMsg "  âš  User Access Administrator is a privileged role - ensure this is required for your scenario"
 }
 
 $rolesList = "Reader, Monitoring Reader, Log Analytics Reader"
@@ -1744,12 +1744,12 @@ foreach ($subId in $SubscriptionIds) {
             -ErrorAction Stop
         
         Write-Success "  Assignment deployed successfully"
-        Write-Success "  ✓ Delegation complete for $subName"
+        Write-Success "  âœ“ Delegation complete for $subName"
         
         $results.SubscriptionsSucceeded += $subId
     }
     catch {
-        Write-ErrorMsg "  ✗ Failed: $($_.Exception.Message)"
+        Write-ErrorMsg "  âœ— Failed: $($_.Exception.Message)"
         $results.SubscriptionsFailed += $subId
         $results.Errors += "Subscription $subId : $($_.Exception.Message)"
     }
@@ -1775,14 +1775,14 @@ if (-not $SkipVerification -and $results.SubscriptionsSucceeded.Count -gt 0) {
             }
             
             if ($matchingDef) {
-                Write-Success "  ✓ Verified: $subId"
+                Write-Success "  âœ“ Verified: $subId"
             }
             else {
-                Write-Warning "  ⚠ Definition found but tenant ID mismatch: $subId"
+                Write-Warning "  âš  Definition found but tenant ID mismatch: $subId"
             }
         }
         catch {
-            Write-Warning "  ⚠ Could not verify: $subId"
+            Write-Warning "  âš  Could not verify: $subId"
         }
     }
     Write-Host ""
@@ -1815,7 +1815,7 @@ Write-Host ""
 if ($results.SubscriptionsSucceeded.Count -gt 0) {
     Write-Info "Successfully Delegated Subscriptions:"
     foreach ($subId in $results.SubscriptionsSucceeded) {
-        Write-Success "  ✓ $subId"
+        Write-Success "  âœ“ $subId"
     }
     Write-Host ""
 }
@@ -1823,7 +1823,7 @@ if ($results.SubscriptionsSucceeded.Count -gt 0) {
 if ($results.SubscriptionsFailed.Count -gt 0) {
     Write-Warning "Failed Subscriptions:"
     foreach ($subId in $results.SubscriptionsFailed) {
-        Write-ErrorMsg "  ✗ $subId"
+        Write-ErrorMsg "  âœ— $subId"
     }
     Write-Host ""
     
@@ -1949,7 +1949,7 @@ Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
   Definition deployed: /subscriptions/.../registrationDefinitions/...
   Deploying registration assignment...
   Assignment deployed successfully
-  ✓ Delegation complete for Production-Subscription
+  âœ“ Delegation complete for Production-Subscription
 
 Processing subscription: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
   Subscription name: Development-Subscription
@@ -1957,12 +1957,12 @@ Processing subscription: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
   Definition deployed: /subscriptions/.../registrationDefinitions/...
   Deploying registration assignment...
   Assignment deployed successfully
-  ✓ Delegation complete for Development-Subscription
+  âœ“ Delegation complete for Development-Subscription
 
 Verifying delegations...
 
-  ✓ Verified: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-  ✓ Verified: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+  âœ“ Verified: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  âœ“ Verified: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
 ======================================================================
                               SUMMARY
@@ -1975,8 +1975,8 @@ Subscriptions Processed:   2
   Succeeded: 2
 
 Successfully Delegated Subscriptions:
-  ✓ aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-  ✓ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+  âœ“ aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  âœ“ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
 === Next Steps ===
 
@@ -2067,7 +2067,7 @@ Get-AzManagedServicesAssignment
 
 ## Step 3: Configure Activity Log Collection
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on the delegated subscriptions in the source tenant to send Activity Logs to the Log Analytics workspace in the managing tenant.
+> âš ï¸ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on the delegated subscriptions in the source tenant to send Activity Logs to the Log Analytics workspace in the managing tenant.
 
 Activity Logs capture control plane operations (who did what, when, and on which resources). This script automates the configuration of Activity Log diagnostic settings across one or more delegated subscriptions.
 
@@ -2475,17 +2475,17 @@ foreach ($subId in $SubscriptionIds) {
             -ErrorAction Stop
         
         if ($deployment.ProvisioningState -eq "Succeeded") {
-            Write-Success "  ✓ Diagnostic settings configured successfully"
+            Write-Success "  âœ“ Diagnostic settings configured successfully"
             $results.SubscriptionsSucceeded += $subId
         }
         else {
-            Write-ErrorMsg "  ✗ Deployment state: $($deployment.ProvisioningState)"
+            Write-ErrorMsg "  âœ— Deployment state: $($deployment.ProvisioningState)"
             $results.SubscriptionsFailed += $subId
             $results.Errors += "Subscription $subId : Deployment state $($deployment.ProvisioningState)"
         }
     }
     catch {
-        Write-ErrorMsg "  ✗ Failed: $($_.Exception.Message)"
+        Write-ErrorMsg "  âœ— Failed: $($_.Exception.Message)"
         $results.SubscriptionsFailed += $subId
         $results.Errors += "Subscription $subId : $($_.Exception.Message)"
     }
@@ -2508,16 +2508,16 @@ if (-not $SkipVerification -and $results.SubscriptionsSucceeded.Count -gt 0) {
             
             if ($setting) {
                 $enabledCategories = ($setting.Log | Where-Object { $_.Enabled -eq $true }).Category
-                Write-Success "  ✓ Verified: $subId"
+                Write-Success "  âœ“ Verified: $subId"
                 Write-Host "    Enabled categories: $($enabledCategories -join ', ')"
                 Write-Host "    Workspace: $($setting.WorkspaceId)"
             }
             else {
-                Write-Warning "  ⚠ Setting not found: $subId"
+                Write-Warning "  âš  Setting not found: $subId"
             }
         }
         catch {
-            Write-Warning "  ⚠ Could not verify: $subId - $($_.Exception.Message)"
+            Write-Warning "  âš  Could not verify: $subId - $($_.Exception.Message)"
         }
     }
     Write-Host ""
@@ -2550,7 +2550,7 @@ Write-Host ""
 if ($results.SubscriptionsSucceeded.Count -gt 0) {
     Write-Info "Successfully Configured Subscriptions:"
     foreach ($subId in $results.SubscriptionsSucceeded) {
-        Write-Success "  ✓ $subId"
+        Write-Success "  âœ“ $subId"
     }
     Write-Host ""
 }
@@ -2558,7 +2558,7 @@ if ($results.SubscriptionsSucceeded.Count -gt 0) {
 if ($results.SubscriptionsFailed.Count -gt 0) {
     Write-Warning "Failed Subscriptions:"
     foreach ($subId in $results.SubscriptionsFailed) {
-        Write-ErrorMsg "  ✗ $subId"
+        Write-ErrorMsg "  âœ— $subId"
     }
     Write-Host ""
     
@@ -2715,19 +2715,19 @@ Deploying Activity Log diagnostic settings to subscriptions...
 Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
   Subscription name: Production-Subscription
   Deploying diagnostic settings...
-  ✓ Diagnostic settings configured successfully
+  âœ“ Diagnostic settings configured successfully
 
 Processing subscription: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
   Subscription name: Development-Subscription
   Deploying diagnostic settings...
-  ✓ Diagnostic settings configured successfully
+  âœ“ Diagnostic settings configured successfully
 
 Verifying diagnostic settings configuration...
 
-  ✓ Verified: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  âœ“ Verified: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
     Enabled categories: Administrative, Security, ServiceHealth, Alert, Recommendation, Policy, Autoscale, ResourceHealth
     Workspace: /subscriptions/.../workspaces/law-central-atevet12
-  ✓ Verified: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+  âœ“ Verified: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
     Enabled categories: Administrative, Security, ServiceHealth, Alert, Recommendation, Policy, Autoscale, ResourceHealth
     Workspace: /subscriptions/.../workspaces/law-central-atevet12
 
@@ -2743,8 +2743,8 @@ Subscriptions Processed:   2
   Succeeded: 2
 
 Successfully Configured Subscriptions:
-  ✓ aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-  ✓ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+  âœ“ aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  âœ“ bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
 === Verification Query (Run in Log Analytics) ===
 
@@ -2827,7 +2827,7 @@ This is not an error. The script will update the existing diagnostic setting wit
 
 ## Step 4: Configure Virtual Machine Diagnostic Logs
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures Data Collection Rules (DCR), installs the Azure Monitor Agent, creates DCR associations for VMs, and optionally deploys Azure Policy for automatic coverage of stopped and new VMs.
+> âš ï¸ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures Data Collection Rules (DCR), installs the Azure Monitor Agent, creates DCR associations for VMs, and optionally deploys Azure Policy for automatic coverage of stopped and new VMs.
 
 Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs, and Linux Syslog data. This step covers configuring the Azure Monitor Agent (AMA) and Data Collection Rules (DCR) for VMs.
 
@@ -2839,7 +2839,7 @@ When running this script, you may encounter VMs that are stopped/deallocated. Az
 
 ```
 Installing Azure Monitor Agent...
-    ✗ Failed to install agent: Cannot modify extensions in the VM when the VM is not running.
+    âœ— Failed to install agent: Cannot modify extensions in the VM when the VM is not running.
 ErrorCode: OperationNotAllowed
 ```
 
@@ -3168,7 +3168,7 @@ if ($AssignRolesAsSourceAdmin) {
                 $existingRole = Get-AzRoleAssignment -ObjectId $principalId -Scope $scope -RoleDefinitionName "Contributor" -ErrorAction SilentlyContinue
                 
                 if ($existingRole) {
-                    Write-Success "    ✓ Contributor role already assigned"
+                    Write-Success "    âœ“ Contributor role already assigned"
                     $adminResults.RoleAssignmentsCreated += @{
                         PrincipalId = $principalId
                         Role = "Contributor"
@@ -3185,7 +3185,7 @@ if ($AssignRolesAsSourceAdmin) {
                             -Scope $scope `
                             -ErrorAction Stop | Out-Null
                         
-                        Write-Success "    ✓ Contributor role assigned"
+                        Write-Success "    âœ“ Contributor role assigned"
                         $adminResults.RoleAssignmentsCreated += @{
                             PrincipalId = $principalId
                             Role = "Contributor"
@@ -3194,7 +3194,7 @@ if ($AssignRolesAsSourceAdmin) {
                         }
                     }
                     catch {
-                        Write-ErrorMsg "    ✗ Failed to assign role: $($_.Exception.Message)"
+                        Write-ErrorMsg "    âœ— Failed to assign role: $($_.Exception.Message)"
                         $adminResults.RoleAssignmentsFailed += @{
                             PrincipalId = $principalId
                             Role = "Contributor"
@@ -3214,7 +3214,7 @@ if ($AssignRolesAsSourceAdmin) {
                         $existingDcrRole = Get-AzRoleAssignment -ObjectId $principalId -Scope $dcr.Id -RoleDefinitionName "Monitoring Contributor" -ErrorAction SilentlyContinue
                         
                         if ($existingDcrRole) {
-                            Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                            Write-Success "    âœ“ Monitoring Contributor role already assigned on DCR"
                         }
                         else {
                             try {
@@ -3224,7 +3224,7 @@ if ($AssignRolesAsSourceAdmin) {
                                     -Scope $dcr.Id `
                                     -ErrorAction Stop | Out-Null
                                 
-                                Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
+                                Write-Success "    âœ“ Monitoring Contributor role assigned on DCR"
                                 $adminResults.RoleAssignmentsCreated += @{
                                     PrincipalId = $principalId
                                     Role = "Monitoring Contributor"
@@ -3233,7 +3233,7 @@ if ($AssignRolesAsSourceAdmin) {
                                 }
                             }
                             catch {
-                                Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor on DCR: $($_.Exception.Message)"
+                                Write-WarningMsg "    âš  Could not assign Monitoring Contributor on DCR: $($_.Exception.Message)"
                             }
                         }
                     }
@@ -3263,7 +3263,7 @@ if ($AssignRolesAsSourceAdmin) {
                             -Scope $scope `
                             -ErrorAction Stop
                         
-                        Write-Success "    ✓ Remediation task created"
+                        Write-Success "    âœ“ Remediation task created"
                         $adminResults.RemediationTasksCreated += @{
                             Name = $remediationName
                             PolicyAssignment = $found.Name
@@ -3271,14 +3271,14 @@ if ($AssignRolesAsSourceAdmin) {
                         }
                     }
                     catch {
-                        Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                        Write-WarningMsg "    âš  Could not create remediation: $($_.Exception.Message)"
                         $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
                     }
                 }
             }
         }
         catch {
-            Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
+            Write-ErrorMsg "  âœ— Failed to process subscription: $($_.Exception.Message)"
             $adminResults.Errors += "Subscription $subId : $($_.Exception.Message)"
         }
         
@@ -3303,7 +3303,7 @@ if ($AssignRolesAsSourceAdmin) {
         Write-Success "Successfully assigned roles:"
         foreach ($role in $adminResults.RoleAssignmentsCreated) {
             $status = if ($role.AlreadyExisted) { "(already existed)" } else { "(newly assigned)" }
-            Write-Success "  ✓ $($role.Role) to $($role.PrincipalId) $status"
+            Write-Success "  âœ“ $($role.Role) to $($role.PrincipalId) $status"
         }
         Write-Host ""
     }
@@ -3311,7 +3311,7 @@ if ($AssignRolesAsSourceAdmin) {
     if ($adminResults.RoleAssignmentsFailed.Count -gt 0) {
         Write-ErrorMsg "Failed role assignments:"
         foreach ($failed in $adminResults.RoleAssignmentsFailed) {
-            Write-ErrorMsg "  ✗ $($failed.Role) to $($failed.PrincipalId)"
+            Write-ErrorMsg "  âœ— $($failed.Role) to $($failed.PrincipalId)"
             Write-ErrorMsg "    Error: $($failed.Error)"
         }
         Write-Host ""
@@ -3320,7 +3320,7 @@ if ($AssignRolesAsSourceAdmin) {
     if ($adminResults.RemediationTasksCreated.Count -gt 0) {
         Write-Success "Remediation tasks created:"
         foreach ($task in $adminResults.RemediationTasksCreated) {
-            Write-Success "  ✓ $($task.Name) - $($task.Status)"
+            Write-Success "  âœ“ $($task.Name) - $($task.Status)"
         }
         Write-Host ""
     }
@@ -3492,10 +3492,10 @@ if (-not $SkipDCRCreation) {
                 -ErrorAction Stop
             
             $results.DataCollectionRuleId = $dcrDeployment.Outputs.dataCollectionRuleId.Value
-            Write-Success "  ✓ Data Collection Rule created successfully"
+            Write-Success "  âœ“ Data Collection Rule created successfully"
         }
         catch {
-            Write-ErrorMsg "  ✗ Failed to create DCR: $($_.Exception.Message)"
+            Write-ErrorMsg "  âœ— Failed to create DCR: $($_.Exception.Message)"
             $results.Errors += "DCR creation failed: $($_.Exception.Message)"
         }
         finally {
@@ -3550,7 +3550,7 @@ foreach ($subId in $SubscriptionIds) {
                 $powerState = ($vmStatus.Statuses | Where-Object { $_.Code -like "PowerState/*" }).DisplayStatus
                 
                 if ($powerState -ne "VM running") {
-                    Write-WarningMsg "    ⚠ VM is not running (Status: $powerState) - Skipping agent installation"
+                    Write-WarningMsg "    âš  VM is not running (Status: $powerState) - Skipping agent installation"
                     Write-Host "    Note: DCR association will still be created for when VM starts"
                     $results.VMsSkipped += @{
                         Id = $vm.Id
@@ -3573,7 +3573,7 @@ foreach ($subId in $SubscriptionIds) {
                     $existingAssociation = Get-AzDataCollectionRuleAssociation -TargetResourceId $vm.Id -AssociationName $associationName -ErrorAction SilentlyContinue
                     
                     if ($existingAssociation) {
-                        Write-Success "    ✓ DCR association already exists"
+                        Write-Success "    âœ“ DCR association already exists"
                     }
                     else {
                         try {
@@ -3583,17 +3583,17 @@ foreach ($subId in $SubscriptionIds) {
                                 -RuleId $results.DataCollectionRuleId `
                                 -ErrorAction Stop | Out-Null
                             
-                            Write-Success "    ✓ DCR association created"
+                            Write-Success "    âœ“ DCR association created"
                             $results.DCRAssociationsCreated += $vm.Id
                         }
                         catch {
-                            Write-ErrorMsg "    ✗ Failed to create DCR association: $($_.Exception.Message)"
+                            Write-ErrorMsg "    âœ— Failed to create DCR association: $($_.Exception.Message)"
                             $results.Errors += "DCR association failed for $($vm.Name): $($_.Exception.Message)"
                         }
                     }
                     #endregion
                     
-                    Write-WarningMsg "    ⚠ VM skipped (not running) - Start VM and re-run to install agent"
+                    Write-WarningMsg "    âš  VM skipped (not running) - Start VM and re-run to install agent"
                     continue
                 }
                 
@@ -3609,7 +3609,7 @@ foreach ($subId in $SubscriptionIds) {
                     $existingExtension = Get-AzVMExtension -ResourceGroupName $vm.ResourceGroupName -VMName $vm.Name -Name $extensionName -ErrorAction SilentlyContinue
                     
                     if ($existingExtension) {
-                        Write-Success "    ✓ Azure Monitor Agent already installed"
+                        Write-Success "    âœ“ Azure Monitor Agent already installed"
                     }
                     else {
                         Write-Host "    Installing Azure Monitor Agent..."
@@ -3625,11 +3625,11 @@ foreach ($subId in $SubscriptionIds) {
                                 -EnableAutomaticUpgrade $true `
                                 -ErrorAction Stop | Out-Null
                             
-                            Write-Success "    ✓ Azure Monitor Agent installed"
+                            Write-Success "    âœ“ Azure Monitor Agent installed"
                             $results.AgentsInstalled += $vm.Id
                         }
                         catch {
-                            Write-ErrorMsg "    ✗ Failed to install agent: $($_.Exception.Message)"
+                            Write-ErrorMsg "    âœ— Failed to install agent: $($_.Exception.Message)"
                             $results.Errors += "Agent installation failed for $($vm.Name): $($_.Exception.Message)"
                             $results.VMsFailed += $vm.Id
                             continue
@@ -3647,7 +3647,7 @@ foreach ($subId in $SubscriptionIds) {
                 $existingAssociation = Get-AzDataCollectionRuleAssociation -TargetResourceId $vm.Id -AssociationName $associationName -ErrorAction SilentlyContinue
                 
                 if ($existingAssociation) {
-                    Write-Success "    ✓ DCR association already exists"
+                    Write-Success "    âœ“ DCR association already exists"
                 }
                 else {
                     try {
@@ -3657,11 +3657,11 @@ foreach ($subId in $SubscriptionIds) {
                             -RuleId $results.DataCollectionRuleId `
                             -ErrorAction Stop | Out-Null
                         
-                        Write-Success "    ✓ DCR association created"
+                        Write-Success "    âœ“ DCR association created"
                         $results.DCRAssociationsCreated += $vm.Id
                     }
                     catch {
-                        Write-ErrorMsg "    ✗ Failed to create DCR association: $($_.Exception.Message)"
+                        Write-ErrorMsg "    âœ— Failed to create DCR association: $($_.Exception.Message)"
                         $results.Errors += "DCR association failed for $($vm.Name): $($_.Exception.Message)"
                         $results.VMsFailed += $vm.Id
                         continue
@@ -3670,10 +3670,10 @@ foreach ($subId in $SubscriptionIds) {
                 #endregion
                 
                 $results.VMsConfigured += $vm.Id
-                Write-Success "    ✓ VM configured successfully"
+                Write-Success "    âœ“ VM configured successfully"
             }
             catch {
-                Write-ErrorMsg "    ✗ Failed to configure VM: $($_.Exception.Message)"
+                Write-ErrorMsg "    âœ— Failed to configure VM: $($_.Exception.Message)"
                 $results.Errors += "VM $($vm.Name): $($_.Exception.Message)"
                 $results.VMsFailed += $vm.Id
             }
@@ -3682,7 +3682,7 @@ foreach ($subId in $SubscriptionIds) {
         }
     }
     catch {
-        Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
+        Write-ErrorMsg "  âœ— Failed to process subscription: $($_.Exception.Message)"
         $results.Errors += "Subscription $subId : $($_.Exception.Message)"
     }
 }
@@ -3807,7 +3807,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         
                         # Check if existing assignment has a managed identity
                         if (-not $existingAssignment.Identity.PrincipalId) {
-                            Write-WarningMsg "    ⚠ Existing assignment has no managed identity!"
+                            Write-WarningMsg "    âš  Existing assignment has no managed identity!"
                             Write-WarningMsg "      The policy cannot perform remediation without an identity."
                             Write-WarningMsg "      Delete the assignment and re-run the script to fix this."
                         }
@@ -3833,7 +3833,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         -Parameters $policyParams
                     
                     if ($assignmentResult.Success) {
-                        Write-Success "    ✓ Policy assigned with managed identity"
+                        Write-Success "    âœ“ Policy assigned with managed identity"
                         Write-Host "      Assignment ID: $($assignmentResult.AssignmentId)"
                         Write-Host "      Identity Principal ID: $($assignmentResult.PrincipalId)"
                         Write-Host "      Identity Tenant ID: $($assignmentResult.TenantId)"
@@ -3869,21 +3869,21 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                                         -RoleDefinitionName "Contributor" `
                                         -Scope $scope `
                                         -ErrorAction Stop | Out-Null
-                                    Write-Success "    ✓ Contributor role assigned"
+                                    Write-Success "    âœ“ Contributor role assigned"
                                     $roleAssigned = $true
                                     # Update the results
                                     $results.PolicyAssignmentsCreated[-1].RoleAssigned = $true
                                 }
                                 catch {
                                     if ($_.Exception.Message -like "*already exists*" -or $_.Exception.Message -like "*Conflict*") {
-                                        Write-Success "    ✓ Contributor role already assigned"
+                                        Write-Success "    âœ“ Contributor role already assigned"
                                         $roleAssigned = $true
                                         $results.PolicyAssignmentsCreated[-1].RoleAssigned = $true
                                     }
                                     elseif ($_.Exception.Message -like "*does not exist*" -or $_.Exception.Message -like "*PrincipalNotFound*") {
                                         $retryCount++
                                         if ($retryCount -lt $maxRetries) {
-                                            Write-WarningMsg "    ⚠ Identity not yet available, retrying in 10 seconds... (attempt $retryCount of $maxRetries)"
+                                            Write-WarningMsg "    âš  Identity not yet available, retrying in 10 seconds... (attempt $retryCount of $maxRetries)"
                                             Start-Sleep -Seconds 10
                                         }
                                         else {
@@ -3904,8 +3904,8 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                             }
                             
                             if ($roleAssignmentFailed) {
-                                Write-WarningMsg "    ⚠ Could not assign Contributor role: $roleAssignmentError"
-                                Write-WarningMsg "    → Manual role assignment required (see instructions at end of script)"
+                                Write-WarningMsg "    âš  Could not assign Contributor role: $roleAssignmentError"
+                                Write-WarningMsg "    â†’ Manual role assignment required (see instructions at end of script)"
                                 
                                 # Track identities that need manual role assignment
                                 if (-not $results.IdentitiesNeedingRoles) {
@@ -3928,14 +3928,14 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                                         -RoleDefinitionName "Monitoring Contributor" `
                                         -Scope $results.DataCollectionRuleId `
                                         -ErrorAction Stop | Out-Null
-                                    Write-Success "    ✓ Monitoring Contributor role assigned on DCR"
+                                    Write-Success "    âœ“ Monitoring Contributor role assigned on DCR"
                                 }
                                 catch {
                                     if ($_.Exception.Message -like "*already exists*" -or $_.Exception.Message -like "*Conflict*") {
-                                        Write-Success "    ✓ Monitoring Contributor role already assigned on DCR"
+                                        Write-Success "    âœ“ Monitoring Contributor role already assigned on DCR"
                                     }
                                     else {
-                                        Write-WarningMsg "    ⚠ Could not assign Monitoring Contributor role on DCR"
+                                        Write-WarningMsg "    âš  Could not assign Monitoring Contributor role on DCR"
                                         if (-not $results.IdentitiesNeedingRoles) {
                                             $results.IdentitiesNeedingRoles = @()
                                         }
@@ -3952,7 +3952,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                         }
                     }
                     else {
-                        Write-ErrorMsg "    ✗ Failed to create policy assignment: $($assignmentResult.Error)"
+                        Write-ErrorMsg "    âœ— Failed to create policy assignment: $($assignmentResult.Error)"
                         $results.PolicyAssignmentsFailed += @{
                             PolicyKey = $policyKey
                             SubscriptionId = $subId
@@ -3962,7 +3962,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     }
                 }
                 catch {
-                    Write-ErrorMsg "    ✗ Failed to assign policy: $($_.Exception.Message)"
+                    Write-ErrorMsg "    âœ— Failed to assign policy: $($_.Exception.Message)"
                     $results.PolicyAssignmentsFailed += @{
                         PolicyKey = $policyKey
                         SubscriptionId = $subId
@@ -3973,7 +3973,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
             }
         }
         catch {
-            Write-ErrorMsg "  ✗ Failed to process subscription for policy: $($_.Exception.Message)"
+            Write-ErrorMsg "  âœ— Failed to process subscription for policy: $($_.Exception.Message)"
             $results.Errors += "Policy deployment in $subId : $($_.Exception.Message)"
         }
         
@@ -4006,7 +4006,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                     -Scope "/subscriptions/$($assignment.SubscriptionId)" `
                     -ErrorAction Stop
                 
-                Write-Success "    ✓ Remediation task created"
+                Write-Success "    âœ“ Remediation task created"
                 $results.RemediationTasksCreated += @{
                     Name = $remediationName
                     PolicyKey = $assignment.PolicyKey
@@ -4014,7 +4014,7 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                 }
             }
             catch {
-                Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                Write-WarningMsg "    âš  Could not create remediation: $($_.Exception.Message)"
             }
         }
     }
@@ -4062,7 +4062,7 @@ if ($results.VMsConfigured.Count -gt 0) {
     Write-Success "Successfully configured VMs:"
     foreach ($vmId in $results.VMsConfigured | Select-Object -First 10) {
         $vmName = ($vmId -split "/")[-1]
-        Write-Success "  ✓ $vmName"
+        Write-Success "  âœ“ $vmName"
     }
     if ($results.VMsConfigured.Count -gt 10) {
         Write-Success "  ... and $($results.VMsConfigured.Count - 10) more"
@@ -4073,7 +4073,7 @@ if ($results.VMsConfigured.Count -gt 0) {
 if ($results.VMsSkipped.Count -gt 0) {
     Write-WarningMsg "Skipped VMs (not running):"
     foreach ($skipped in $results.VMsSkipped | Select-Object -First 10) {
-        Write-WarningMsg "  ⚠ $($skipped.Name) - $($skipped.PowerState)"
+        Write-WarningMsg "  âš  $($skipped.Name) - $($skipped.PowerState)"
     }
     if ($results.VMsSkipped.Count -gt 10) {
         Write-WarningMsg "  ... and $($results.VMsSkipped.Count - 10) more"
@@ -4093,7 +4093,7 @@ if ($results.VMsSkipped.Count -gt 0) {
 if ($results.PolicyAssignmentsCreated.Count -gt 0) {
     Write-Success "Azure Policy Assignments Created:"
     foreach ($assignment in $results.PolicyAssignmentsCreated) {
-        Write-Success "  ✓ $($assignment.PolicyKey)"
+        Write-Success "  âœ“ $($assignment.PolicyKey)"
     }
     Write-Host ""
     Write-Info "Azure Policy ensures that:"
@@ -4187,16 +4187,16 @@ elseif ($results.VMsSkipped.Count -gt 0 -and $DeployPolicy) {
 #region Manual Role Assignment Instructions
 if ($results.IdentitiesNeedingRoles -and $results.IdentitiesNeedingRoles.Count -gt 0) {
     Write-Host ""
-    Write-ErrorMsg "╔══════════════════════════════════════════════════════════════════════╗"
-    Write-ErrorMsg "║  ACTION REQUIRED: Manual Role Assignment Needed                       ║"
-    Write-ErrorMsg "╚══════════════════════════════════════════════════════════════════════╝"
+    Write-ErrorMsg "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    Write-ErrorMsg "â•‘  ACTION REQUIRED: Manual Role Assignment Needed                       â•‘"
+    Write-ErrorMsg "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     Write-Host ""
     Write-Host "The script could not assign roles to the policy managed identities."
     Write-Host "This is expected in cross-tenant scenarios without User Access Administrator."
     Write-Host ""
-    Write-Host "╔══════════════════════════════════════════════════════════════════════╗"
-    Write-Host "║  RECOMMENDED: Use the built-in -AssignRolesAsSourceAdmin parameter   ║"
-    Write-Host "╚══════════════════════════════════════════════════════════════════════╝"
+    Write-Host "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    Write-Host "â•‘  RECOMMENDED: Use the built-in -AssignRolesAsSourceAdmin parameter   â•‘"
+    Write-Host "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     Write-Host ""
     Write-Info "A SOURCE TENANT ADMIN should run this same script with -AssignRolesAsSourceAdmin:"
     Write-Host ""
@@ -4221,7 +4221,7 @@ if ($results.IdentitiesNeedingRoles -and $results.IdentitiesNeedingRoles.Count -
     Write-Host "  3. Create remediation tasks to apply policies to existing VMs"
     Write-Host ""
     
-    Write-Host "─────────────────────────────────────────────────────────────────────────"
+    Write-Host "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
     Write-Host ""
     Write-Info "ALTERNATIVE: Manual role assignment commands (if you prefer not to use the script):"
     Write-Host ""
@@ -4347,16 +4347,16 @@ Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
   Policy: Configure Windows virtual machines to run Azure Monitor Agent
     Principal ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    ✓ Contributor role assigned
+    âœ“ Contributor role assigned
 
   Policy: Configure Linux virtual machines to run Azure Monitor Agent
     Principal ID: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
-    ✓ Contributor role assigned
+    âœ“ Contributor role assigned
 
 Creating remediation tasks for existing non-compliant VMs...
 
   Creating remediation: remediate-vm-monitoring-AMA-Windows-aaaaaaaa
-    ✓ Remediation task created
+    âœ“ Remediation task created
 
 ======================================================================
                               SUMMARY
@@ -4389,7 +4389,7 @@ Subscriptions to configure: 2
 
 Creating Data Collection Rule: dcr-vm-logs
   Creating new Data Collection Rule...
-  ✓ Data Collection Rule created successfully
+  âœ“ Data Collection Rule created successfully
 
 Processing Virtual Machines in delegated subscriptions...
 
@@ -4400,25 +4400,25 @@ Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
   Processing VM: vm-web-01
     OS Type: Windows
     Installing Azure Monitor Agent...
-    ✓ Azure Monitor Agent installed
+    âœ“ Azure Monitor Agent installed
     Creating DCR association...
-    ✓ DCR association created
-    ✓ VM configured successfully
+    âœ“ DCR association created
+    âœ“ VM configured successfully
 
   Processing VM: vm-db-01
     OS Type: Windows
-    ✓ Azure Monitor Agent already installed
+    âœ“ Azure Monitor Agent already installed
     Creating DCR association...
-    ✓ DCR association created
-    ✓ VM configured successfully
+    âœ“ DCR association created
+    âœ“ VM configured successfully
 
   Processing VM: vm-linux-01
     OS Type: Linux
     Installing Azure Monitor Agent...
-    ✓ Azure Monitor Agent installed
+    âœ“ Azure Monitor Agent installed
     Creating DCR association...
-    ✓ DCR association created
-    ✓ VM configured successfully
+    âœ“ DCR association created
+    âœ“ VM configured successfully
 
 ======================================================================
                               SUMMARY
@@ -4434,9 +4434,9 @@ Agents Installed:          2
 DCR Associations Created:  3
 
 Successfully configured VMs:
-  ✓ vm-web-01
-  ✓ vm-db-01
-  ✓ vm-linux-01
+  âœ“ vm-web-01
+  âœ“ vm-db-01
+  âœ“ vm-linux-01
 
 === Verification Queries ===
 
@@ -4498,11 +4498,37 @@ Syslog
 
 ---
 
+
 ## Step 5: Configure Azure Resource Diagnostic Logs
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
+> âš ï¸ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
 
-Resource diagnostic logs capture data plane operations for Azure resources (e.g., Key Vault access, Storage operations, SQL queries). This script automates the configuration of diagnostic settings across multiple resource types.
+Resource diagnostic logs capture data plane operations for Azure resources (e.g., Key Vault access, Storage operations, SQL queries). This script automates the configuration of diagnostic settings across multiple resource types using the recommended `allLogs` category group.
+
+> **Note:** Virtual Machine diagnostic logs are covered in [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs). This step focuses on PaaS resource diagnostic settings.
+
+### Why Azure Policy is Important
+
+When running this script, you configure diagnostic settings for existing resources. However, new resources created after the script runs will not have diagnostic settings configured. Azure Policy ensures that:
+
+1. **New resources** automatically get diagnostic settings configured
+2. **Existing resources** without diagnostic settings can be remediated
+3. **Compliance** is continuously monitored across all subscriptions
+
+### Built-in Policy Definitions Reference
+
+Azure provides built-in policies for configuring diagnostic settings. The script uses these policies:
+
+| Resource Type | Policy Definition ID | Description |
+|--------------|---------------------|-------------|
+| **Key Vault** | `951af2fa-529b-416e-ab6e-066fd85ac459` | Configure Key Vault diagnostic settings |
+| **Storage Account** | `59759c62-9a22-4cdf-ae64-074495983fef` | Configure Storage Account diagnostic settings |
+| **SQL Database** | `b79fa14e-238a-4c2d-b376-442ce508fc84` | Configure SQL Database diagnostic settings |
+| **App Service** | `b607c5de-e7d9-4eee-9e5c-83f1bcee4fa0` | Configure App Service diagnostic settings |
+| **Event Hub** | `1f6e93e8-6b31-41b1-83f6-36e449a42579` | Configure Event Hub diagnostic settings |
+| **Service Bus** | `04d53d87-841c-4f23-8a5b-21564380b55e` | Configure Service Bus diagnostic settings |
+
+> **Note:** For resources without built-in policies, the script creates custom policy definitions.
 
 ### Prerequisites
 
@@ -4510,7 +4536,8 @@ Before running this script, you need:
 - **Azure Lighthouse delegation** completed (Step 2)
 - **Log Analytics Workspace Resource ID** (from Step 1)
 - **Delegated subscription IDs** (from the source tenant)
-- **Contributor** or **Monitoring Contributor** role on the delegated subscriptions
+- **Contributor** role on the delegated subscriptions
+- **Resource Policy Contributor** role (if deploying Azure Policy with `-DeployPolicy`)
 
 ### Script: `Configure-ResourceDiagnosticLogs.ps1`
 
@@ -4522,14 +4549,14 @@ Before running this script, you need:
 .DESCRIPTION
     This script is used as Step 5 in the Azure Cross-Tenant Log Collection setup.
     It configures diagnostic settings on Azure resources in delegated subscriptions to send
-    logs to a centralized Log Analytics workspace.
+    logs to a centralized Log Analytics workspace using the recommended 'allLogs' category group.
     
     The script:
-    - Discovers resources that support diagnostic settings
-    - Creates diagnostic settings for each resource type
-    - Supports filtering by resource type
-    - Optionally deploys Data Collection Rules for VMs
-    - Verifies the configuration after deployment
+    - Discovers all resources that support diagnostic settings
+    - Configures diagnostic settings using 'allLogs' category group (recommended)
+    - Optionally deploys Azure Policy for automatic coverage of new resources
+    - Generates ARM templates for Infrastructure as Code scenarios
+    - Provides detailed reporting and verification
 
 .PARAMETER WorkspaceResourceId
     The full resource ID of the Log Analytics workspace to send logs to.
@@ -4545,8 +4572,14 @@ Before running this script, you need:
     Array of resource types to configure. If not provided, configures all supported types.
     Example: @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 
-.PARAMETER Location
-    Azure region for DCR deployment. Default: "westus2"
+.PARAMETER DeployPolicy
+    If specified, deploys Azure Policy for automatic diagnostic settings on new resources.
+
+.PARAMETER SkipExistingResources
+    If specified, only deploys Azure Policy without configuring existing resources.
+
+.PARAMETER ExportArmTemplates
+    If specified, exports ARM templates to the specified directory for IaC scenarios.
 
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
@@ -4555,11 +4588,14 @@ Before running this script, you need:
     .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 
 .EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/..." -SubscriptionIds @("sub-id-1", "sub-id-2") -DeployPolicy
+
+.EXAMPLE
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/..." -ResourceTypes @("Microsoft.KeyVault/vaults") -ExportArmTemplates "C:\Templates"
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
-    Requires: Az.Accounts, Az.Resources, Az.Monitor, Az.Compute modules
+    Requires: Az.Accounts, Az.Resources, Az.Monitor, Az.PolicyInsights modules
     Should be run from the MANAGING tenant after Lighthouse delegation is complete
 #>
 
@@ -4578,201 +4614,381 @@ param(
     [string[]]$ResourceTypes,
 
     [Parameter(Mandatory = $false)]
-    [string]$Location = "westus2",
+    [switch]$DeployPolicy,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipExistingResources,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ExportArmTemplates,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipVerification
 )
 
-# Color functions for output
+#region Helper Functions
 function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
 function Write-ErrorMsg { param($Message) Write-Host $Message -ForegroundColor Red }
 function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor Yellow }
 function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
 function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
+#endregion
 
-# Supported resource types - using categoryGroup "allLogs" for all resources (recommended)
-# This automatically captures all current and future log categories
+#region Supported Resource Types
+# All resource types use categoryGroup 'allLogs' for comprehensive log collection
 $SupportedResourceTypes = @{
     "Microsoft.KeyVault/vaults" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Key Vault"
+        policyDefinitionId = "951af2fa-529b-416e-ab6e-066fd85ac459"
+        supportsMetrics = $true
     }
     "Microsoft.Storage/storageAccounts/blobServices" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "Transaction"; enabled = $true }
-        )
+        displayName = "Storage Account (Blob)"
+        policyDefinitionId = $null  # Custom policy needed
+        supportsMetrics = $true
+        parentType = "Microsoft.Storage/storageAccounts"
     }
     "Microsoft.Storage/storageAccounts/queueServices" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "Transaction"; enabled = $true }
-        )
+        displayName = "Storage Account (Queue)"
+        policyDefinitionId = $null
+        supportsMetrics = $true
+        parentType = "Microsoft.Storage/storageAccounts"
     }
     "Microsoft.Storage/storageAccounts/tableServices" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "Transaction"; enabled = $true }
-        )
+        displayName = "Storage Account (Table)"
+        policyDefinitionId = $null
+        supportsMetrics = $true
+        parentType = "Microsoft.Storage/storageAccounts"
     }
     "Microsoft.Storage/storageAccounts/fileServices" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "Transaction"; enabled = $true }
-        )
+        displayName = "Storage Account (File)"
+        policyDefinitionId = $null
+        supportsMetrics = $true
+        parentType = "Microsoft.Storage/storageAccounts"
     }
     "Microsoft.Web/sites" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "App Service / Web App"
+        policyDefinitionId = "b607c5de-e7d9-4eee-9e5c-83f1bcee4fa0"
+        supportsMetrics = $true
     }
     "Microsoft.Sql/servers/databases" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "SQL Database"
+        policyDefinitionId = "b79fa14e-238a-4c2d-b376-442ce508fc84"
+        supportsMetrics = $true
     }
     "Microsoft.Network/networkSecurityGroups" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @()  # NSGs don't support metrics
+        displayName = "Network Security Group"
+        policyDefinitionId = $null
+        supportsMetrics = $false
     }
     "Microsoft.ContainerService/managedClusters" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Azure Kubernetes Service (AKS)"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.DocumentDB/databaseAccounts" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Cosmos DB"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.EventHub/namespaces" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Event Hub"
+        policyDefinitionId = "1f6e93e8-6b31-41b1-83f6-36e449a42579"
+        supportsMetrics = $true
     }
     "Microsoft.ServiceBus/namespaces" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Service Bus"
+        policyDefinitionId = "04d53d87-841c-4f23-8a5b-21564380b55e"
+        supportsMetrics = $true
     }
     "Microsoft.Network/applicationGateways" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Application Gateway"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.Network/azureFirewalls" = @{
-        logs = @(
-            @{ categoryGroup = "allLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Azure Firewall"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.ApiManagement/service" = @{
-        logs = @(
-            @{ category = "GatewayLogs"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "API Management"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.Logic/workflows" = @{
-        logs = @(
-            @{ category = "WorkflowRuntime"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Logic App"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.ContainerRegistry/registries" = @{
-        logs = @(
-            @{ category = "ContainerRegistryRepositoryEvents"; enabled = $true },
-            @{ category = "ContainerRegistryLoginEvents"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Container Registry"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.Cache/redis" = @{
-        logs = @(
-            @{ category = "ConnectedClientList"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Azure Cache for Redis"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.DataFactory/factories" = @{
-        logs = @(
-            @{ category = "ActivityRuns"; enabled = $true },
-            @{ category = "PipelineRuns"; enabled = $true },
-            @{ category = "TriggerRuns"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Data Factory"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
     "Microsoft.CognitiveServices/accounts" = @{
-        logs = @(
-            @{ category = "Audit"; enabled = $true },
-            @{ category = "RequestResponse"; enabled = $true }
-        )
-        metrics = @(
-            @{ category = "AllMetrics"; enabled = $true }
-        )
+        displayName = "Cognitive Services"
+        policyDefinitionId = $null
+        supportsMetrics = $true
     }
 }
+#endregion
 
-# Results tracking
+#region ARM Template Generation Functions
+function Get-DiagnosticSettingsArmTemplate {
+    param(
+        [string]$ResourceType,
+        [string]$WorkspaceResourceId,
+        [string]$DiagnosticSettingName,
+        [bool]$SupportsMetrics = $true
+    )
+    
+    $metricsSection = if ($SupportsMetrics) {
+        @'
+                "metrics": [
+                    {
+                        "category": "AllMetrics",
+                        "enabled": true
+                    }
+                ]
+'@
+    } else {
+        @'
+                "metrics": []
+'@
+    }
+    
+    $template = @"
+{
+    "`$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "resourceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Full resource ID of the resource to configure"
+            }
+        },
+        "workspaceResourceId": {
+            "type": "string",
+            "defaultValue": "$WorkspaceResourceId",
+            "metadata": {
+                "description": "Full resource ID of the Log Analytics workspace"
+            }
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "defaultValue": "$DiagnosticSettingName",
+            "metadata": {
+                "description": "Name for the diagnostic setting"
+            }
+        }
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Insights/diagnosticSettings",
+            "apiVersion": "2021-05-01-preview",
+            "scope": "[parameters('resourceId')]",
+            "name": "[parameters('diagnosticSettingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceResourceId')]",
+                "logs": [
+                    {
+                        "categoryGroup": "allLogs",
+                        "enabled": true
+                    }
+                ],
+$metricsSection
+            }
+        }
+    ],
+    "outputs": {
+        "diagnosticSettingId": {
+            "type": "string",
+            "value": "[extensionResourceId(parameters('resourceId'), 'Microsoft.Insights/diagnosticSettings', parameters('diagnosticSettingName'))]"
+        }
+    }
+}
+"@
+    return $template
+}
+#endregion
+
+#region Configure Diagnostic Settings Function
+function Set-ResourceDiagnosticSetting {
+    param(
+        [object]$Resource,
+        [string]$WorkspaceResourceId,
+        [string]$DiagnosticSettingName,
+        [bool]$SupportsMetrics = $true
+    )
+    
+    $result = @{
+        ResourceId = $Resource.ResourceId
+        ResourceName = $Resource.Name
+        ResourceType = $Resource.ResourceType
+        Status = "Unknown"
+        Message = ""
+    }
+    
+    try {
+        # Check if diagnostic setting already exists
+        $existingSetting = Get-AzDiagnosticSetting -ResourceId $Resource.ResourceId -Name $DiagnosticSettingName -ErrorAction SilentlyContinue
+        
+        if ($existingSetting) {
+            # Check if it's pointing to the correct workspace
+            if ($existingSetting.WorkspaceId -eq $WorkspaceResourceId) {
+                $result.Status = "AlreadyConfigured"
+                $result.Message = "Diagnostic setting already exists and points to correct workspace"
+                return $result
+            } else {
+                Write-WarningMsg "      Updating existing diagnostic setting to point to correct workspace..."
+            }
+        }
+        
+        # Build log settings using categoryGroup 'allLogs'
+        $logSettings = @(
+            New-AzDiagnosticSettingLogSettingsObject -CategoryGroup "allLogs" -Enabled $true
+        )
+        
+        # Build metric settings if supported
+        $metricSettings = @()
+        if ($SupportsMetrics) {
+            $metricSettings = @(
+                New-AzDiagnosticSettingMetricSettingsObject -Category "AllMetrics" -Enabled $true
+            )
+        }
+        
+        # Create or update diagnostic setting
+        $params = @{
+            ResourceId = $Resource.ResourceId
+            Name = $DiagnosticSettingName
+            WorkspaceId = $WorkspaceResourceId
+            Log = $logSettings
+        }
+        
+        if ($metricSettings.Count -gt 0) {
+            $params.Metric = $metricSettings
+        }
+        
+        New-AzDiagnosticSetting @params -ErrorAction Stop | Out-Null
+        
+        $result.Status = "Configured"
+        $result.Message = "Diagnostic setting configured successfully"
+    }
+    catch {
+        $result.Status = "Failed"
+        $result.Message = $_.Exception.Message
+    }
+    
+    return $result
+}
+#endregion
+
+#region Deploy Azure Policy Function
+function Deploy-DiagnosticSettingsPolicy {
+    param(
+        [string]$SubscriptionId,
+        [string]$WorkspaceResourceId,
+        [string]$DiagnosticSettingName
+    )
+    
+    $results = @{
+        PoliciesAssigned = @()
+        PoliciesFailed = @()
+    }
+    
+    Write-Info "  Deploying Azure Policy for automatic diagnostic settings..."
+    
+    # Create a policy initiative (policy set) for diagnostic settings
+    $policySetName = "DiagnosticSettings-Initiative"
+    $policySetDisplayName = "Configure Diagnostic Settings for All Resources"
+    
+    # Get all resource types with built-in policies
+    $resourceTypesWithPolicies = $SupportedResourceTypes.GetEnumerator() | Where-Object { $_.Value.policyDefinitionId -ne $null }
+    
+    foreach ($resourceType in $resourceTypesWithPolicies) {
+        $policyDefId = $resourceType.Value.policyDefinitionId
+        $displayName = $resourceType.Value.displayName
+        $assignmentName = "DiagSettings-$($displayName -replace ' ', '')"
+        
+        if ($assignmentName.Length -gt 64) {
+            $assignmentName = $assignmentName.Substring(0, 64)
+        }
+        
+        try {
+            Write-Host "    Assigning policy for $displayName..."
+            
+            # Get the policy definition
+            $policyDef = Get-AzPolicyDefinition -Id "/providers/Microsoft.Authorization/policyDefinitions/$policyDefId" -ErrorAction Stop
+            
+            # Create policy assignment
+            $assignmentParams = @{
+                Name = $assignmentName
+                DisplayName = "Configure diagnostic settings for $displayName"
+                Scope = "/subscriptions/$SubscriptionId"
+                PolicyDefinition = $policyDef
+                PolicyParameterObject = @{
+                    logAnalytics = $WorkspaceResourceId
+                    diagnosticsSettingNameToUse = $DiagnosticSettingName
+                }
+                Location = "westus2"
+                IdentityType = "SystemAssigned"
+            }
+            
+            $assignment = New-AzPolicyAssignment @assignmentParams -ErrorAction Stop
+            
+            $results.PoliciesAssigned += @{
+                ResourceType = $displayName
+                AssignmentName = $assignmentName
+                AssignmentId = $assignment.PolicyAssignmentId
+                ManagedIdentityId = $assignment.Identity.PrincipalId
+            }
+            
+            Write-Success "      âœ“ Policy assigned for $displayName"
+        }
+        catch {
+            Write-ErrorMsg "      âœ— Failed to assign policy for $displayName : $($_.Exception.Message)"
+            $results.PoliciesFailed += @{
+                ResourceType = $displayName
+                Error = $_.Exception.Message
+            }
+        }
+    }
+    
+    return $results
+}
+#endregion
+
+#region Results Tracking
 $results = @{
     WorkspaceResourceId = $WorkspaceResourceId
     DiagnosticSettingName = $DiagnosticSettingName
     SubscriptionsProcessed = @()
-    ResourcesConfigured = @()
-    ResourcesFailed = @()
-    VMsConfigured = @()
+    ResourcesDiscovered = 0
+    ResourcesConfigured = 0
+    ResourcesAlreadyConfigured = 0
+    ResourcesFailed = 0
+    ResourcesByType = @{}
+    PolicyResults = @{}
     Errors = @()
 }
+#endregion
 
-# Main script execution
+#region Main Script Execution
 Write-Host ""
 Write-Header "======================================================================"
-Write-Header "        Configure Resource Diagnostic Logs - Step 5                   "
+Write-Header "        Configure Azure Resource Diagnostic Logs                      "
 Write-Header "======================================================================"
 Write-Host ""
 
@@ -4801,15 +5017,9 @@ if ($WorkspaceResourceId -notmatch "^/subscriptions/[^/]+/resourceGroups/[^/]+/p
     exit 1
 }
 
-# Extract workspace details from resource ID
 $workspaceIdParts = $WorkspaceResourceId -split "/"
-$workspaceSubscriptionId = $workspaceIdParts[2]
-$workspaceResourceGroup = $workspaceIdParts[4]
 $workspaceName = $workspaceIdParts[8]
-
-Write-Success "  Workspace Name: $workspaceName"
-Write-Success "  Resource Group: $workspaceResourceGroup"
-Write-Success "  Subscription: $workspaceSubscriptionId"
+Write-Success "  Workspace: $workspaceName"
 Write-Host ""
 #endregion
 
@@ -4827,253 +5037,127 @@ Write-Host ""
 #endregion
 
 #region Filter Resource Types
+$targetResourceTypes = $SupportedResourceTypes.Keys
 if ($ResourceTypes -and $ResourceTypes.Count -gt 0) {
-    Write-Info "Filtering to specified resource types:"
-    foreach ($rt in $ResourceTypes) {
-        Write-Host "  - $rt"
-    }
-    
-    $filteredTypes = @{}
-    foreach ($rt in $ResourceTypes) {
-        if ($SupportedResourceTypes.ContainsKey($rt)) {
-            $filteredTypes[$rt] = $SupportedResourceTypes[$rt]
-        }
-        else {
-            Write-WarningMsg "  Resource type not in supported list: $rt"
-        }
-    }
-    $SupportedResourceTypes = $filteredTypes
-}
-else {
-    Write-Info "Configuring all supported resource types ($($SupportedResourceTypes.Count) types)"
+    $targetResourceTypes = $ResourceTypes | Where-Object { $SupportedResourceTypes.ContainsKey($_) }
+    Write-Info "Filtering to specified resource types: $($targetResourceTypes.Count)"
+} else {
+    Write-Info "Configuring all supported resource types: $($targetResourceTypes.Count)"
 }
 Write-Host ""
 #endregion
 
-#region Function to Configure Diagnostic Settings
-function Set-ResourceDiagnosticSetting {
-    param(
-        [string]$ResourceId,
-        [string]$ResourceType,
-        [string]$WorkspaceId,
-        [string]$SettingName,
-        [array]$LogCategories,
-        [array]$MetricCategories = @()
-    )
+#region Export ARM Templates (if requested)
+if ($ExportArmTemplates) {
+    Write-Info "Exporting ARM templates to: $ExportArmTemplates"
     
-    try {
-        # Build the log settings
-        $logSettings = @()
-        foreach ($cat in $LogCategories) {
-            $logSettings += New-AzDiagnosticSettingLogSettingsObject -Category $cat.category -Enabled $cat.enabled
-        }
-        
-        # Build the metric settings from provided categories
-        $metricSettings = @()
-        if ($MetricCategories -and $MetricCategories.Count -gt 0) {
-            foreach ($metric in $MetricCategories) {
-                try {
-                    $metricSettings += New-AzDiagnosticSettingMetricSettingsObject -Category $metric.category -Enabled $metric.enabled
-                }
-                catch {
-                    # Some resources don't support certain metric categories
-                    Write-Verbose "Could not add metric category $($metric.category): $($_.Exception.Message)"
-                }
-            }
-        }
-        
-        # Create or update the diagnostic setting
-        if ($metricSettings.Count -gt 0) {
-            New-AzDiagnosticSetting `
-                -ResourceId $ResourceId `
-                -Name $SettingName `
-                -WorkspaceId $WorkspaceId `
-                -Log $logSettings `
-                -Metric $metricSettings `
-                -ErrorAction Stop | Out-Null
-        }
-        else {
-            New-AzDiagnosticSetting `
-                -ResourceId $ResourceId `
-                -Name $SettingName `
-                -WorkspaceId $WorkspaceId `
-                -Log $logSettings `
-                -ErrorAction Stop | Out-Null
-        }
-        
-        return @{
-            Success = $true
-            ResourceId = $ResourceId
-            Message = "Configured successfully"
-        }
-    }
-    catch {
-        return @{
-            Success = $false
-            ResourceId = $ResourceId
-            Message = $_.Exception.Message
-        }
-    }
-}
-#endregion
-
-#region Function to Configure Storage Account Sub-Services
-function Set-StorageAccountDiagnostics {
-    param(
-        [object]$StorageAccount,
-        [string]$WorkspaceId,
-        [string]$SettingName
-    )
-    
-    $storageResults = @()
-    $services = @("blobServices", "queueServices", "tableServices", "fileServices")
-    
-    foreach ($service in $services) {
-        $serviceResourceId = "$($StorageAccount.Id)/$service/default"
-        $resourceType = "Microsoft.Storage/storageAccounts/$service"
-        
-        if ($SupportedResourceTypes.ContainsKey($resourceType)) {
-            $resourceConfig = $SupportedResourceTypes[$resourceType]
-            $logCategories = $resourceConfig.logs
-            $metricCategories = $resourceConfig.metrics
-            
-            try {
-                $result = Set-ResourceDiagnosticSetting `
-                    -ResourceId $serviceResourceId `
-                    -ResourceType $resourceType `
-                    -WorkspaceId $WorkspaceId `
-                    -SettingName $SettingName `
-                    -LogCategories $logCategories `
-                    -MetricCategories $metricCategories
-                
-                $storageResults += $result
-            }
-            catch {
-                $storageResults += @{
-                    Success = $false
-                    ResourceId = $serviceResourceId
-                    Message = $_.Exception.Message
-                }
-            }
-        }
+    if (-not (Test-Path $ExportArmTemplates)) {
+        New-Item -ItemType Directory -Path $ExportArmTemplates -Force | Out-Null
     }
     
-    return $storageResults
+    # Export generic template
+    $genericTemplate = Get-DiagnosticSettingsArmTemplate -ResourceType "Generic" -WorkspaceResourceId $WorkspaceResourceId -DiagnosticSettingName $DiagnosticSettingName
+    $genericTemplate | Set-Content -Path (Join-Path $ExportArmTemplates "generic-diagnostic-settings.json") -Encoding UTF8
+    Write-Success "  Exported: generic-diagnostic-settings.json"
+    
+    Write-Host ""
 }
 #endregion
 
 #region Process Each Subscription
-Write-Info "Processing subscriptions and configuring diagnostic settings..."
-Write-Host ""
-
 foreach ($subId in $SubscriptionIds) {
     $results.SubscriptionsProcessed += $subId
     
+    Write-Header "======================================================================"
     Write-Info "Processing subscription: $subId"
+    Write-Header "======================================================================"
+    Write-Host ""
     
     try {
         Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
         $subName = (Get-AzContext).Subscription.Name
-        Write-Host "  Subscription name: $subName"
+        Write-Success "Subscription: $subName"
+        Write-Host ""
+    }
+    catch {
+        Write-ErrorMsg "Failed to set subscription context: $($_.Exception.Message)"
+        $results.Errors += "Subscription $subId : $($_.Exception.Message)"
+        continue
+    }
+    
+    #region Configure Existing Resources
+    if (-not $SkipExistingResources) {
+        Write-Info "Discovering and configuring resources..."
         Write-Host ""
         
-        foreach ($resourceType in $SupportedResourceTypes.Keys) {
-            # Skip storage sub-services (handled separately)
-            if ($resourceType -like "Microsoft.Storage/storageAccounts/*") {
-                continue
-            }
+        foreach ($resourceType in $targetResourceTypes) {
+            $typeInfo = $SupportedResourceTypes[$resourceType]
+            $displayName = $typeInfo.displayName
             
-            Write-Host "  Discovering $resourceType resources..."
+            Write-Info "  Processing: $displayName ($resourceType)"
             
-            $resources = @()
-            
-            switch -Wildcard ($resourceType) {
-                "Microsoft.Storage/storageAccounts" {
-                    $resources = Get-AzStorageAccount -ErrorAction SilentlyContinue
-                }
-                "Microsoft.KeyVault/vaults" {
-                    $resources = Get-AzKeyVault -ErrorAction SilentlyContinue
-                }
-                "Microsoft.Web/sites" {
-                    $resources = Get-AzWebApp -ErrorAction SilentlyContinue
-                }
-                "Microsoft.Sql/servers/databases" {
-                    $sqlServers = Get-AzSqlServer -ErrorAction SilentlyContinue
-                    foreach ($server in $sqlServers) {
-                        $dbs = Get-AzSqlDatabase -ServerName $server.ServerName -ResourceGroupName $server.ResourceGroupName -ErrorAction SilentlyContinue
-                        $resources += $dbs | Where-Object { $_.DatabaseName -ne "master" }
+            # Handle storage account sub-services
+            if ($typeInfo.parentType) {
+                # Get parent storage accounts first
+                $parentResources = Get-AzResource -ResourceType $typeInfo.parentType -ErrorAction SilentlyContinue
+                $resources = @()
+                foreach ($parent in $parentResources) {
+                    # Construct the sub-service resource ID
+                    $subServiceType = $resourceType -replace "Microsoft\.Storage/storageAccounts/", ""
+                    $subResourceId = "$($parent.ResourceId)/$subServiceType/default"
+                    $resources += [PSCustomObject]@{
+                        ResourceId = $subResourceId
+                        Name = "$($parent.Name)/$subServiceType"
+                        ResourceType = $resourceType
                     }
                 }
-                "Microsoft.Network/networkSecurityGroups" {
-                    $resources = Get-AzNetworkSecurityGroup -ErrorAction SilentlyContinue
-                }
-                "Microsoft.ContainerService/managedClusters" {
-                    $resources = Get-AzAksCluster -ErrorAction SilentlyContinue
-                }
-                default {
-                    $resources = Get-AzResource -ResourceType $resourceType -ErrorAction SilentlyContinue
-                }
+            } else {
+                $resources = Get-AzResource -ResourceType $resourceType -ErrorAction SilentlyContinue
             }
             
-            if ($resources.Count -eq 0) {
+            if (-not $resources -or $resources.Count -eq 0) {
                 Write-Host "    No resources found"
                 continue
             }
             
             Write-Host "    Found $($resources.Count) resource(s)"
+            $results.ResourcesDiscovered += $resources.Count
+            
+            if (-not $results.ResourcesByType.ContainsKey($resourceType)) {
+                $results.ResourcesByType[$resourceType] = @{
+                    Discovered = 0
+                    Configured = 0
+                    AlreadyConfigured = 0
+                    Failed = 0
+                }
+            }
+            $results.ResourcesByType[$resourceType].Discovered += $resources.Count
             
             foreach ($resource in $resources) {
-                $resourceId = $resource.Id
-                if (-not $resourceId) {
-                    $resourceId = $resource.ResourceId
-                }
+                Write-Host "    Configuring: $($resource.Name)"
                 
-                $resourceName = $resource.Name
-                if (-not $resourceName) {
-                    $resourceName = $resource.VaultName
-                }
+                $configResult = Set-ResourceDiagnosticSetting `
+                    -Resource $resource `
+                    -WorkspaceResourceId $WorkspaceResourceId `
+                    -DiagnosticSettingName $DiagnosticSettingName `
+                    -SupportsMetrics $typeInfo.supportsMetrics
                 
-                Write-Host "    Configuring: $resourceName"
-                
-                if ($resourceType -eq "Microsoft.Storage/storageAccounts") {
-                    $storageResults = Set-StorageAccountDiagnostics `
-                        -StorageAccount $resource `
-                        -WorkspaceId $WorkspaceResourceId `
-                        -SettingName $DiagnosticSettingName
-                    
-                    foreach ($sr in $storageResults) {
-                        if ($sr.Success) {
-                            Write-Success "      ✓ $($sr.ResourceId -split '/' | Select-Object -Last 2 | Join-String -Separator '/')"
-                            $results.ResourcesConfigured += $sr.ResourceId
-                        }
-                        else {
-                            Write-ErrorMsg "      ✗ $($sr.ResourceId -split '/' | Select-Object -Last 2 | Join-String -Separator '/'): $($sr.Message)"
-                            $results.ResourcesFailed += $sr.ResourceId
-                            $results.Errors += "$($sr.ResourceId): $($sr.Message)"
-                        }
+                switch ($configResult.Status) {
+                    "Configured" {
+                        Write-Success "      âœ“ Configured"
+                        $results.ResourcesConfigured++
+                        $results.ResourcesByType[$resourceType].Configured++
                     }
-                }
-                else {
-                    $resourceConfig = $SupportedResourceTypes[$resourceType]
-                    $logCategories = $resourceConfig.logs
-                    $metricCategories = $resourceConfig.metrics
-                    
-                    $result = Set-ResourceDiagnosticSetting `
-                        -ResourceId $resourceId `
-                        -ResourceType $resourceType `
-                        -WorkspaceId $WorkspaceResourceId `
-                        -SettingName $DiagnosticSettingName `
-                        -LogCategories $logCategories `
-                        -MetricCategories $metricCategories
-                    
-                    if ($result.Success) {
-                        Write-Success "      ✓ Configured"
-                        $results.ResourcesConfigured += $resourceId
+                    "AlreadyConfigured" {
+                        Write-Host "      ~ Already configured" -ForegroundColor Gray
+                        $results.ResourcesAlreadyConfigured++
+                        $results.ResourcesByType[$resourceType].AlreadyConfigured++
                     }
-                    else {
-                        Write-ErrorMsg "      ✗ Failed: $($result.Message)"
-                        $results.ResourcesFailed += $resourceId
-                        $results.Errors += "$resourceId : $($result.Message)"
+                    "Failed" {
+                        Write-ErrorMsg "      âœ— Failed: $($configResult.Message)"
+                        $results.ResourcesFailed++
+                        $results.ResourcesByType[$resourceType].Failed++
+                        $results.Errors += "$($resource.Name): $($configResult.Message)"
                     }
                 }
             }
@@ -5081,41 +5165,54 @@ foreach ($subId in $SubscriptionIds) {
             Write-Host ""
         }
     }
-    catch {
-        Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
-        $results.Errors += "Subscription $subId : $($_.Exception.Message)"
-    }
+    #endregion
     
-    Write-Host ""
+    #region Deploy Azure Policy
+    if ($DeployPolicy) {
+        Write-Host ""
+        $policyResults = Deploy-DiagnosticSettingsPolicy `
+            -SubscriptionId $subId `
+            -WorkspaceResourceId $WorkspaceResourceId `
+            -DiagnosticSettingName $DiagnosticSettingName
+        
+        $results.PolicyResults[$subId] = $policyResults
+        Write-Host ""
+    }
+    #endregion
 }
 #endregion
 
 #region Verification
-if (-not $SkipVerification -and $results.ResourcesConfigured.Count -gt 0) {
-    Write-Info "Verifying diagnostic settings configuration..."
+if (-not $SkipVerification -and $results.ResourcesConfigured -gt 0) {
+    Write-Host ""
+    Write-Info "Verifying diagnostic settings..."
     Write-Host ""
     
-    $verifiedCount = 0
-    $sampleResources = $results.ResourcesConfigured | Select-Object -First 5
+    # Sample verification - check a few resources
+    $verificationCount = 0
+    $verificationSuccess = 0
     
-    foreach ($resourceId in $sampleResources) {
-        try {
-            $setting = Get-AzDiagnosticSetting -ResourceId $resourceId -Name $DiagnosticSettingName -ErrorAction SilentlyContinue
-            
-            if ($setting) {
-                $verifiedCount++
-                $resourceName = ($resourceId -split "/")[-1]
-                Write-Success "  ✓ Verified: $resourceName"
+    foreach ($subId in $results.SubscriptionsProcessed) {
+        Set-AzContext -SubscriptionId $subId -ErrorAction SilentlyContinue | Out-Null
+        
+        # Check Key Vaults as a sample
+        $keyVaults = Get-AzResource -ResourceType "Microsoft.KeyVault/vaults" -ErrorAction SilentlyContinue | Select-Object -First 3
+        foreach ($kv in $keyVaults) {
+            $verificationCount++
+            $setting = Get-AzDiagnosticSetting -ResourceId $kv.ResourceId -Name $DiagnosticSettingName -ErrorAction SilentlyContinue
+            if ($setting -and $setting.WorkspaceId -eq $WorkspaceResourceId) {
+                $verificationSuccess++
+                Write-Success "  âœ“ Verified: $($kv.Name)"
+            } else {
+                Write-WarningMsg "  âš  Not verified: $($kv.Name)"
             }
-        }
-        catch {
-            Write-WarningMsg "  ⚠ Could not verify: $resourceId"
         }
     }
     
-    Write-Host ""
-    Write-Success "  Verified $verifiedCount of $($sampleResources.Count) sampled resources"
-    Write-Host ""
+    if ($verificationCount -gt 0) {
+        Write-Host ""
+        Write-Host "Verification: $verificationSuccess/$verificationCount resources verified"
+    }
 }
 #endregion
 
@@ -5126,41 +5223,89 @@ Write-Header "                              SUMMARY                             
 Write-Header "======================================================================"
 Write-Host ""
 
-Write-Host "Resources Configured:      $($results.ResourcesConfigured.Count)"
-Write-Host "Resources Failed:          $($results.ResourcesFailed.Count)"
+Write-Host "Workspace Resource ID:     $WorkspaceResourceId"
+Write-Host "Diagnostic Setting Name:   $DiagnosticSettingName"
 Write-Host ""
 
-if ($results.ResourcesConfigured.Count -gt 0) {
-    Write-Success "Successfully configured resources:"
-    $resourceSummary = $results.ResourcesConfigured | Group-Object { ($_ -split "/providers/")[1] -split "/" | Select-Object -First 2 | Join-String -Separator "/" }
-    foreach ($group in $resourceSummary) {
-        Write-Success "  $($group.Name): $($group.Count)"
-    }
-    Write-Host ""
+Write-Host "Subscriptions Processed:   $($results.SubscriptionsProcessed.Count)"
+Write-Host "Resources Discovered:      $($results.ResourcesDiscovered)"
+Write-Success "  Configured:              $($results.ResourcesConfigured)"
+Write-Host "  Already Configured:      $($results.ResourcesAlreadyConfigured)" -ForegroundColor Gray
+if ($results.ResourcesFailed -gt 0) {
+    Write-ErrorMsg "  Failed:                  $($results.ResourcesFailed)"
 }
+Write-Host ""
 
-if ($results.ResourcesFailed.Count -gt 0) {
-    Write-WarningMsg "Failed resources:"
-    foreach ($resource in $results.ResourcesFailed | Select-Object -First 10) {
-        $resourceName = ($resource -split "/")[-1]
-        Write-ErrorMsg "  ✗ $resourceName"
-    }
-    if ($results.ResourcesFailed.Count -gt 10) {
-        Write-WarningMsg "  ... and $($results.ResourcesFailed.Count - 10) more"
+Write-Info "Resources by Type:"
+foreach ($type in $results.ResourcesByType.Keys) {
+    $typeStats = $results.ResourcesByType[$type]
+    $displayName = $SupportedResourceTypes[$type].displayName
+    Write-Host "  $displayName : $($typeStats.Discovered) discovered, $($typeStats.Configured) configured, $($typeStats.AlreadyConfigured) already configured"
+}
+Write-Host ""
+
+if ($DeployPolicy -and $results.PolicyResults.Count -gt 0) {
+    Write-Info "Azure Policy Deployment:"
+    foreach ($subId in $results.PolicyResults.Keys) {
+        $policyResult = $results.PolicyResults[$subId]
+        Write-Host "  Subscription: $subId"
+        Write-Success "    Policies Assigned: $($policyResult.PoliciesAssigned.Count)"
+        if ($policyResult.PoliciesFailed.Count -gt 0) {
+            Write-ErrorMsg "    Policies Failed: $($policyResult.PoliciesFailed.Count)"
+        }
+        
+        if ($policyResult.PoliciesAssigned.Count -gt 0) {
+            Write-Host ""
+            Write-WarningMsg "  âš  IMPORTANT: Policy managed identities need Contributor role to remediate resources."
+            Write-Host "    Run the following commands as a source tenant admin:"
+            Write-Host ""
+            foreach ($policy in $policyResult.PoliciesAssigned) {
+                Write-Host "    # For $($policy.ResourceType):"
+                Write-Host "    New-AzRoleAssignment -ObjectId '$($policy.ManagedIdentityId)' -RoleDefinitionName 'Contributor' -Scope '/subscriptions/$subId'"
+            }
+        }
     }
     Write-Host ""
 }
 
 if ($results.Errors.Count -gt 0) {
-    Write-WarningMsg "Errors encountered:"
-    foreach ($err in $results.Errors | Select-Object -First 5) {
-        Write-ErrorMsg "  - $err"
+WarningMsg "Errors encountered:"
+    foreach ($error in $results.Errors | Select-Object -First 10) {
+        Write-ErrorMsg "  - $error"
     }
-    if ($results.Errors.Count -gt 5) {
-        Write-WarningMsg "  ... and $($results.Errors.Count - 5) more errors"
+    if ($results.Errors.Count -gt 10) {
+        Write-Host "  ... and $($results.Errors.Count - 10) more errors"
     }
     Write-Host ""
 }
+
+# Output verification query
+Write-Info "=== Verification Query (Run in Log Analytics) ==="
+Write-Host ""
+Write-Host @"
+// Run this KQL query in your Log Analytics workspace to verify resource logs are being collected:
+
+AzureDiagnostics
+| where TimeGenerated > ago(1h)
+| summarize count() by ResourceType, Category
+| order by count_ desc
+
+// For Key Vault specifically:
+AzureDiagnostics
+| where ResourceType == "VAULTS"
+| where TimeGenerated > ago(1h)
+| summarize count() by OperationName
+| order by count_ desc
+"@
+Write-Host ""
+
+Write-Info "=== Next Steps ==="
+Write-Host ""
+Write-Host "1. Wait 5-15 minutes for initial data ingestion"
+Write-Host "2. Run the verification query above in Log Analytics"
+Write-Host "3. If you deployed Azure Policy, assign Contributor role to managed identities"
+Write-Host "4. Monitor policy compliance in Azure Policy blade"
+Write-Host ""
 
 # Output as JSON for automation
 Write-Info "=== JSON Output (for automation) ==="
@@ -5169,41 +5314,14 @@ $jsonOutput = @{
     workspaceResourceId = $results.WorkspaceResourceId
     diagnosticSettingName = $results.DiagnosticSettingName
     subscriptionsProcessed = $results.SubscriptionsProcessed
-    resourcesConfiguredCount = $results.ResourcesConfigured.Count
-    resourcesFailedCount = $results.ResourcesFailed.Count
-    errorsCount = $results.Errors.Count
-} | ConvertTo-Json -Depth 2
+    resourcesDiscovered = $results.ResourcesDiscovered
+    resourcesConfigured = $results.ResourcesConfigured
+    resourcesAlreadyConfigured = $results.ResourcesAlreadyConfigured
+    resourcesFailed = $results.ResourcesFailed
+    policyDeployed = $DeployPolicy.IsPresent
+} | ConvertTo-Json -Depth 3
 
 Write-Host $jsonOutput
-Write-Host ""
-
-Write-Info "=== Verification Queries ==="
-Write-Host ""
-Write-Host "Run these queries in Log Analytics to verify data is flowing:"
-Write-Host ""
-Write-Host "// Key Vault audit events"
-Write-Host "AzureDiagnostics"
-Write-Host "| where ResourceProvider == 'MICROSOFT.KEYVAULT'"
-Write-Host "| where TimeGenerated > ago(1h)"
-Write-Host "| summarize count() by OperationName"
-Write-Host ""
-Write-Host "// Storage account operations"
-Write-Host "StorageBlobLogs"
-Write-Host "| where TimeGenerated > ago(1h)"
-Write-Host "| summarize count() by OperationType"
-Write-Host ""
-Write-Host "// VM performance data (if VMs configured)"
-Write-Host "Perf"
-Write-Host "| where TimeGenerated > ago(1h)"
-Write-Host "| summarize count() by Computer, ObjectName"
-Write-Host ""
-
-Write-Info "=== Next Steps ==="
-Write-Host ""
-Write-Host "1. Wait 5-15 minutes for logs to start flowing"
-Write-Host "2. Run the verification queries in Log Analytics"
-Write-Host "3. Configure Microsoft Sentinel analytics rules"
-Write-Host "4. Set up workbooks for cross-tenant visibility"
 Write-Host ""
 #endregion
 
@@ -5213,49 +5331,61 @@ return $results
 
 ### Usage Examples
 
-#### Basic Usage (All Resource Types)
+#### Basic Usage (Configure All Resources)
 
 ```powershell
 # Connect to the managing tenant first
 Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 
-# Configure diagnostic settings for all supported resource types
+# Configure diagnostic settings for all resources in current subscription
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+#### Multiple Subscriptions with Azure Policy
+
+```powershell
+# Configure multiple subscriptions and deploy Azure Policy for new resources
+.\Configure-ResourceDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3") `
+    -DeployPolicy
 ```
 
 #### Specific Resource Types Only
 
 ```powershell
-# Configure only Key Vault and Storage accounts
+# Configure only Key Vaults and Storage Accounts
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
+    -WorkspaceResourceId "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts/blobServices")
 ```
 
-#### Multiple Subscriptions
+#### Export ARM Templates for IaC
 
 ```powershell
-# Configure across multiple delegated subscriptions
+# Export ARM templates without configuring resources
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
+    -WorkspaceResourceId "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipExistingResources `
+    -ExportArmTemplates "C:\DiagnosticSettingsTemplates"
 ```
 
-#### Custom Diagnostic Setting Name
+#### Policy-Only Deployment
 
 ```powershell
-# Use a custom name for the diagnostic setting
+# Deploy only Azure Policy (for new resources), skip existing resources
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DiagnosticSettingName "SendToAtevet12-CrossTenant"
+    -WorkspaceResourceId "/subscriptions/<Atevet12-Sub-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipExistingResources `
+    -DeployPolicy
 ```
 
 ### Expected Output
 
 ```
 ======================================================================
-        Configure Resource Diagnostic Logs - Step 5
+        Configure Azure Resource Diagnostic Logs
 ======================================================================
 
 Checking Azure connection...
@@ -5263,103 +5393,87 @@ Connected as: admin@atevet12.onmicrosoft.com
 Current Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Validating workspace resource ID...
-  Workspace Name: law-central-atevet12
-  Resource Group: rg-central-logging
-  Subscription: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+  Workspace: law-central-atevet12
 
 Subscriptions to configure: 2
   - aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
   - bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
-Configuring all supported resource types (18 types)
+Configuring all supported resource types: 20
 
-Processing subscriptions and configuring diagnostic settings...
-
+======================================================================
 Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-  Subscription name: Production-Subscription
+======================================================================
 
-  Discovering Microsoft.KeyVault/vaults resources...
+Subscription: Production-Subscription
+
+Discovering and configuring resources...
+
+  Processing: Key Vault (Microsoft.KeyVault/vaults)
     Found 3 resource(s)
     Configuring: kv-production-001
-      ✓ Configured
+      âœ“ Configured
     Configuring: kv-production-002
-      ✓ Configured
-    Configuring: kv-secrets
-      ✓ Configured
+      ~ Already configured
+    Configuring: kv-secrets-001
+      âœ“ Configured
 
-  Discovering Microsoft.Storage/storageAccounts resources...
-    Found 2 resource(s)
-    Configuring: stproddata001
-      ✓ blobServices/default
-      ✓ queueServices/default
-      ✓ tableServices/default
-      ✓ fileServices/default
-    Configuring: stprodlogs001
-      ✓ blobServices/default
-      ✓ queueServices/default
-      ✓ tableServices/default
-      ✓ fileServices/default
+  Processing: Storage Account (Blob) (Microsoft.Storage/storageAccounts/blobServices)
+    Found 5 resource(s)
+    Configuring: stprod001/blobServices
+      âœ“ Configured
+    ...
 
-  Discovering Microsoft.Sql/servers/databases resources...
-    Found 1 resource(s)
-    Configuring: sqldb-production
-      ✓ Configured
-
-Verifying diagnostic settings configuration...
-
-  ✓ Verified: kv-production-001
-  ✓ Verified: kv-production-002
-  ✓ Verified: stproddata001
-
-  Verified 3 of 3 sampled resources
+  Deploying Azure Policy for automatic diagnostic settings...
+    Assigning policy for Key Vault...
+      âœ“ Policy assigned for Key Vault
+    Assigning policy for App Service / Web App...
+      âœ“ Policy assigned for App Service / Web App
+    ...
 
 ======================================================================
                               SUMMARY
 ======================================================================
 
-Resources Configured:      12
-Resources Failed:          0
+Workspace Resource ID:     /subscriptions/.../workspaces/law-central-atevet12
+Diagnostic Setting Name:   SendToLogAnalytics
 
-Successfully configured resources:
-  Microsoft.KeyVault/vaults: 3
-  Microsoft.Storage/storageAccounts/blobServices: 2
-  Microsoft.Storage/storageAccounts/queueServices: 2
-  Microsoft.Storage/storageAccounts/tableServices: 2
-  Microsoft.Storage/storageAccounts/fileServices: 2
-  Microsoft.Sql/servers/databases: 1
+Subscriptions Processed:   2
+Resources Discovered:      45
+  Configured:              38
+  Already Configured:      5
+  Failed:                  2
 
-=== JSON Output (for automation) ===
+Resources by Type:
+  Key Vault : 3 discovered, 2 configured, 1 already configured
+  Storage Account (Blob) : 5 discovered, 5 configured, 0 already configured
+  ...
 
-{
-  "workspaceResourceId": "/subscriptions/.../workspaces/law-central-atevet12",
-  "diagnosticSettingName": "SendToLogAnalytics",
-  "subscriptionsProcessed": ["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
-  "resourcesConfiguredCount": 12,
-  "resourcesFailedCount": 0,
-  "errorsCount": 0
-}
+Azure Policy Deployment:
+  Subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+    Policies Assigned: 6
 
-=== Verification Queries ===
+  âš  IMPORTANT: Policy managed identities need Contributor role to remediate resources.
+    Run the following commands as a source tenant admin:
 
-Run these queries in Log Analytics to verify data is flowing:
+    # For Key Vault:
+    New-AzRoleAssignment -ObjectId 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' -RoleDefinitionName 'Contributor' -Scope '/subscriptions/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 
-// Key Vault audit events
+=== Verification Query (Run in Log Analytics) ===
+
+// Run this KQL query in your Log Analytics workspace to verify resource logs are being collected:
+
 AzureDiagnostics
-| where ResourceProvider == 'MICROSOFT.KEYVAULT'
 | where TimeGenerated > ago(1h)
-| summarize count() by OperationName
-
-// Storage account operations
-StorageBlobLogs
-| where TimeGenerated > ago(1h)
-| summarize count() by OperationType
+| summarize count() by ResourceType, Category
+| order by count_ desc
 
 === Next Steps ===
 
-1. Wait 5-15 minutes for logs to start flowing
-2. Run the verification queries in Log Analytics
-3. Configure Microsoft Sentinel analytics rules
-4. Set up workbooks for cross-tenant visibility
+1. Wait 5-15 minutes for initial data ingestion
+2. Run the verification query above in Log Analytics
+3. If you deployed Azure Policy, assign Contributor role to managed identities
+4. Monitor policy compliance in Azure Policy blade
 ```
 
 ### Troubleshooting
@@ -5369,629 +5483,77 @@ StorageBlobLogs
 **Error:** `The client does not have authorization to perform action 'Microsoft.Insights/diagnosticSettings/write'`
 
 **Solution:**
-- Ensure you have **Contributor** or **Monitoring Contributor** role on the delegated subscription
-- Verify Azure Lighthouse delegation includes the Contributor role
-- Check that you're authenticated to the managing tenant
+- You need **Contributor** or **Monitoring Contributor** role on the delegated subscriptions
+- Verify Azure Lighthouse delegation is complete (Step 2)
 
-#### Resource Type Not Supported
+#### Resource Not Found
 
-**Error:** `Diagnostic settings are not supported for this resource type`
-
-**Solution:**
-- Not all Azure resources support diagnostic settings
-- The script includes only supported resource types
-- Some resources may require specific SKUs for diagnostic logging
-
-#### Workspace Not Found
-
-**Error:** `The workspace could not be found`
+**Error:** `Resource not found` or `The Resource 'Microsoft.KeyVault/vaults/xxx' under resource group 'yyy' was not found`
 
 **Solution:**
-1. Verify the workspace resource ID is correct
-2. Ensure the workspace exists and is accessible
-3. Check that the workspace subscription is correct
-
-#### No Resources Found
-
-**Issue:** Script reports "No resources found" for a resource type
-
-**Solution:**
-- Verify resources exist in the subscription
-- Check that you have read access to the resources
+- Verify you have access to the subscription
+- Check that the resource exists and is not deleted
 - Some resources may be in a different subscription
+
+#### Policy Assignment Failed
+
+**Error:** `The policy assignment 'xxx' already exists`
+
+**Solution:**
+```powershell
+# Remove existing policy assignment
+Remove-AzPolicyAssignment -Name "DiagSettings-KeyVault" -Scope "/subscriptions/<sub-id>"
+
+# Re-run the script
+```
+
+#### Diagnostic Setting Already Exists
+
+**Error:** `A diagnostic setting with name 'SendToLogAnalytics' already exists`
+
+**Solution:**
+- The script handles this automatically by updating the existing setting
+- If you want to use a different name, use the `-DiagnosticSettingName` parameter
 
 ### Supported Resource Types Reference
 
-> **Note:** All Azure resources support the `allLogs` **category group** which automatically captures all current and future log categories. This is the **recommended approach** for diagnostic settings. Individual categories are listed below for reference only.
+> **Note:** All resource types use the `allLogs` **category group** which automatically captures all current and future log categories.
 
-| Resource Type | Recommended | Individual Categories (for reference) |
-|--------------|-------------|---------------------------------------|
-| **Microsoft.KeyVault/vaults** | `allLogs` | AuditEvent, AzurePolicyEvaluationDetails |
-| **Microsoft.Storage/storageAccounts** | `allLogs` | StorageRead, StorageWrite, StorageDelete (per service) |
-| **Microsoft.Web/sites** | `allLogs` | AppServiceHTTPLogs, AppServiceConsoleLogs, AppServiceAppLogs, AppServiceAuditLogs |
-| **Microsoft.Sql/servers/databases** | `allLogs` | SQLInsights, AutomaticTuning, Errors, Deadlocks |
-| **Microsoft.Network/networkSecurityGroups** | `allLogs` | NetworkSecurityGroupEvent, NetworkSecurityGroupRuleCounter |
-| **Microsoft.ContainerService/managedClusters** | `allLogs` | kube-apiserver, kube-audit, kube-controller-manager, kube-scheduler, cluster-autoscaler |
-| **Microsoft.DocumentDB/databaseAccounts** | `allLogs` | DataPlaneRequests, QueryRuntimeStatistics, ControlPlaneRequests |
-| **Microsoft.EventHub/namespaces** | `allLogs` | ArchiveLogs, OperationalLogs, AutoScaleLogs |
-| **Microsoft.ServiceBus/namespaces** | `allLogs` | OperationalLogs |
-| **Microsoft.Network/applicationGateways** | `allLogs` | ApplicationGatewayAccessLog, ApplicationGatewayPerformanceLog, ApplicationGatewayFirewallLog |
-| **Microsoft.Network/azureFirewalls** | `allLogs` | AzureFirewallApplicationRule, AzureFirewallNetworkRule, AzureFirewallDnsProxy |
-| **Microsoft.ApiManagement/service** | `allLogs` | GatewayLogs |
-| **Microsoft.Logic/workflows** | `allLogs` | WorkflowRuntime |
-| **Microsoft.ContainerRegistry/registries** | `allLogs` | ContainerRegistryRepositoryEvents, ContainerRegistryLoginEvents |
-| **Microsoft.Cache/redis** | `allLogs` | ConnectedClientList |
-| **Microsoft.DataFactory/factories** | `allLogs` | ActivityRuns, PipelineRuns, TriggerRuns |
-| **Microsoft.CognitiveServices/accounts** | `allLogs` | Audit, RequestResponse |
+| Resource Type | Display Name | Built-in Policy | Metrics |
+|--------------|--------------|-----------------|---------|
+| `Microsoft.KeyVault/vaults` | Key Vault | âœ… | âœ… |
+| `Microsoft.Storage/storageAccounts/blobServices` | Storage (Blob) | âŒ | âœ… |
+| `Microsoft.Storage/storageAccounts/queueServices` | Storage (Queue) | âŒ | âœ… |
+| `Microsoft.Storage/storageAccounts/tableServices` | Storage (Table) | âŒ | âœ… |
+| `Microsoft.Storage/storageAccounts/fileServices` | Storage (File) | âŒ | âœ… |
+| `Microsoft.Web/sites` | App Service | âœ… | âœ… |
+| `Microsoft.Sql/servers/databases` | SQL Database | âœ… | âœ… |
+| `Microsoft.Network/networkSecurityGroups` | NSG | âŒ | âŒ |
+| `Microsoft.ContainerService/managedClusters` | AKS | âŒ | âœ… |
+| `Microsoft.DocumentDB/databaseAccounts` | Cosmos DB | âŒ | âœ… |
+| `Microsoft.EventHub/namespaces` | Event Hub | âœ… | âœ… |
+| `Microsoft.ServiceBus/namespaces` | Service Bus | âœ… | âœ… |
+| `Microsoft.Network/applicationGateways` | App Gateway | âŒ | âœ… |
+| `Microsoft.Network/azureFirewalls` | Azure Firewall | âŒ | âœ… |
+| `Microsoft.ApiManagement/service` | API Management | âŒ | âœ… |
+| `Microsoft.Logic/workflows` | Logic App | âŒ | âœ… |
+| `Microsoft.ContainerRegistry/registries` | Container Registry | âŒ | âœ… |
+| `Microsoft.Cache/redis` | Redis Cache | âŒ | âœ… |
+| `Microsoft.DataFactory/factories` | Data Factory | âŒ | âœ… |
+| `Microsoft.CognitiveServices/accounts` | Cognitive Services | âŒ | âœ… |
 
----
+### Re-running the Script
 
-### ARM Templates for Resource Diagnostic Settings
+The script is designed to be **idempotent** - you can run it multiple times safely:
 
-The following ARM templates provide declarative, repeatable deployments for resource diagnostic settings. These templates are useful for Infrastructure as Code (IaC) scenarios.
+- **Existing diagnostic settings** pointing to the correct workspace are skipped
+- **Existing diagnostic settings** pointing to a different workspace are updated
+- **New resources** created since the last run will be configured
+- **Azure Policy** ensures automatic coverage for future resources
 
-> **Note:** Virtual Machine diagnostic logs (using Azure Monitor Agent and Data Collection Rules) are covered in [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs). This section focuses on resource-level diagnostic settings for Azure PaaS services.
-
-#### Key Vault Diagnostic Settings Template
-
-Create a file named `keyvault-diagnostic-settings.json`:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "keyVaultName": {
-            "type": "string",
-            "metadata": {
-                "description": "Name of the Key Vault"
-            }
-        },
-        "workspaceResourceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Full resource ID of the Log Analytics workspace"
-            }
-        },
-        "diagnosticSettingName": {
-            "type": "string",
-            "defaultValue": "SendToLogAnalytics",
-            "metadata": {
-                "description": "Name for the diagnostic setting"
-            }
-        }
-    },
-    "resources": [
-        {
-            "type": "Microsoft.KeyVault/vaults/providers/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "name": "[concat(parameters('keyVaultName'), '/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": [
-                    {
-                        "categoryGroup": "allLogs",
-                        "enabled": true
-                    }
-                ],
-                "metrics": [
-                    {
-                        "category": "AllMetrics",
-                        "enabled": true
-                    }
-                ]
-            }
-        }
-    ]
-}
-```
-
-> **Note:** Azure Key Vault supports two category groups: `allLogs` (includes AuditEvent + AzurePolicyEvaluationDetails) and `audit` (includes only AuditEvent). Using `allLogs` is recommended as it captures all log categories and is future-proof. If you need to use individual categories for backward compatibility, replace `categoryGroup` with `category` and specify `AuditEvent` and/or `AzurePolicyEvaluationDetails`.
-
-**Deploy Key Vault Diagnostic Settings:**
-
-```powershell
-# Deploy for a specific Key Vault
-New-AzResourceGroupDeployment `
-    -Name "KeyVaultDiagnostics" `
-    -ResourceGroupName "<Key-Vault-Resource-Group>" `
-    -TemplateFile "keyvault-diagnostic-settings.json" `
-    -keyVaultName "<Key-Vault-Name>" `
-    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-
-# Deploy for all Key Vaults in a subscription
-$keyVaults = Get-AzKeyVault
-foreach ($kv in $keyVaults) {
-    Write-Host "Configuring diagnostics for Key Vault: $($kv.VaultName)"
-    New-AzResourceGroupDeployment `
-        -Name "KeyVaultDiagnostics-$($kv.VaultName)" `
-        -ResourceGroupName $kv.ResourceGroupName `
-        -TemplateFile "keyvault-diagnostic-settings.json" `
-        -keyVaultName $kv.VaultName `
-        -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-}
-```
-
-#### Storage Account Diagnostic Settings Template
-
-Create a file named `storage-diagnostic-settings.json`:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "storageAccountName": {
-            "type": "string",
-            "metadata": {
-                "description": "Name of the Storage Account"
-            }
-        },
-        "workspaceResourceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Full resource ID of the Log Analytics workspace"
-            }
-        },
-        "diagnosticSettingName": {
-            "type": "string",
-            "defaultValue": "SendToLogAnalytics",
-            "metadata": {
-                "description": "Name for the diagnostic setting"
-            }
-        }
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Storage/storageAccounts/blobServices/providers/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": [
-                    { "categoryGroup": "allLogs", "enabled": true }
-                ],
-                "metrics": [
-                    { "category": "Transaction", "enabled": true }
-                ]
-            }
-        },
-        {
-            "type": "Microsoft.Storage/storageAccounts/queueServices/providers/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": [
-                    { "categoryGroup": "allLogs", "enabled": true }
-                ],
-                "metrics": [
-                    { "category": "Transaction", "enabled": true }
-                ]
-            }
-        },
-        {
-            "type": "Microsoft.Storage/storageAccounts/tableServices/providers/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": [
-                    { "categoryGroup": "allLogs", "enabled": true }
-                ],
-                "metrics": [
-                    { "category": "Transaction", "enabled": true }
-                ]
-            }
-        },
-        {
-            "type": "Microsoft.Storage/storageAccounts/fileServices/providers/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "name": "[concat(parameters('storageAccountName'), '/default/Microsoft.Insights/', parameters('diagnosticSettingName'))]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": [
-                    { "categoryGroup": "allLogs", "enabled": true }
-                ],
-                "metrics": [
-                    { "category": "Transaction", "enabled": true }
-                ]
-            }
-        }
-    ]
-}
-```
-
-**Deploy Storage Account Diagnostic Settings:**
-
-```powershell
-# Deploy for a specific Storage Account
-New-AzResourceGroupDeployment `
-    -Name "StorageDiagnostics" `
-    -ResourceGroupName "<Storage-Account-Resource-Group>" `
-    -TemplateFile "storage-diagnostic-settings.json" `
-    -storageAccountName "<Storage-Account-Name>" `
-    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-```
-
-#### Generic Resource Diagnostic Settings Template
-
-Create a file named `generic-diagnostic-settings.json` that can be used for any resource type:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "resourceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Full resource ID of the resource to configure"
-            }
-        },
-        "workspaceResourceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Full resource ID of the Log Analytics workspace"
-            }
-        },
-        "diagnosticSettingName": {
-            "type": "string",
-            "defaultValue": "SendToLogAnalytics",
-            "metadata": {
-                "description": "Name for the diagnostic setting"
-            }
-        },
-        "logCategories": {
-            "type": "array",
-            "defaultValue": [
-                {
-                    "categoryGroup": "allLogs",
-                    "enabled": true
-                }
-            ],
-            "metadata": {
-                "description": "Array of log category objects. Use categoryGroup 'allLogs' (recommended) or individual category names"
-            }
-        },
-        "metricCategories": {
-            "type": "array",
-            "defaultValue": [
-                {
-                    "category": "AllMetrics",
-                    "enabled": true
-                }
-            ],
-            "metadata": {
-                "description": "Array of metric category objects"
-            }
-        }
-    },
-    "variables": {
-        "resourceName": "[last(split(parameters('resourceId'), '/'))]"
-    },
-    "resources": [
-        {
-            "type": "Microsoft.Insights/diagnosticSettings",
-            "apiVersion": "2021-05-01-preview",
-            "scope": "[parameters('resourceId')]",
-            "name": "[parameters('diagnosticSettingName')]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceResourceId')]",
-                "logs": "[parameters('logCategories')]",
-                "metrics": "[parameters('metricCategories')]"
-            }
-        }
-    ],
-    "outputs": {
-        "diagnosticSettingId": {
-            "type": "string",
-            "value": "[extensionResourceId(parameters('resourceId'), 'Microsoft.Insights/diagnosticSettings', parameters('diagnosticSettingName'))]"
-        },
-        "resourceName": {
-            "type": "string",
-            "value": "[variables('resourceName')]"
-        }
-    }
-}
-```
-
-**Deploy Generic Diagnostic Settings:**
-
-```powershell
-# Deploy for any resource using the generic template
-# Using category groups (recommended approach)
-New-AzResourceGroupDeployment `
-    -Name "GenericDiagnostics" `
-    -ResourceGroupName "<Resource-Group>" `
-    -TemplateFile "generic-diagnostic-settings.json" `
-    -resourceId "/subscriptions/<sub>/resourceGroups/<rg>/providers/<provider>/<type>/<name>" `
-    -workspaceResourceId "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -logCategories @(
-        @{ categoryGroup = "allLogs"; enabled = $true }
-    )
-```
-
-#### Parameters File Template
-
-Create a file named `diagnostic-settings-parameters.json` for reusable configurations:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "workspaceResourceId": {
-            "value": "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-        },
-        "diagnosticSettingName": {
-            "value": "SendToLogAnalytics"
-        },
-        "resourceConfigurations": {
-            "comment": "Using categoryGroup 'allLogs' for all resources - recommended approach that captures all current and future log categories",
-            "value": {
-                "keyVaults": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "storageAccounts": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "sqlDatabases": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "networkSecurityGroups": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "webApps": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "aksCluster": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "cosmosDb": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "eventHub": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                },
-                "azureFirewall": {
-                    "logCategories": [
-                        { "categoryGroup": "allLogs", "enabled": true }
-                    ]
-                }
-            }
-        }
-    }
-}
-```
-
----
-
-### Azure Policy for Automatic Diagnostic Settings
-
-To automatically configure diagnostic settings for all new resources, you can use Azure Policy. This ensures compliance and reduces manual configuration effort.
-
-#### Using Built-in Policy Initiative
-
-Azure provides built-in policies for enabling diagnostic settings. Here's how to assign them:
-
-```powershell
-# Connect to the managing tenant
-Connect-AzAccount -TenantId "<Atevet12-Tenant-ID>"
-
-# Set context to the delegated subscription
-Set-AzContext -SubscriptionId "<Atevet17-Subscription-ID>"
-
-# Log Analytics Workspace Resource ID
-$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-
-# Get built-in policy definitions for diagnostic settings
-$policyDefinitions = Get-AzPolicyDefinition | Where-Object {
-    $_.Properties.DisplayName -like "*diagnostic*" -and
-    $_.Properties.DisplayName -like "*Log Analytics*"
-}
-
-# Display available policies
-$policyDefinitions | Select-Object -Property @{N='Name';E={$_.Name}}, @{N='DisplayName';E={$_.Properties.DisplayName}} | Format-Table
-
-# Assign a policy for Key Vault diagnostic settings
-$keyVaultPolicy = Get-AzPolicyDefinition | Where-Object {
-    $_.Properties.DisplayName -like "*Key Vault*" -and
-    $_.Properties.DisplayName -like "*diagnostic*"
-} | Select-Object -First 1
-
-if ($keyVaultPolicy) {
-    New-AzPolicyAssignment `
-        -Name "KeyVaultDiagnosticsPolicy" `
-        -DisplayName "Enable diagnostic settings for Key Vaults" `
-        -PolicyDefinition $keyVaultPolicy `
-        -Scope "/subscriptions/<Atevet17-Subscription-ID>" `
-        -PolicyParameterObject @{
-            "logAnalytics" = $workspaceResourceId
-        } `
-        -Location "westus2" `
-        -IdentityType "SystemAssigned"
-    
-    Write-Host "Policy assigned for Key Vault diagnostic settings"
-}
-```
-
-#### Custom Policy for All Resource Types
-
-Create a custom policy initiative to cover multiple resource types:
-
-```powershell
-# Define resource types and their log categories
-# Note: For Key Vault, you can also use categoryGroup "allLogs" instead of individual categories
-$resourceTypes = @{
-    "Microsoft.KeyVault/vaults" = @("allLogs")  # Using category group (recommended)
-    "Microsoft.Storage/storageAccounts/blobServices" = @("StorageRead", "StorageWrite", "StorageDelete")
-    "Microsoft.Web/sites" = @("AppServiceHTTPLogs", "AppServiceConsoleLogs", "AppServiceAppLogs")
-    "Microsoft.Sql/servers/databases" = @("SQLInsights", "AutomaticTuning", "Errors", "Deadlocks")
-    "Microsoft.Network/networkSecurityGroups" = @("NetworkSecurityGroupEvent", "NetworkSecurityGroupRuleCounter")
-}
-
-$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-$subscriptionId = "<Atevet17-Subscription-ID>"
-
-foreach ($resourceType in $resourceTypes.Keys) {
-    $logCategories = $resourceTypes[$resourceType]
-    $policyName = "DiagSettings-$($resourceType.Replace('/', '-').Replace('.', '-'))"
-    
-    Write-Host "Creating policy for $resourceType..."
-    
-    # Create policy definition (simplified example)
-    $policyRule = @{
-        "if" = @{
-            "field" = "type"
-            "equals" = $resourceType
-        }
-        "then" = @{
-            "effect" = "deployIfNotExists"
-            "details" = @{
-                "type" = "Microsoft.Insights/diagnosticSettings"
-                "name" = "SendToLogAnalytics"
-                "existenceCondition" = @{
-                    "field" = "Microsoft.Insights/diagnosticSettings/workspaceId"
-                    "equals" = $workspaceResourceId
-                }
-                "roleDefinitionIds" = @(
-                    "/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
-                )
-                "deployment" = @{
-                    "properties" = @{
-                        "mode" = "incremental"
-                        "template" = @{
-                            "`$schema" = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
-                            "contentVersion" = "1.0.0.0"
-                            "parameters" = @{
-                                "resourceName" = @{ "type" = "string" }
-                                "logAnalyticsWorkspaceId" = @{ "type" = "string" }
-                            }
-                            "resources" = @(
-                                @{
-                                    "type" = "$resourceType/providers/diagnosticSettings"
-                                    "apiVersion" = "2021-05-01-preview"
-                                    "name" = "[concat(parameters('resourceName'), '/Microsoft.Insights/SendToLogAnalytics')]"
-                                    "properties" = @{
-                                        "workspaceId" = "[parameters('logAnalyticsWorkspaceId')]"
-                                        "logs" = $logCategories | ForEach-Object { @{ "category" = $_; "enabled" = $true } }
-                                    }
-                                }
-                            )
-                        }
-                        "parameters" = @{
-                            "resourceName" = @{ "value" = "[field('name')]" }
-                            "logAnalyticsWorkspaceId" = @{ "value" = $workspaceResourceId }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    try {
-        $policyJson = $policyRule | ConvertTo-Json -Depth 20
-        
-        $policy = New-AzPolicyDefinition `
-            -Name $policyName `
-            -DisplayName "Enable diagnostic settings for $resourceType" `
-            -Policy $policyJson `
-            -Mode "Indexed" `
-            -ErrorAction Stop
-        
-        # Assign the policy
-        $assignment = New-AzPolicyAssignment `
-            -Name "$policyName-assignment" `
-            -PolicyDefinition $policy `
-            -Scope "/subscriptions/$subscriptionId" `
-            -Location "westus2" `
-            -IdentityType "SystemAssigned" `
-            -ErrorAction Stop
-        
-        # Grant the managed identity the required permissions
-        New-AzRoleAssignment `
-            -ObjectId $assignment.Identity.PrincipalId `
-            -RoleDefinitionName "Monitoring Contributor" `
-            -Scope "/subscriptions/$subscriptionId" `
-            -ErrorAction SilentlyContinue
-        
-        Write-Host "  Created and assigned policy for $resourceType" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "  Failed to create policy for $resourceType : $_"
-    }
-}
-```
-
-#### Remediation for Existing Resources
-
-After assigning policies, create remediation tasks to apply diagnostic settings to existing resources:
-
-```powershell
-# Get all policy assignments with diagnostic settings
-$assignments = Get-AzPolicyAssignment -Scope "/subscriptions/<Atevet17-Subscription-ID>" |
-    Where-Object { $_.Properties.DisplayName -like "*diagnostic*" }
-
-# Create remediation tasks
-foreach ($assignment in $assignments) {
-    Write-Host "Creating remediation for: $($assignment.Properties.DisplayName)"
-    
-    Start-AzPolicyRemediation `
-        -Name "remediate-$($assignment.Name)" `
-        -PolicyAssignmentId $assignment.PolicyAssignmentId `
-        -Scope "/subscriptions/<Atevet17-Subscription-ID>" `
-        -ErrorAction SilentlyContinue
-}
-
-# Check remediation status
-Get-AzPolicyRemediation -Scope "/subscriptions/<Atevet17-Subscription-ID>" |
-    Select-Object Name, ProvisioningState, @{N='DeploymentStatus';E={$_.DeploymentStatus.TotalDeployments}}
-```
-
-#### Monitor Policy Compliance
-
-Track the compliance status of your diagnostic settings policies:
-
-```powershell
-# Get compliance summary
-$compliance = Get-AzPolicyStateSummary -SubscriptionId "<Atevet17-Subscription-ID>"
-
-Write-Host "Policy Compliance Summary:"
-Write-Host "  Compliant: $($compliance.Results.ResourceDetails.CompliantResources)"
-Write-Host "  Non-Compliant: $($compliance.Results.ResourceDetails.NonCompliantResources)"
-
-# Get detailed non-compliant resources
-Get-AzPolicyState -SubscriptionId "<Atevet17-Subscription-ID>" `
-    -Filter "ComplianceState eq 'NonCompliant'" |
-    Where-Object { $_.PolicyDefinitionName -like "*DiagSettings*" } |
-    Select-Object ResourceId, PolicyDefinitionName, ComplianceState |
-    Format-Table
-```
-
----
-
-## Additional Resources
-
-- [Main Guide: Azure Cross-Tenant Log Collection](azure-cross-tenant-log-collection-guide.md)
-- [Azure PowerShell Documentation](https://docs.microsoft.com/en-us/powershell/azure/)
-- [Az.Resources Module](https://docs.microsoft.com/en-us/powershell/module/az.resources/)
-- [Azure Cloud Shell](https://docs.microsoft.com/en-us/azure/cloud-shell/overview)
+**Recommended approach:**
+1. Run the script initially with `-DeployPolicy` to configure existing resources and set up policies
+2. Assign Contributor role to policy managed identities (as source tenant admin)
+3. Periodically re-run the script to catch any resources that may have been missed
 
 ---
