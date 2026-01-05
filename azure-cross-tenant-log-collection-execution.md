@@ -4194,17 +4194,43 @@ if ($results.IdentitiesNeedingRoles -and $results.IdentitiesNeedingRoles.Count -
     Write-Host "The script could not assign roles to the policy managed identities."
     Write-Host "This is expected in cross-tenant scenarios without User Access Administrator."
     Write-Host ""
-    Write-Host "A SOURCE TENANT ADMIN must run the following commands to enable remediation:"
+    Write-Host "╔══════════════════════════════════════════════════════════════════════╗"
+    Write-Host "║  RECOMMENDED: Use the built-in -AssignRolesAsSourceAdmin parameter   ║"
+    Write-Host "╚══════════════════════════════════════════════════════════════════════╝"
     Write-Host ""
-    Write-Info "# Connect to the SOURCE tenant (where the VMs are located)"
+    Write-Info "A SOURCE TENANT ADMIN should run this same script with -AssignRolesAsSourceAdmin:"
+    Write-Host ""
+    Write-Success "# ============================================================"
+    Write-Success "# COMMAND FOR SOURCE TENANT ADMIN TO RUN:"
+    Write-Success "# ============================================================"
+    Write-Host ""
+    Write-Host "# Step 1: Connect to the SOURCE tenant (where the VMs are located)"
     Write-Host "Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'"
+    Write-Host ""
+    Write-Host "# Step 2: Run this script with -AssignRolesAsSourceAdmin parameter"
+    
+    # Build the subscription list for the command
+    $subList = ($results.IdentitiesNeedingRoles | Select-Object -ExpandProperty SubscriptionId -Unique) -join "', '"
+    Write-Host ".\Configure-VMDiagnosticLogs.ps1 -AssignRolesAsSourceAdmin -SubscriptionIds @('$subList')"
+    Write-Host ""
+    Write-Success "# ============================================================"
+    Write-Host ""
+    Write-Host "This will automatically:"
+    Write-Host "  1. Discover all policy assignments with managed identities"
+    Write-Host "  2. Assign Contributor role to each managed identity"
+    Write-Host "  3. Create remediation tasks to apply policies to existing VMs"
+    Write-Host ""
+    
+    Write-Host "─────────────────────────────────────────────────────────────────────────"
+    Write-Host ""
+    Write-Info "ALTERNATIVE: Manual role assignment commands (if you prefer not to use the script):"
     Write-Host ""
     
     # Group by subscription for cleaner output
     $groupedBySubscription = $results.IdentitiesNeedingRoles | Group-Object -Property SubscriptionId
     
     foreach ($subGroup in $groupedBySubscription) {
-        Write-Info "# For subscription: $($subGroup.Name)"
+        Write-Host "# For subscription: $($subGroup.Name)"
         Write-Host "Set-AzContext -SubscriptionId '$($subGroup.Name)'"
         Write-Host ""
         
@@ -4220,41 +4246,9 @@ if ($results.IdentitiesNeedingRoles -and $results.IdentitiesNeedingRoles.Count -
     
     Write-Host "After assigning the roles, run remediation tasks to apply policies to existing VMs:"
     Write-Host ""
-    Write-Info "# Create remediation tasks"
     foreach ($assignment in $results.PolicyAssignmentsCreated | Where-Object { -not $_.RoleAssigned }) {
         Write-Host "Start-AzPolicyRemediation -Name 'remediate-$($assignment.Name)' -PolicyAssignmentId '$($assignment.AssignmentId)' -Scope '/subscriptions/$($assignment.SubscriptionId)'"
     }
-    Write-Host ""
-    
-    # Output as a single script block for easy copy-paste
-    Write-Info "=== Complete Script for Source Tenant Admin ==="
-    Write-Host ""
-    Write-Host "# Copy and run this entire script block in the SOURCE tenant:"
-    Write-Host "# ----------------------------------------------------------------"
-    
-    $scriptBlock = @"
-# Connect to the source tenant
-Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'
-
-"@
-    
-    foreach ($subGroup in $groupedBySubscription) {
-        $scriptBlock += "# Subscription: $($subGroup.Name)`n"
-        $scriptBlock += "Set-AzContext -SubscriptionId '$($subGroup.Name)'`n`n"
-        
-        foreach ($identity in $subGroup.Group) {
-            $scriptBlock += "# $($identity.PolicyKey) - $($identity.RoleNeeded)`n"
-            $scriptBlock += "New-AzRoleAssignment -ObjectId '$($identity.PrincipalId)' -RoleDefinitionName '$($identity.RoleNeeded)' -Scope '$($identity.Scope)' -ErrorAction SilentlyContinue`n`n"
-        }
-    }
-    
-    $scriptBlock += "# Create remediation tasks`n"
-    foreach ($assignment in $results.PolicyAssignmentsCreated | Where-Object { -not $_.RoleAssigned }) {
-        $scriptBlock += "Start-AzPolicyRemediation -Name 'remediate-$($assignment.Name)' -PolicyAssignmentId '$($assignment.AssignmentId)' -Scope '/subscriptions/$($assignment.SubscriptionId)' -ErrorAction SilentlyContinue`n"
-    }
-    
-    Write-Host $scriptBlock
-    Write-Host "# ----------------------------------------------------------------"
     Write-Host ""
 }
 #endregion
