@@ -3198,18 +3198,41 @@ if ($AssignRolesAsSourceAdmin) {
             
             $scope = "/subscriptions/$subId"
             
-            # Discover policy assignments with managed identities
-            Write-Host "  Discovering policy assignments with managed identities..."
+            # Discover policy assignments with managed identities using REST API
+            # Note: Get-AzPolicyAssignment cmdlet doesn't reliably return Identity information
+            # so we use the REST API directly for accurate results
+            Write-Host "  Discovering policy assignments with managed identities (using REST API)..."
             
-            $policyAssignments = Get-AzPolicyAssignment -Scope $scope -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -like "$PolicyAssignmentPrefix*" -and $_.Identity -and $_.Identity.PrincipalId }
+            $apiVersion = "2022-06-01"
+            $uri = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments?api-version=$apiVersion"
             
-            if (-not $policyAssignments -or $policyAssignments.Count -eq 0) {
-                Write-WarningMsg "  No policy assignments found with prefix '$PolicyAssignmentPrefix'"
-                Write-Host "  Looking for all policy assignments with managed identities..."
+            $response = Invoke-AzRestMethod -Path $uri -Method GET -ErrorAction SilentlyContinue
+            
+            $policyAssignments = @()
+            if ($response.StatusCode -eq 200) {
+                $allAssignments = ($response.Content | ConvertFrom-Json).value
                 
-                $policyAssignments = Get-AzPolicyAssignment -Scope $scope -ErrorAction SilentlyContinue |
-                    Where-Object { $_.Identity -and $_.Identity.PrincipalId }
+                # Filter for assignments with our prefix and managed identities
+                $policyAssignments = $allAssignments | Where-Object {
+                    $_.name -like "$PolicyAssignmentPrefix*" -and
+                    $_.identity -and
+                    $_.identity.principalId
+                }
+                
+                if (-not $policyAssignments -or $policyAssignments.Count -eq 0) {
+                    Write-WarningMsg "  No policy assignments found with prefix '$PolicyAssignmentPrefix'"
+                    Write-Host "  Looking for all policy assignments with managed identities..."
+                    
+                    $policyAssignments = $allAssignments | Where-Object {
+                        $_.identity -and
+                        $_.identity.principalId
+                    }
+                }
+            }
+            else {
+                Write-ErrorMsg "  Failed to query policy assignments: HTTP $($response.StatusCode)"
+                $adminResults.Errors += "Failed to query policy assignments in $subId"
+                continue
             }
             
             if (-not $policyAssignments -or $policyAssignments.Count -eq 0) {
@@ -3221,15 +3244,9 @@ if ($AssignRolesAsSourceAdmin) {
             Write-Host ""
             
             foreach ($assignment in $policyAssignments) {
-                $principalId = $assignment.Identity.PrincipalId
-                $displayName = $assignment.Properties.DisplayName
-                $assignmentId = $assignment.PolicyAssignmentId
-                if (-not $assignmentId) {
-                    $assignmentId = $assignment.ResourceId
-                }
-                if (-not $assignmentId) {
-                    $assignmentId = "/subscriptions/$subId/providers/Microsoft.Authorization/policyAssignments/$($assignment.Name)"
-                }
+                $principalId = $assignment.identity.principalId
+                $displayName = $assignment.properties.displayName
+                $assignmentId = $assignment.id
                 
                 Write-Host "  Policy: $displayName"
                 Write-Host "    Principal ID: $principalId"
