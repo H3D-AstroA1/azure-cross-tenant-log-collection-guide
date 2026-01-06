@@ -3301,9 +3301,19 @@ if ($AssignRolesAsSourceAdmin) {
                 }
                 
                 # For DCR-related policies, also assign Monitoring Contributor on the DCR if we have the DCR ID
-                if ($assignment.Name -like "*DCR*" -and $DataCollectionRuleName) {
-                    # Try to find the DCR
-                    $dcr = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($assignment.name -like "*DCR*" -and $DataCollectionRuleName) {
+                    # Try to find the DCR by searching all resource groups in the subscription
+                    # Note: Get-AzDataCollectionRule requires -ResourceGroupName when using -Name
+                    # So we search all DCRs and filter by name
+                    $dcr = $null
+                    try {
+                        $allDcrs = Get-AzDataCollectionRule -ErrorAction SilentlyContinue
+                        $dcr = $allDcrs | Where-Object { $_.Name -eq $DataCollectionRuleName } | Select-Object -First 1
+                    }
+                    catch {
+                        Write-WarningMsg "    ⚠ Could not search for DCR: $($_.Exception.Message)"
+                    }
+                    
                     if ($dcr) {
                         Write-Host "    Assigning Monitoring Contributor on DCR..."
                         $existingDcrRole = Get-AzRoleAssignment -ObjectId $principalId -Scope $dcr.Id -RoleDefinitionName "Monitoring Contributor" -ErrorAction SilentlyContinue
