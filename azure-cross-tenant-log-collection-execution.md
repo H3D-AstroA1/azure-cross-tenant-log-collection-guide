@@ -2833,6 +2833,54 @@ Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs,
 
 > **Note:** Virtual Machines require a different approach than other Azure resources. Instead of diagnostic settings, VMs use the Azure Monitor Agent with Data Collection Rules to collect logs and metrics.
 
+### Critical: DCR Location for Cross-Tenant Scenarios
+
+> ⚠️ **IMPORTANT ARCHITECTURE NOTE**: The Data Collection Rule (DCR) must be created in the **SOURCE TENANT** (where the VMs are located), NOT in the managing tenant.
+
+**Why?** Azure Policy creates managed identities in the source tenant to perform remediation actions. These managed identities can only access resources within their own tenant. If the DCR is in the managing tenant, the policy will fail with:
+
+```
+The client has permission to perform action 'Microsoft.Insights/dataCollectionRules/read' on scope '...',
+however the current tenant '<source-tenant-id>' is not authorized to access linked subscription '<managing-tenant-subscription>'.
+```
+
+**The Solution**:
+- The DCR is created in the **source tenant subscription** (where the VMs are)
+- The DCR sends data to the Log Analytics workspace in the **managing tenant** (cross-tenant data flow is supported)
+- The policy's managed identity can read the DCR because it's in the same tenant
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SOURCE TENANT (Atevet17)                         │
+│                                                                         │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────────────┐    │
+│  │     VMs      │────►│     DCR      │────►│  Azure Monitor Agent │    │
+│  │              │     │ (Created     │     │  (Installed by       │    │
+│  │              │     │  HERE)       │     │   Policy)            │    │
+│  └──────────────┘     └──────┬───────┘     └──────────────────────┘    │
+│                              │                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │  Azure Policy (with Managed Identity in SOURCE tenant)           │  │
+│  │  - Can read DCR (same tenant) ✓                                  │  │
+│  │  - Can install AMA on VMs ✓                                      │  │
+│  │  - Can create DCR associations ✓                                 │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                              │                                          │
+└──────────────────────────────┼──────────────────────────────────────────┘
+                               │ Data flows cross-tenant
+                               │ (This is supported!)
+                               ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      MANAGING TENANT (Atevet12)                         │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
+│  │  (Receives logs from DCR)         (Security monitoring)          │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
 ### Why Azure Policy is Important
 
 When running this script, you may encounter VMs that are stopped/deallocated. Azure VM extensions cannot be installed on stopped VMs, resulting in errors like:
@@ -2888,6 +2936,34 @@ Before running this script, you need:
 - **Contributor** role on the delegated subscriptions
 - **Resource Policy Contributor** role (if deploying Azure Policy with `-DeployPolicy`)
 
+### Opt-Out Parameters Reference
+
+The script provides several opt-out switches to customize what gets deployed:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `-DeployPolicy` | bool | `$true` | **Set to `$false` to skip Azure Policy deployment**. When disabled, stopped VMs will NOT automatically get the agent when they start, and new VMs will NOT be automatically configured. |
+| `-SkipDCRCreation` | switch | `$false` | **Skip Data Collection Rule creation**. Use this if you already have a DCR and want to reuse it. Specify the existing DCR name with `-DataCollectionRuleName`. |
+| `-SkipAgentInstallation` | switch | `$false` | Skip Azure Monitor Agent installation on VMs. Use if agents are already installed. |
+| `-SkipRemediation` | switch | `$false` | Skip creating remediation tasks for existing non-compliant VMs. |
+| `-SkipVerification` | switch | `$false` | Skip the verification step after deployment. |
+
+**Quick Reference - Common Opt-Out Scenarios:**
+
+```powershell
+# Scenario 1: Skip policy deployment only (manual VM management)
+.\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "..." -DeployPolicy $false
+
+# Scenario 2: Skip DCR creation (use existing DCR)
+.\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "..." -SkipDCRCreation -DataCollectionRuleName "existing-dcr"
+
+# Scenario 3: Skip both policy AND DCR (minimal deployment)
+.\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "..." -DeployPolicy $false -SkipDCRCreation
+
+# Scenario 4: Skip everything except DCR associations (agents already installed)
+.\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "..." -DeployPolicy $false -SkipAgentInstallation
+```
+
 ### Script: `Configure-VMDiagnosticLogs.ps1`
 
 ```powershell
@@ -2928,7 +3004,9 @@ Before running this script, you need:
     Name for the Data Collection Rule. Default: "dcr-vm-logs"
 
 .PARAMETER ResourceGroupName
-    Resource group where the DCR will be created. Default: Same as workspace resource group.
+    Resource group where the DCR will be created in the SOURCE TENANT.
+    Default: "rg-monitoring-dcr" (created in the first source subscription).
+    Note: The DCR must be in the source tenant for Azure Policy to work correctly.
 
 .PARAMETER Location
     Azure region for DCR deployment. Default: "westus2"
@@ -2988,7 +3066,7 @@ param(
     [string]$DataCollectionRuleName = "dcr-vm-logs",
 
     [Parameter(Mandatory = $false)]
-    [string]$ResourceGroupName,
+    [string]$ResourceGroupName = "rg-monitoring-dcr",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
@@ -3366,13 +3444,9 @@ $workspaceSubscriptionId = $workspaceIdParts[2]
 $workspaceResourceGroup = $workspaceIdParts[4]
 $workspaceName = $workspaceIdParts[8]
 
-# Use workspace resource group if not specified
-if (-not $ResourceGroupName) {
-    $ResourceGroupName = $workspaceResourceGroup
-}
-
 Write-Success "  Workspace Name: $workspaceName"
-Write-Success "  Resource Group: $workspaceResourceGroup"
+Write-Success "  Workspace Resource Group: $workspaceResourceGroup"
+Write-Success "  Workspace Subscription (Managing Tenant): $workspaceSubscriptionId"
 Write-Host ""
 #endregion
 
@@ -3392,19 +3466,53 @@ Write-Host ""
 #region Create Data Collection Rule
 if (-not $SkipDCRCreation) {
     Write-Info "Creating Data Collection Rule: $DataCollectionRuleName"
+    Write-Host ""
     
-    # Switch to workspace subscription to create DCR
-    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
+    # IMPORTANT: Create DCR in the SOURCE TENANT subscription, NOT the workspace subscription
+    # This is critical for cross-tenant scenarios because:
+    # 1. Azure Policy creates managed identities in the source tenant
+    # 2. These managed identities can only access resources in their own tenant
+    # 3. If DCR is in managing tenant, policy will fail with "not authorized to access linked subscription"
+    # 4. The DCR can still send data to the Log Analytics workspace in the managing tenant (cross-tenant data flow is supported)
+    
+    # Use the first source subscription for DCR creation
+    $dcrSubscriptionId = $SubscriptionIds[0]
+    $dcrResourceGroupName = $ResourceGroupName
+    
+    Write-Info "  DCR will be created in SOURCE TENANT (required for Azure Policy to work)"
+    Write-Host "    Source Subscription: $dcrSubscriptionId"
+    Write-Host "    Resource Group: $dcrResourceGroupName"
+    Write-Host "    Target Workspace: $workspaceName (in managing tenant)"
+    Write-Host ""
+    
+    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
+    
+    # Check if resource group exists in source tenant, create if not
+    $dcrRg = Get-AzResourceGroup -Name $dcrResourceGroupName -ErrorAction SilentlyContinue
+    if (-not $dcrRg) {
+        Write-Info "  Creating resource group '$dcrResourceGroupName' in source tenant..."
+        try {
+            New-AzResourceGroup -Name $dcrResourceGroupName -Location $Location -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Resource group created"
+        }
+        catch {
+            Write-ErrorMsg "  ✗ Failed to create resource group: $($_.Exception.Message)"
+            $results.Errors += "Resource group creation failed: $($_.Exception.Message)"
+        }
+    }
     
     # Check if DCR already exists
-    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $dcrResourceGroupName -ErrorAction SilentlyContinue
     
     if ($existingDCR) {
-        Write-WarningMsg "  Data Collection Rule '$DataCollectionRuleName' already exists"
+        Write-WarningMsg "  Data Collection Rule '$DataCollectionRuleName' already exists in source tenant"
         $results.DataCollectionRuleId = $existingDCR.Id
     }
     else {
-        Write-Host "  Creating new Data Collection Rule..."
+        Write-Host "  Creating new Data Collection Rule in source tenant..."
+        Write-Host "  DCR Location: $Location"
+        Write-Host "  DCR Resource Group: $dcrResourceGroupName"
+        Write-Host "  Target Workspace: $WorkspaceResourceId (in managing tenant)"
         
         # Create DCR using ARM template
         $dcrTemplate = @{
@@ -3487,12 +3595,13 @@ if (-not $SkipDCRCreation) {
         try {
             $dcrDeployment = New-AzResourceGroupDeployment `
                 -Name "DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
-                -ResourceGroupName $ResourceGroupName `
+                -ResourceGroupName $dcrResourceGroupName `
                 -TemplateFile $dcrTemplatePath `
                 -ErrorAction Stop
             
             $results.DataCollectionRuleId = $dcrDeployment.Outputs.dataCollectionRuleId.Value
-            Write-Success "  ✓ Data Collection Rule created successfully"
+            Write-Success "  ✓ Data Collection Rule created successfully in source tenant"
+            Write-Success "  DCR ID: $($results.DataCollectionRuleId)"
         }
         catch {
             Write-ErrorMsg "  ✗ Failed to create DCR: $($_.Exception.Message)"
@@ -3502,15 +3611,30 @@ if (-not $SkipDCRCreation) {
             Remove-Item -Path $dcrTemplatePath -Force -ErrorAction SilentlyContinue
         }
     }
+    
+    # Store the DCR resource group name for later use
+    $results.DCRResourceGroupName = $dcrResourceGroupName
+    $results.DCRSubscriptionId = $dcrSubscriptionId
 }
 else {
     Write-Info "Skipping DCR creation (--SkipDCRCreation specified)"
     
-    # Try to get existing DCR
-    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
-    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+    # Try to get existing DCR from source tenant (first subscription)
+    $dcrSubscriptionId = $SubscriptionIds[0]
+    $dcrResourceGroupName = $ResourceGroupName
+    
+    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
+    
+    $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $dcrResourceGroupName -ErrorAction SilentlyContinue
     if ($existingDCR) {
         $results.DataCollectionRuleId = $existingDCR.Id
+        $results.DCRResourceGroupName = $dcrResourceGroupName
+        $results.DCRSubscriptionId = $dcrSubscriptionId
+        Write-Success "  Found existing DCR: $($existingDCR.Id)"
+    }
+    else {
+        Write-WarningMsg "  Could not find existing DCR '$DataCollectionRuleName' in resource group '$dcrResourceGroupName'"
+        Write-WarningMsg "  Make sure the DCR exists in the source tenant subscription: $dcrSubscriptionId"
     }
 }
 Write-Host ""
@@ -4281,6 +4405,37 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 .\Configure-VMDiagnosticLogs.ps1 `
     -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
+```
+
+#### Skip Policy Deployment (Opt-Out of Azure Policy)
+
+```powershell
+# Skip Azure Policy deployment - only configure running VMs manually
+# Use this if you don't want automatic agent installation on stopped/new VMs
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DeployPolicy $false
+```
+
+#### Skip DCR Creation (Use Existing DCR)
+
+```powershell
+# Skip DCR creation if you already have a Data Collection Rule
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipDCRCreation `
+    -DataCollectionRuleName "existing-dcr-name"
+```
+
+#### Skip Both Policy and DCR (Manual VM Configuration Only)
+
+```powershell
+# Skip both policy deployment AND DCR creation
+# Only install agents and create DCR associations for running VMs
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DeployPolicy $false `
+    -SkipDCRCreation
 ```
 
 #### Custom DCR Name
