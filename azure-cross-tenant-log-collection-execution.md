@@ -4554,7 +4554,7 @@ Before running this script, you need:
     - Creates diagnostic settings using 'allLogs' category group for comprehensive coverage
     - Supports filtering by resource type
     - Handles Storage Account sub-services (blob, queue, table, file)
-    - Optionally deploys Azure Policy for automatic coverage of new resources
+    - Deploys Azure Policy for automatic coverage of new resources (can be skipped with -SkipPolicy)
     - Verifies the configuration after deployment
 
 .PARAMETER WorkspaceResourceId
@@ -4571,8 +4571,9 @@ Before running this script, you need:
     Array of resource types to configure. If not provided, configures all supported types.
     Example: @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 
-.PARAMETER DeployPolicy
-    Deploy Azure Policy for automatic diagnostic settings on new resources. Default: $false
+.PARAMETER SkipPolicy
+    Skip Azure Policy deployment for automatic diagnostic settings on new resources.
+    By default, the script deploys Azure Policy to ensure new resources automatically get diagnostic settings configured.
 
 .PARAMETER SkipVerification
     Skip the verification step after deployment.
@@ -4584,7 +4585,7 @@ Before running this script, you need:
     .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 
 .EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -DeployPolicy $true
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SkipPolicy
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
@@ -4607,7 +4608,7 @@ param(
     [string[]]$ResourceTypes,
 
     [Parameter(Mandatory = $false)]
-    [bool]$DeployPolicy = $false,
+    [switch]$SkipPolicy,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipVerification
@@ -5022,12 +5023,13 @@ foreach ($subId in $SubscriptionIds) {
 }
 #endregion
 
-#region Deploy Azure Policy (Optional)
-if ($DeployPolicy) {
+#region Deploy Azure Policy (Default - use -SkipPolicy to disable)
+if (-not $SkipPolicy) {
     Write-Host ""
     Write-Info "Deploying Azure Policy for automatic diagnostic settings..."
     Write-Host ""
     Write-Info "This ensures new resources automatically get diagnostic settings configured."
+    Write-Info "(Use -SkipPolicy parameter to skip this step)"
     Write-Host ""
     
     # Built-in policy definition for diagnostic settings
@@ -5138,7 +5140,7 @@ Write-Success "Resources Configured:      $($results.ResourcesConfigured.Count)"
 if ($results.ResourcesFailed.Count -gt 0) {
     Write-ErrorMsg "Resources Failed:          $($results.ResourcesFailed.Count)"
 }
-if ($DeployPolicy) {
+if (-not $SkipPolicy) {
     Write-Host "Policy Assignments:        $($results.PolicyAssignmentsCreated.Count)"
 }
 Write-Host ""
@@ -5254,13 +5256,13 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
 ```
 
-#### With Azure Policy for New Resources
+#### Skip Azure Policy Deployment
 
 ```powershell
-# Configure existing resources AND deploy policy for new resources
+# Configure existing resources only (skip Azure Policy deployment)
 .\Configure-ResourceDiagnosticLogs.ps1 `
     -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DeployPolicy $true
+    -SkipPolicy
 ```
 
 #### Custom Diagnostic Setting Name
