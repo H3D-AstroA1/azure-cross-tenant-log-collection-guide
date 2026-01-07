@@ -3755,8 +3755,13 @@ foreach ($subId in $SubscriptionIds) {
                 if ($powerState -ne "VM running") {
                     Write-WarningMsg "    ⚠ VM is not running (Status: $powerState) - Skipping agent installation"
                     Write-Host "    Note: DCR association will still be created for when VM starts"
-                    Write-WarningMsg "    ⚠ IMPORTANT: When VM starts, ensure System Assigned Managed Identity is enabled"
-                    Write-WarningMsg "      for Azure Policy to automatically install the agent."
+                    Write-Info "    ℹ When VM starts, Azure Policy will automatically:"
+                    Write-Info "      1. Enable System Assigned Managed Identity (Identity policy)"
+                    Write-Info "      2. Install Azure Monitor Agent (AMA policy)"
+                    Write-Info "      3. Associate VM with DCR (DCR policy)"
+                    Write-WarningMsg "    ⚠ Note: Policy evaluation may take up to 24 hours. To expedite:"
+                    Write-WarningMsg "      - Trigger a compliance scan: Start-AzPolicyComplianceScan -ResourceGroupName '<RG>'"
+                    Write-WarningMsg "      - Or manually enable managed identity and run remediation tasks"
                     $results.VMsSkipped += @{
                         Id = $vm.Id
                         Name = $vm.Name
@@ -4381,17 +4386,17 @@ if ($results.VMsSkipped.Count -gt 0) {
     }
     Write-Host ""
     if ($DeployPolicy) {
-        Write-Info "Note: Azure Policy has been deployed to automatically install the agent"
-        Write-Info "      when these VMs come back online."
-        Write-WarningMsg ""
-        Write-WarningMsg "⚠ IMPORTANT: Stopped VMs need System Assigned Managed Identity enabled"
-        Write-WarningMsg "  before Azure Policy can install the agent. When starting these VMs:"
-        Write-WarningMsg "  1. Enable System Assigned Managed Identity on the VM"
-        Write-WarningMsg "  2. Trigger a policy compliance scan or wait for automatic evaluation"
-        Write-WarningMsg ""
-        Write-WarningMsg "  To enable managed identity on a VM:"
-        Write-WarningMsg "  `$vm = Get-AzVM -Name '<VMName>' -ResourceGroupName '<RGName>'"
-        Write-WarningMsg "  Update-AzVM -ResourceGroupName '<RGName>' -VM `$vm -IdentityType SystemAssigned"
+        Write-Info "Note: Azure Policy has been deployed to automatically configure these VMs"
+        Write-Info "      when they come back online. The policies will:"
+        Write-Info "      1. Enable System Assigned Managed Identity (Identity policy)"
+        Write-Info "      2. Install Azure Monitor Agent (AMA policy)"
+        Write-Info "      3. Associate VM with DCR (DCR policy)"
+        Write-Host ""
+        Write-WarningMsg "⚠ Policy evaluation timing:"
+        Write-WarningMsg "  - Automatic evaluation occurs every 24 hours"
+        Write-WarningMsg "  - To expedite, trigger a compliance scan after VM starts:"
+        Write-WarningMsg "    Start-AzPolicyComplianceScan -ResourceGroupName '<RGName>'"
+        Write-WarningMsg "  - Or run remediation tasks manually for immediate effect"
     }
     else {
         Write-Info "Note: DCR associations were created for skipped VMs."
