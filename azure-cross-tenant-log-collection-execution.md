@@ -2941,10 +2941,19 @@ The script supports both approaches and will guide you through the process.
 
 | Policy | Definition ID | Purpose |
 |--------|--------------|---------|
+| **Identity Windows** | `0da98a7b-50d4-4b8e-8b76-6d0a90f1a5d3` | Add System Assigned Managed Identity to Windows VMs (REQUIRED) |
+| **Identity Linux** | `3cf2ab00-13f1-4d0c-8971-2ac904541a7e` | Add System Assigned Managed Identity to Linux VMs (REQUIRED) |
 | **AMA Windows** | `ca817e41-e85a-4783-bc7f-dc532d36235e` | Deploy Azure Monitor Agent on Windows VMs |
 | **AMA Linux** | `a4034bc6-ae50-406d-bf76-50f4ee5a7811` | Deploy Azure Monitor Agent on Linux VMs |
 | **DCR Windows** | `eab1f514-22e3-42e3-9a1f-e1dc9199355c` | Associate Windows VMs with DCR |
 | **DCR Linux** | `58e891b9-ce13-4ac3-86e4-ac3e1f20cb07` | Associate Linux VMs with DCR |
+
+> **Important Policy Deployment Order:**
+> 1. **Identity policies** must be deployed first - they enable System Assigned Managed Identity on VMs
+> 2. **AMA policies** depend on managed identity being present - they install the Azure Monitor Agent
+> 3. **DCR policies** associate VMs with the Data Collection Rule
+>
+> The script deploys policies in this order to ensure proper dependency chain.
 
 ### Prerequisites
 
@@ -3121,21 +3130,45 @@ function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cya
 
 # Built-in Azure Policy Definition IDs for Azure Monitor Agent
 $PolicyDefinitions = @{
+    # System Assigned Managed Identity policies (REQUIRED for AMA policies to work)
+    # These must be deployed FIRST to ensure VMs have managed identity before AMA installation
+    "Identity-Windows" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/0da98a7b-50d4-4b8e-8b76-6d0a90f1a5d3"
+        DisplayName = "Add system-assigned managed identity to enable Guest Configuration on Windows VMs"
+        Description = "Enables System Assigned Managed Identity on Windows VMs - REQUIRED for AMA policy"
+        Priority = 1  # Deploy first
+    }
+    "Identity-Linux" = @{
+        Id = "/providers/Microsoft.Authorization/policyDefinitions/3cf2ab00-13f1-4d0c-8971-2ac904541a7e"
+        DisplayName = "Add system-assigned managed identity to enable Guest Configuration on Linux VMs"
+        Description = "Enables System Assigned Managed Identity on Linux VMs - REQUIRED for AMA policy"
+        Priority = 1  # Deploy first
+    }
+    # Azure Monitor Agent policies (require managed identity to be present)
     "AMA-Windows" = @{
         Id = "/providers/Microsoft.Authorization/policyDefinitions/ca817e41-e85a-4783-bc7f-dc532d36235e"
         DisplayName = "Configure Windows virtual machines to run Azure Monitor Agent"
+        Description = "Installs Azure Monitor Agent on Windows VMs with managed identity"
+        Priority = 2  # Deploy after identity policies
     }
     "AMA-Linux" = @{
         Id = "/providers/Microsoft.Authorization/policyDefinitions/a4034bc6-ae50-406d-bf76-50f4ee5a7811"
         DisplayName = "Configure Linux virtual machines to run Azure Monitor Agent"
+        Description = "Installs Azure Monitor Agent on Linux VMs with managed identity"
+        Priority = 2  # Deploy after identity policies
     }
+    # DCR Association policies
     "DCR-Windows" = @{
         Id = "/providers/Microsoft.Authorization/policyDefinitions/eab1f514-22e3-42e3-9a1f-e1dc9199355c"
         DisplayName = "Configure Windows VMs to be associated with a Data Collection Rule"
+        Description = "Associates Windows VMs with the Data Collection Rule"
+        Priority = 3  # Deploy after AMA policies
     }
     "DCR-Linux" = @{
         Id = "/providers/Microsoft.Authorization/policyDefinitions/58e891b9-ce13-4ac3-86e4-ac3e1f20cb07"
         DisplayName = "Configure Linux VMs to be associated with a Data Collection Rule"
+        Description = "Associates Linux VMs with the Data Collection Rule"
+        Priority = 3  # Deploy after AMA policies
     }
 }
 
@@ -3997,7 +4030,13 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
             Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
             $scope = "/subscriptions/$subId"
             
-            foreach ($policyKey in $PolicyDefinitions.Keys) {
+            # Sort policies by priority to ensure proper deployment order:
+            # 1. Identity policies (enable managed identity on VMs)
+            # 2. AMA policies (install Azure Monitor Agent - requires managed identity)
+            # 3. DCR policies (associate VMs with Data Collection Rule)
+            $sortedPolicyKeys = $PolicyDefinitions.Keys | Sort-Object { $PolicyDefinitions[$_].Priority }
+            
+            foreach ($policyKey in $sortedPolicyKeys) {
                 $policyDef = $PolicyDefinitions[$policyKey]
                 $assignmentName = "$PolicyAssignmentPrefix-$policyKey-$($subId.Substring(0,8))"
                 
