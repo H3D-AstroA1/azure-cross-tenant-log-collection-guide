@@ -2833,6 +2833,25 @@ Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs,
 
 > **Note:** Virtual Machines require a different approach than other Azure resources. Instead of diagnostic settings, VMs use the Azure Monitor Agent with Data Collection Rules to collect logs and metrics.
 
+### Critical: System Assigned Managed Identity Requirement
+
+> ⚠️ **IMPORTANT**: The Azure Policy for AMA installation (`ca817e41-e85a-4783-bc7f-dc532d36235e`) requires VMs to have a **System Assigned Managed Identity** enabled.
+
+**Why?** The policy definition includes a condition that checks for `identity.type` containing `SystemAssigned`. Without this identity, the policy will completely ignore the VM - it won't even appear in policy state evaluations.
+
+**The Solution**: The script automatically enables System Assigned Managed Identity on running VMs before policy deployment. This ensures:
+- The AMA policy can evaluate and remediate all VMs
+- New VMs created with managed identity will be automatically covered
+- Stopped VMs will need identity enabled when they start (the script documents this)
+
+```
+Policy Condition (from ca817e41-e85a-4783-bc7f-dc532d36235e):
+{
+  "field": "identity.type",
+  "contains": "SystemAssigned"
+}
+```
+
 ### Critical: DCR Location for Cross-Tenant Scenarios
 
 > ⚠️ **IMPORTANT ARCHITECTURE NOTE**: The Data Collection Rule (DCR) must be created in the **SOURCE TENANT** (where the VMs are located), NOT in the managing tenant.
@@ -3703,11 +3722,14 @@ foreach ($subId in $SubscriptionIds) {
                 if ($powerState -ne "VM running") {
                     Write-WarningMsg "    ⚠ VM is not running (Status: $powerState) - Skipping agent installation"
                     Write-Host "    Note: DCR association will still be created for when VM starts"
+                    Write-WarningMsg "    ⚠ IMPORTANT: When VM starts, ensure System Assigned Managed Identity is enabled"
+                    Write-WarningMsg "      for Azure Policy to automatically install the agent."
                     $results.VMsSkipped += @{
                         Id = $vm.Id
                         Name = $vm.Name
                         PowerState = $powerState
                         Reason = "VM not running"
+                        NeedsManagedIdentity = $true
                     }
                     
                     # Still create DCR association even for stopped VMs
@@ -3751,6 +3773,58 @@ foreach ($subId in $SubscriptionIds) {
                 $osType = $vm.StorageProfile.OsDisk.OsType
                 Write-Host "    OS Type: $osType"
                 Write-Host "    Power State: $powerState"
+                
+                #region Enable System Assigned Managed Identity (Required for Azure Policy)
+                # The AMA policy (ca817e41-e85a-4783-bc7f-dc532d36235e) requires VMs to have
+                # System Assigned Managed Identity. Without it, the policy ignores the VM.
+                Write-Host "    Checking System Assigned Managed Identity..."
+                
+                $hasSystemIdentity = $false
+                if ($vm.Identity -and $vm.Identity.Type) {
+                    $hasSystemIdentity = $vm.Identity.Type -like "*SystemAssigned*"
+                }
+                
+                if ($hasSystemIdentity) {
+                    Write-Success "    ✓ System Assigned Managed Identity already enabled"
+                }
+                else {
+                    Write-Host "    Enabling System Assigned Managed Identity..."
+                    Write-Host "      (Required for Azure Policy to install AMA automatically)"
+                    
+                    try {
+                        # Get the current VM configuration
+                        $vmConfig = Get-AzVM -ResourceGroupName $vm.ResourceGroupName -Name $vm.Name -ErrorAction Stop
+                        
+                        # Determine the new identity type
+                        $newIdentityType = "SystemAssigned"
+                        if ($vmConfig.Identity -and $vmConfig.Identity.Type -eq "UserAssigned") {
+                            # VM has user-assigned identity, add system-assigned
+                            $newIdentityType = "SystemAssignedUserAssigned"
+                        }
+                        
+                        # Update the VM with System Assigned Managed Identity
+                        Update-AzVM -ResourceGroupName $vm.ResourceGroupName -VM $vmConfig -IdentityType $newIdentityType -ErrorAction Stop | Out-Null
+                        
+                        Write-Success "    ✓ System Assigned Managed Identity enabled"
+                        
+                        # Track that we enabled identity
+                        if (-not $results.IdentitiesEnabled) {
+                            $results.IdentitiesEnabled = @()
+                        }
+                        $results.IdentitiesEnabled += @{
+                            VMName = $vm.Name
+                            VMId = $vm.Id
+                            IdentityType = $newIdentityType
+                        }
+                    }
+                    catch {
+                        Write-ErrorMsg "    ✗ Failed to enable managed identity: $($_.Exception.Message)"
+                        Write-WarningMsg "      Azure Policy may not be able to install AMA on this VM automatically."
+                        Write-WarningMsg "      Manually enable System Assigned Managed Identity for policy coverage."
+                        $results.Errors += "Managed identity for $($vm.Name): $($_.Exception.Message)"
+                    }
+                }
+                #endregion
                 
                 #region Install Azure Monitor Agent
                 if (-not $SkipAgentInstallation) {
@@ -4199,6 +4273,9 @@ Write-Host "Subscriptions Processed:   $($results.SubscriptionsProcessed.Count)"
 Write-Host "VMs Configured:            $($results.VMsConfigured.Count)"
 Write-Host "VMs Skipped (not running): $($results.VMsSkipped.Count)"
 Write-Host "VMs Failed:                $($results.VMsFailed.Count)"
+if ($results.IdentitiesEnabled) {
+    Write-Host "Managed Identities Enabled: $($results.IdentitiesEnabled.Count)"
+}
 Write-Host "Agents Installed:          $($results.AgentsInstalled.Count)"
 Write-Host "DCR Associations Created:  $($results.DCRAssociationsCreated.Count)"
 Write-Host ""
@@ -4221,6 +4298,19 @@ if ($results.VMsConfigured.Count -gt 0) {
     Write-Host ""
 }
 
+if ($results.IdentitiesEnabled -and $results.IdentitiesEnabled.Count -gt 0) {
+    Write-Success "System Assigned Managed Identities enabled:"
+    foreach ($identity in $results.IdentitiesEnabled | Select-Object -First 10) {
+        Write-Success "  ✓ $($identity.VMName)"
+    }
+    if ($results.IdentitiesEnabled.Count -gt 10) {
+        Write-Success "  ... and $($results.IdentitiesEnabled.Count - 10) more"
+    }
+    Write-Host ""
+    Write-Info "Note: Managed identity is required for Azure Policy to install AMA automatically."
+    Write-Host ""
+}
+
 if ($results.VMsSkipped.Count -gt 0) {
     Write-WarningMsg "Skipped VMs (not running):"
     foreach ($skipped in $results.VMsSkipped | Select-Object -First 10) {
@@ -4233,6 +4323,15 @@ if ($results.VMsSkipped.Count -gt 0) {
     if ($DeployPolicy) {
         Write-Info "Note: Azure Policy has been deployed to automatically install the agent"
         Write-Info "      when these VMs come back online."
+        Write-WarningMsg ""
+        Write-WarningMsg "⚠ IMPORTANT: Stopped VMs need System Assigned Managed Identity enabled"
+        Write-WarningMsg "  before Azure Policy can install the agent. When starting these VMs:"
+        Write-WarningMsg "  1. Enable System Assigned Managed Identity on the VM"
+        Write-WarningMsg "  2. Trigger a policy compliance scan or wait for automatic evaluation"
+        Write-WarningMsg ""
+        Write-WarningMsg "  To enable managed identity on a VM:"
+        Write-WarningMsg "  `$vm = Get-AzVM -Name '<VMName>' -ResourceGroupName '<RGName>'"
+        Write-WarningMsg "  Update-AzVM -ResourceGroupName '<RGName>' -VM `$vm -IdentityType SystemAssigned"
     }
     else {
         Write-Info "Note: DCR associations were created for skipped VMs."
@@ -4264,6 +4363,7 @@ if ($results.Errors.Count -gt 0) {
 # Output as JSON for automation
 Write-Info "=== JSON Output (for automation) ==="
 Write-Host ""
+$identitiesEnabledCount = if ($results.IdentitiesEnabled) { $results.IdentitiesEnabled.Count } else { 0 }
 $jsonOutput = @{
     dataCollectionRuleName = $results.DataCollectionRuleName
     dataCollectionRuleId = $results.DataCollectionRuleId
@@ -4271,6 +4371,7 @@ $jsonOutput = @{
     vmsConfiguredCount = $results.VMsConfigured.Count
     vmsSkippedCount = $results.VMsSkipped.Count
     vmsFailedCount = $results.VMsFailed.Count
+    managedIdentitiesEnabledCount = $identitiesEnabledCount
     agentsInstalledCount = $results.AgentsInstalled.Count
     dcrAssociationsCreatedCount = $results.DCRAssociationsCreated.Count
     policyAssignmentsCreatedCount = $results.PolicyAssignmentsCreated.Count
