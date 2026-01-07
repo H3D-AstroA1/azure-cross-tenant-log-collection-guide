@@ -3828,15 +3828,36 @@ foreach ($subId in $SubscriptionIds) {
                         # Get the current VM configuration
                         $vmConfig = Get-AzVM -ResourceGroupName $vm.ResourceGroupName -Name $vm.Name -ErrorAction Stop
                         
-                        # Determine the new identity type
-                        $newIdentityType = "SystemAssigned"
-                        if ($vmConfig.Identity -and $vmConfig.Identity.Type -eq "UserAssigned") {
-                            # VM has user-assigned identity, add system-assigned
-                            $newIdentityType = "SystemAssignedUserAssigned"
-                        }
+                        # Determine the new identity type and handle existing user-assigned identities
+                        $currentIdentityType = $vmConfig.Identity.Type
                         
-                        # Update the VM with System Assigned Managed Identity
-                        Update-AzVM -ResourceGroupName $vm.ResourceGroupName -VM $vmConfig -IdentityType $newIdentityType -ErrorAction Stop | Out-Null
+                        if ($currentIdentityType -like "*UserAssigned*") {
+                            # VM has user-assigned identity (could be "UserAssigned" or "SystemAssigned, UserAssigned")
+                            # We need to preserve the existing user-assigned identity IDs
+                            $existingIdentityIds = @($vmConfig.Identity.UserAssignedIdentities.Keys)
+                            
+                            if ($existingIdentityIds.Count -gt 0) {
+                                Write-Host "      Preserving $($existingIdentityIds.Count) existing user-assigned identity(ies)"
+                                
+                                # Update with SystemAssignedUserAssigned, preserving existing user-assigned identities
+                                Update-AzVM -ResourceGroupName $vm.ResourceGroupName -VM $vmConfig `
+                                    -IdentityType "SystemAssignedUserAssigned" `
+                                    -IdentityId $existingIdentityIds `
+                                    -ErrorAction Stop | Out-Null
+                            }
+                            else {
+                                # Edge case: UserAssigned type but no identity IDs (shouldn't happen, but handle gracefully)
+                                Update-AzVM -ResourceGroupName $vm.ResourceGroupName -VM $vmConfig `
+                                    -IdentityType "SystemAssigned" `
+                                    -ErrorAction Stop | Out-Null
+                            }
+                        }
+                        else {
+                            # VM has no identity or only SystemAssigned - just set SystemAssigned
+                            Update-AzVM -ResourceGroupName $vm.ResourceGroupName -VM $vmConfig `
+                                -IdentityType "SystemAssigned" `
+                                -ErrorAction Stop | Out-Null
+                        }
                         
                         Write-Success "    ✓ System Assigned Managed Identity enabled"
                         
