@@ -2941,15 +2941,14 @@ The script supports both approaches and will guide you through the process.
 
 | Policy | Definition ID | Purpose |
 |--------|--------------|---------|
-| **Identity Windows** | `0da98a7b-50d4-4b8e-8b76-6d0a90f1a5d3` | Add System Assigned Managed Identity to Windows VMs (REQUIRED) |
-| **Identity Linux** | `3cf2ab00-13f1-4d0c-8971-2ac904541a7e` | Add System Assigned Managed Identity to Linux VMs (REQUIRED) |
+| **Identity VMs** | `3cf2ab00-13f1-4d0c-8971-2ac904541a7e` | Add System Assigned Managed Identity to VMs without identities (REQUIRED - works for both Windows and Linux) |
 | **AMA Windows** | `ca817e41-e85a-4783-bc7f-dc532d36235e` | Deploy Azure Monitor Agent on Windows VMs |
 | **AMA Linux** | `a4034bc6-ae50-406d-bf76-50f4ee5a7811` | Deploy Azure Monitor Agent on Linux VMs |
 | **DCR Windows** | `eab1f514-22e3-42e3-9a1f-e1dc9199355c` | Associate Windows VMs with DCR |
 | **DCR Linux** | `58e891b9-ce13-4ac3-86e4-ac3e1f20cb07` | Associate Linux VMs with DCR |
 
 > **Important Policy Deployment Order:**
-> 1. **Identity policies** must be deployed first - they enable System Assigned Managed Identity on VMs
+> 1. **Identity policy** must be deployed first - it enables System Assigned Managed Identity on VMs (single policy for both Windows and Linux)
 > 2. **AMA policies** depend on managed identity being present - they install the Azure Monitor Agent
 > 3. **DCR policies** associate VMs with the Data Collection Rule
 >
@@ -3130,18 +3129,13 @@ function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cya
 
 # Built-in Azure Policy Definition IDs for Azure Monitor Agent
 $PolicyDefinitions = @{
-    # System Assigned Managed Identity policies (REQUIRED for AMA policies to work)
-    # These must be deployed FIRST to ensure VMs have managed identity before AMA installation
-    "Identity-Windows" = @{
-        Id = "/providers/Microsoft.Authorization/policyDefinitions/0da98a7b-50d4-4b8e-8b76-6d0a90f1a5d3"
-        DisplayName = "Add system-assigned managed identity to enable Guest Configuration on Windows VMs"
-        Description = "Enables System Assigned Managed Identity on Windows VMs - REQUIRED for AMA policy"
-        Priority = 1  # Deploy first
-    }
-    "Identity-Linux" = @{
+    # System Assigned Managed Identity policy (REQUIRED for AMA policies to work)
+    # This SINGLE policy handles BOTH Windows and Linux VMs - it's NOT OS-specific!
+    # Must be deployed FIRST to ensure VMs have managed identity before AMA installation
+    "Identity-VMs" = @{
         Id = "/providers/Microsoft.Authorization/policyDefinitions/3cf2ab00-13f1-4d0c-8971-2ac904541a7e"
-        DisplayName = "Add system-assigned managed identity to enable Guest Configuration on Linux VMs"
-        Description = "Enables System Assigned Managed Identity on Linux VMs - REQUIRED for AMA policy"
+        DisplayName = "Add system-assigned managed identity to enable Guest Configuration assignments on virtual machines"
+        Description = "Adds System Assigned Managed Identity to VMs without any identities - REQUIRED for AMA policy. Works for both Windows and Linux."
         Priority = 1  # Deploy first
     }
     # Azure Monitor Agent policies (require managed identity to be present)
