@@ -3050,6 +3050,20 @@ The script provides several opt-out switches to customize what gets deployed:
 .PARAMETER SkipDCRCreation
     Skip DCR creation (useful if DCR already exists).
 
+.PARAMETER MasterDCRResourceGroup
+    Resource group in the MANAGING TENANT where the Master DCR template will be stored.
+    Default: "rg-master-dcr-templates"
+    The Master DCR serves as a backup/template that can be used to restore source tenant DCRs.
+
+.PARAMETER SkipMasterDCR
+    Skip creating/updating the Master DCR in the managing tenant.
+    By default, the script creates a Master DCR as a backup template.
+
+.PARAMETER SyncDCRFromMaster
+    Sync/restore DCRs in source tenants from the Master DCR in the managing tenant.
+    Use this to restore a deleted/modified DCR or to ensure consistency across tenants.
+    Requires -WorkspaceResourceId to identify the managing tenant subscription.
+
 .PARAMETER SkipRemediation
     Skip creating remediation tasks for existing non-compliant VMs.
 
@@ -3117,7 +3131,16 @@ param(
     [switch]$SkipVerification,
 
     [Parameter(Mandatory = $false)]
-    [switch]$AssignRolesAsSourceAdmin
+    [switch]$AssignRolesAsSourceAdmin,
+
+    [Parameter(Mandatory = $false)]
+    [string]$MasterDCRResourceGroup = "rg-master-dcr-templates",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipMasterDCR,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SyncDCRFromMaster
 )
 
 # Color functions for output
@@ -3496,6 +3519,216 @@ if ($AssignRolesAsSourceAdmin) {
 }
 #endregion
 
+#region SyncDCRFromMaster Mode - Restore/Sync DCRs from Master DCR in Managing Tenant
+if ($SyncDCRFromMaster) {
+    Write-Host ""
+    Write-Header "======================================================================"
+    Write-Header "    SYNC DCR FROM MASTER - Restore/Sync DCRs from Managing Tenant    "
+    Write-Header "======================================================================"
+    Write-Host ""
+    
+    Write-Info "This mode syncs/restores DCRs in source tenants from the Master DCR in the managing tenant."
+    Write-Info "Use this to restore a deleted/modified DCR or ensure consistency across tenants."
+    Write-Host ""
+    
+    # WorkspaceResourceId is required to identify the managing tenant subscription
+    if (-not $WorkspaceResourceId) {
+        Write-ErrorMsg "WorkspaceResourceId is required for -SyncDCRFromMaster mode."
+        Write-ErrorMsg "The workspace subscription is used to locate the Master DCR in the managing tenant."
+        exit 1
+    }
+    
+    # Extract managing tenant subscription from workspace resource ID
+    $workspaceIdParts = $WorkspaceResourceId -split "/"
+    $managingSubscriptionId = $workspaceIdParts[2]
+    
+    Write-Info "Managing Tenant Subscription: $managingSubscriptionId"
+    Write-Info "Master DCR Resource Group: $MasterDCRResourceGroup"
+    Write-Info "Master DCR Name: $DataCollectionRuleName"
+    Write-Host ""
+    
+    # Get subscriptions to sync
+    if (-not $SubscriptionIds -or $SubscriptionIds.Count -eq 0) {
+        $SubscriptionIds = @($context.Subscription.Id)
+        Write-Info "No subscriptions specified. Using current subscription: $($context.Subscription.Name)"
+    }
+    
+    $syncResults = @{
+        MasterDCRFound = $false
+        MasterDCRConfig = $null
+        SubscriptionsProcessed = @()
+        DCRsSynced = @()
+        DCRsFailed = @()
+        Errors = @()
+    }
+    
+    # Step 1: Read the Master DCR from the managing tenant
+    Write-Info "Step 1: Reading Master DCR from managing tenant..."
+    Write-Host ""
+    
+    try {
+        Set-AzContext -SubscriptionId $managingSubscriptionId -ErrorAction Stop | Out-Null
+        
+        $masterDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $MasterDCRResourceGroup -ErrorAction SilentlyContinue
+        
+        if (-not $masterDCR) {
+            Write-ErrorMsg "Master DCR '$DataCollectionRuleName' not found in resource group '$MasterDCRResourceGroup'"
+            Write-ErrorMsg "in managing tenant subscription '$managingSubscriptionId'."
+            Write-Host ""
+            Write-Info "To create a Master DCR, run the script without -SyncDCRFromMaster first."
+            Write-Info "The script will automatically create a Master DCR in the managing tenant."
+            exit 1
+        }
+        
+        Write-Success "  ✓ Found Master DCR: $($masterDCR.Name)"
+        Write-Host "    Location: $($masterDCR.Location)"
+        Write-Host "    ID: $($masterDCR.Id)"
+        
+        $syncResults.MasterDCRFound = $true
+        $syncResults.MasterDCRConfig = $masterDCR
+    }
+    catch {
+        Write-ErrorMsg "Failed to read Master DCR: $($_.Exception.Message)"
+        $syncResults.Errors += "Master DCR read failed: $($_.Exception.Message)"
+        exit 1
+    }
+    Write-Host ""
+    
+    # Step 2: Sync DCR to each source tenant subscription
+    Write-Info "Step 2: Syncing DCR to source tenant subscriptions..."
+    Write-Host ""
+    
+    foreach ($subId in $SubscriptionIds) {
+        Write-Info "Processing subscription: $subId"
+        $syncResults.SubscriptionsProcessed += $subId
+        
+        try {
+            Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
+            $subName = (Get-AzContext).Subscription.Name
+            Write-Host "  Subscription name: $subName"
+            
+            # Check if resource group exists, create if not
+            $rg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
+            if (-not $rg) {
+                Write-Host "  Creating resource group '$ResourceGroupName'..."
+                New-AzResourceGroup -Name $ResourceGroupName -Location $masterDCR.Location -ErrorAction Stop | Out-Null
+                Write-Success "  ✓ Resource group created"
+            }
+            
+            # Check if DCR already exists
+            $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+            
+            if ($existingDCR) {
+                Write-WarningMsg "  DCR '$DataCollectionRuleName' already exists. Updating from Master..."
+            }
+            else {
+                Write-Host "  Creating DCR from Master template..."
+            }
+            
+            # Create/Update DCR using ARM template based on Master DCR configuration
+            # We need to recreate the DCR with the same configuration but in the source tenant
+            $dcrTemplate = @{
+                '$schema' = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+                contentVersion = "1.0.0.0"
+                resources = @(
+                    @{
+                        type = "Microsoft.Insights/dataCollectionRules"
+                        apiVersion = "2022-06-01"
+                        name = $DataCollectionRuleName
+                        location = $masterDCR.Location
+                        properties = @{
+                            description = $masterDCR.Description
+                            dataSources = $masterDCR.DataSource
+                            destinations = $masterDCR.Destination
+                            dataFlows = $masterDCR.DataFlow
+                        }
+                    }
+                )
+            }
+            
+            # Save template to temp file
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $dcrTemplatePath = Join-Path $tempDir "dcr-sync-template-$subId.json"
+            $dcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $dcrTemplatePath -Encoding UTF8
+            
+            try {
+                $deployment = New-AzResourceGroupDeployment `
+                    -Name "DCR-Sync-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+                    -ResourceGroupName $ResourceGroupName `
+                    -TemplateFile $dcrTemplatePath `
+                    -ErrorAction Stop
+                
+                Write-Success "  ✓ DCR synced successfully"
+                $syncResults.DCRsSynced += @{
+                    SubscriptionId = $subId
+                    SubscriptionName = $subName
+                    DCRName = $DataCollectionRuleName
+                    ResourceGroup = $ResourceGroupName
+                }
+            }
+            catch {
+                Write-ErrorMsg "  ✗ Failed to sync DCR: $($_.Exception.Message)"
+                $syncResults.DCRsFailed += @{
+                    SubscriptionId = $subId
+                    Error = $_.Exception.Message
+                }
+                $syncResults.Errors += "DCR sync in $subId : $($_.Exception.Message)"
+            }
+            finally {
+                Remove-Item -Path $dcrTemplatePath -Force -ErrorAction SilentlyContinue
+            }
+        }
+        catch {
+            Write-ErrorMsg "  ✗ Failed to process subscription: $($_.Exception.Message)"
+            $syncResults.Errors += "Subscription $subId : $($_.Exception.Message)"
+        }
+        
+        Write-Host ""
+    }
+    
+    # Output summary
+    Write-Host ""
+    Write-Header "======================================================================"
+    Write-Header "                              SUMMARY                                 "
+    Write-Header "======================================================================"
+    Write-Host ""
+    
+    Write-Host "Master DCR Found:          $($syncResults.MasterDCRFound)"
+    Write-Host "Subscriptions Processed:   $($syncResults.SubscriptionsProcessed.Count)"
+    Write-Success "DCRs Synced:               $($syncResults.DCRsSynced.Count)"
+    if ($syncResults.DCRsFailed.Count -gt 0) {
+        Write-ErrorMsg "DCRs Failed:               $($syncResults.DCRsFailed.Count)"
+    }
+    Write-Host ""
+    
+    if ($syncResults.DCRsSynced.Count -gt 0) {
+        Write-Success "Successfully synced DCRs:"
+        foreach ($synced in $syncResults.DCRsSynced) {
+            Write-Success "  ✓ $($synced.SubscriptionName) ($($synced.SubscriptionId))"
+        }
+        Write-Host ""
+    }
+    
+    if ($syncResults.DCRsFailed.Count -gt 0) {
+        Write-ErrorMsg "Failed DCR syncs:"
+        foreach ($failed in $syncResults.DCRsFailed) {
+            Write-ErrorMsg "  ✗ $($failed.SubscriptionId): $($failed.Error)"
+        }
+        Write-Host ""
+    }
+    
+    Write-Info "=== Next Steps ==="
+    Write-Host ""
+    Write-Host "1. Verify DCR associations are still valid for existing VMs"
+    Write-Host "2. Run remediation tasks if needed to re-associate VMs with the restored DCR"
+    Write-Host "3. Check Log Analytics workspace for incoming VM data"
+    Write-Host ""
+    
+    # Return results and exit
+    return $syncResults
+}
+#endregion
+
 #region Validate Workspace Resource ID
 # WorkspaceResourceId is required when not in AssignRolesAsSourceAdmin mode
 if (-not $WorkspaceResourceId) {
@@ -3675,6 +3908,59 @@ if (-not $SkipDCRCreation) {
             $results.DataCollectionRuleId = $dcrDeployment.Outputs.dataCollectionRuleId.Value
             Write-Success "  ✓ Data Collection Rule created successfully in source tenant"
             Write-Success "  DCR ID: $($results.DataCollectionRuleId)"
+            
+            #region Create Master DCR in Managing Tenant (Backup/Template)
+            if (-not $SkipMasterDCR) {
+                Write-Host ""
+                Write-Info "  Creating Master DCR in managing tenant (backup/template)..."
+                Write-Host "    Master DCR Resource Group: $MasterDCRResourceGroup"
+                Write-Host "    Master DCR Subscription: $workspaceSubscriptionId"
+                
+                try {
+                    # Switch to managing tenant subscription
+                    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
+                    
+                    # Check if Master DCR resource group exists, create if not
+                    $masterRg = Get-AzResourceGroup -Name $MasterDCRResourceGroup -ErrorAction SilentlyContinue
+                    if (-not $masterRg) {
+                        Write-Host "    Creating Master DCR resource group..."
+                        New-AzResourceGroup -Name $MasterDCRResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+                        Write-Success "    ✓ Master DCR resource group created"
+                    }
+                    
+                    # Create Master DCR using the same template
+                    $masterDcrTemplatePath = Join-Path $tempDir "master-dcr-template.json"
+                    $dcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $masterDcrTemplatePath -Encoding UTF8
+                    
+                    $masterDcrDeployment = New-AzResourceGroupDeployment `
+                        -Name "Master-DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+                        -ResourceGroupName $MasterDCRResourceGroup `
+                        -TemplateFile $masterDcrTemplatePath `
+                        -ErrorAction Stop
+                    
+                    $results.MasterDCRId = $masterDcrDeployment.Outputs.dataCollectionRuleId.Value
+                    Write-Success "    ✓ Master DCR created in managing tenant"
+                    Write-Success "    Master DCR ID: $($results.MasterDCRId)"
+                    
+                    Remove-Item -Path $masterDcrTemplatePath -Force -ErrorAction SilentlyContinue
+                    
+                    # Switch back to source tenant subscription
+                    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
+                }
+                catch {
+                    Write-WarningMsg "    ⚠ Could not create Master DCR: $($_.Exception.Message)"
+                    Write-WarningMsg "    The source tenant DCR was created successfully."
+                    Write-WarningMsg "    You can manually create a Master DCR later for backup purposes."
+                    $results.Errors += "Master DCR creation failed: $($_.Exception.Message)"
+                    
+                    # Make sure we're back in source tenant context
+                    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction SilentlyContinue | Out-Null
+                }
+            }
+            else {
+                Write-Info "  Skipping Master DCR creation (-SkipMasterDCR specified)"
+            }
+            #endregion
         }
         catch {
             Write-ErrorMsg "  ✗ Failed to create DCR: $($_.Exception.Message)"
@@ -4708,6 +4994,96 @@ Subscriptions Processed:   1
 Policy Assignments Found:  4
 Role Assignments Created:  4
 Remediation Tasks Created: 4
+```
+
+#### Master DCR Pattern (Backup and Restore)
+
+The script implements a **Master DCR pattern** for centralized governance and disaster recovery:
+
+- **Master DCR**: A backup copy of the DCR stored in the managing tenant
+- **Source DCR**: The operational DCR in each source tenant (used by Azure Policy)
+
+**Why use the Master DCR pattern?**
+1. **Backup**: If someone accidentally deletes or modifies the source tenant DCR, you can restore it from the Master
+2. **Consistency**: Ensure all source tenants have identical DCR configurations
+3. **Governance**: Centralized template management in the managing tenant
+
+**Default behavior (Master DCR created automatically):**
+```powershell
+# By default, the script creates both:
+# 1. Source DCR in source tenant (for Azure Policy)
+# 2. Master DCR in managing tenant (backup/template)
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+**Skip Master DCR creation:**
+```powershell
+# Skip creating the Master DCR (only create source tenant DCR)
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipMasterDCR
+```
+
+**Custom Master DCR resource group:**
+```powershell
+# Specify a custom resource group for the Master DCR
+.\Configure-VMDiagnosticLogs.ps1 `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -MasterDCRResourceGroup "rg-dcr-templates"
+```
+
+**Sync/Restore DCRs from Master (disaster recovery):**
+```powershell
+# If a source tenant DCR was deleted or modified, restore it from the Master DCR
+.\Configure-VMDiagnosticLogs.ps1 `
+    -SyncDCRFromMaster `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SubscriptionIds @("source-sub-1", "source-sub-2")
+```
+
+**Expected output for -SyncDCRFromMaster:**
+```
+======================================================================
+    SYNC DCR FROM MASTER - Restore/Sync DCRs from Managing Tenant
+======================================================================
+
+This mode syncs/restores DCRs in source tenants from the Master DCR in the managing tenant.
+Use this to restore a deleted/modified DCR or ensure consistency across tenants.
+
+Managing Tenant Subscription: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
+Master DCR Resource Group: rg-master-dcr-templates
+Master DCR Name: dcr-vm-logs
+
+Step 1: Reading Master DCR from managing tenant...
+
+  ✓ Found Master DCR: dcr-vm-logs
+    Location: westus2
+    ID: /subscriptions/.../dataCollectionRules/dcr-vm-logs
+
+Step 2: Syncing DCR to source tenant subscriptions...
+
+Processing subscription: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+  Subscription name: Production-Subscription
+  DCR 'dcr-vm-logs' already exists. Updating from Master...
+  ✓ DCR synced successfully
+
+======================================================================
+                              SUMMARY
+======================================================================
+
+Master DCR Found:          True
+Subscriptions Processed:   1
+DCRs Synced:               1
+
+Successfully synced DCRs:
+  ✓ Production-Subscription (aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa)
+
+=== Next Steps ===
+
+1. Verify DCR associations are still valid for existing VMs
+2. Run remediation tasks if needed to re-associate VMs with the restored DCR
+3. Check Log Analytics workspace for incoming VM data
 ```
 
 ### Expected Output
