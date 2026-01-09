@@ -3810,9 +3810,13 @@ if (-not $SkipDCRCreation) {
     # Check if DCR already exists
     $existingDCR = Get-AzDataCollectionRule -Name $DataCollectionRuleName -ResourceGroupName $dcrResourceGroupName -ErrorAction SilentlyContinue
     
+    # Variable to track if we need to create Master DCR
+    $sourceDCRCreatedOrExists = $false
+    
     if ($existingDCR) {
         Write-WarningMsg "  Data Collection Rule '$DataCollectionRuleName' already exists in source tenant"
         $results.DataCollectionRuleId = $existingDCR.Id
+        $sourceDCRCreatedOrExists = $true
     }
     else {
         Write-Host "  Creating new Data Collection Rule in source tenant..."
@@ -3908,59 +3912,7 @@ if (-not $SkipDCRCreation) {
             $results.DataCollectionRuleId = $dcrDeployment.Outputs.dataCollectionRuleId.Value
             Write-Success "  ✓ Data Collection Rule created successfully in source tenant"
             Write-Success "  DCR ID: $($results.DataCollectionRuleId)"
-            
-            #region Create Master DCR in Managing Tenant (Backup/Template)
-            if (-not $SkipMasterDCR) {
-                Write-Host ""
-                Write-Info "  Creating Master DCR in managing tenant (backup/template)..."
-                Write-Host "    Master DCR Resource Group: $MasterDCRResourceGroup"
-                Write-Host "    Master DCR Subscription: $workspaceSubscriptionId"
-                
-                try {
-                    # Switch to managing tenant subscription
-                    Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
-                    
-                    # Check if Master DCR resource group exists, create if not
-                    $masterRg = Get-AzResourceGroup -Name $MasterDCRResourceGroup -ErrorAction SilentlyContinue
-                    if (-not $masterRg) {
-                        Write-Host "    Creating Master DCR resource group..."
-                        New-AzResourceGroup -Name $MasterDCRResourceGroup -Location $Location -ErrorAction Stop | Out-Null
-                        Write-Success "    ✓ Master DCR resource group created"
-                    }
-                    
-                    # Create Master DCR using the same template
-                    $masterDcrTemplatePath = Join-Path $tempDir "master-dcr-template.json"
-                    $dcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $masterDcrTemplatePath -Encoding UTF8
-                    
-                    $masterDcrDeployment = New-AzResourceGroupDeployment `
-                        -Name "Master-DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
-                        -ResourceGroupName $MasterDCRResourceGroup `
-                        -TemplateFile $masterDcrTemplatePath `
-                        -ErrorAction Stop
-                    
-                    $results.MasterDCRId = $masterDcrDeployment.Outputs.dataCollectionRuleId.Value
-                    Write-Success "    ✓ Master DCR created in managing tenant"
-                    Write-Success "    Master DCR ID: $($results.MasterDCRId)"
-                    
-                    Remove-Item -Path $masterDcrTemplatePath -Force -ErrorAction SilentlyContinue
-                    
-                    # Switch back to source tenant subscription
-                    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
-                }
-                catch {
-                    Write-WarningMsg "    ⚠ Could not create Master DCR: $($_.Exception.Message)"
-                    Write-WarningMsg "    The source tenant DCR was created successfully."
-                    Write-WarningMsg "    You can manually create a Master DCR later for backup purposes."
-                    $results.Errors += "Master DCR creation failed: $($_.Exception.Message)"
-                    
-                    # Make sure we're back in source tenant context
-                    Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction SilentlyContinue | Out-Null
-                }
-            }
-            else {
-                Write-Info "  Skipping Master DCR creation (-SkipMasterDCR specified)"
-            }
-            #endregion
+            $sourceDCRCreatedOrExists = $true
         }
         catch {
             Write-ErrorMsg "  ✗ Failed to create DCR: $($_.Exception.Message)"
@@ -3974,6 +3926,137 @@ if (-not $SkipDCRCreation) {
     # Store the DCR resource group name for later use
     $results.DCRResourceGroupName = $dcrResourceGroupName
     $results.DCRSubscriptionId = $dcrSubscriptionId
+    
+    #region Create Master DCR in Managing Tenant (Backup/Template)
+    # This runs regardless of whether source DCR was newly created or already existed
+    if ($sourceDCRCreatedOrExists -and -not $SkipMasterDCR) {
+        Write-Host ""
+        Write-Info "Creating/updating Master DCR in managing tenant (backup/template)..."
+        Write-Host "  Master DCR Resource Group: $MasterDCRResourceGroup"
+        Write-Host "  Master DCR Subscription: $workspaceSubscriptionId"
+        
+        try {
+            # Switch to managing tenant subscription
+            Set-AzContext -SubscriptionId $workspaceSubscriptionId -ErrorAction Stop | Out-Null
+            
+            # Check if Master DCR resource group exists, create if not
+            $masterRg = Get-AzResourceGroup -Name $MasterDCRResourceGroup -ErrorAction SilentlyContinue
+            if (-not $masterRg) {
+                Write-Host "  Creating Master DCR resource group..."
+                New-AzResourceGroup -Name $MasterDCRResourceGroup -Location $Location -ErrorAction Stop | Out-Null
+                Write-Success "  ✓ Master DCR resource group created"
+            }
+            
+            # Build the DCR template for Master DCR
+            $masterDcrTemplate = @{
+                '$schema' = "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#"
+                contentVersion = "1.0.0.0"
+                resources = @(
+                    @{
+                        type = "Microsoft.Insights/dataCollectionRules"
+                        apiVersion = "2022-06-01"
+                        name = $DataCollectionRuleName
+                        location = $Location
+                        properties = @{
+                            description = "Master DCR template for VM logs - Cross-tenant collection (backup/governance)"
+                            dataSources = @{
+                                performanceCounters = @(
+                                    @{
+                                        name = "perfCounterDataSource"
+                                        streams = @("Microsoft-Perf")
+                                        samplingFrequencyInSeconds = 60
+                                        counterSpecifiers = @(
+                                            "\\Processor(_Total)\\% Processor Time",
+                                            "\\Memory\\Available MBytes",
+                                            "\\Memory\\% Committed Bytes In Use",
+                                            "\\LogicalDisk(_Total)\\% Free Space",
+                                            "\\LogicalDisk(_Total)\\Free Megabytes",
+                                            "\\PhysicalDisk(_Total)\\Avg. Disk Queue Length",
+                                            "\\Network Interface(*)\\Bytes Total/sec"
+                                        )
+                                    }
+                                )
+                                windowsEventLogs = @(
+                                    @{
+                                        name = "windowsEventLogs"
+                                        streams = @("Microsoft-Event")
+                                        xPathQueries = @(
+                                            "Application!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]",
+                                            "Security!*[System[(band(Keywords,13510798882111488))]]",
+                                            "System!*[System[(Level=1 or Level=2 or Level=3 or Level=4)]]"
+                                        )
+                                    }
+                                )
+                                syslog = @(
+                                    @{
+                                        name = "syslogDataSource"
+                                        streams = @("Microsoft-Syslog")
+                                        facilityNames = @("auth", "authpriv", "cron", "daemon", "kern", "syslog", "user")
+                                        logLevels = @("Debug", "Info", "Notice", "Warning", "Error", "Critical", "Alert", "Emergency")
+                                    }
+                                )
+                            }
+                            destinations = @{
+                                logAnalytics = @(
+                                    @{
+                                        name = $workspaceName
+                                        workspaceResourceId = $WorkspaceResourceId
+                                    }
+                                )
+                            }
+                            dataFlows = @(
+                                @{ streams = @("Microsoft-Perf"); destinations = @($workspaceName) },
+                                @{ streams = @("Microsoft-Event"); destinations = @($workspaceName) },
+                                @{ streams = @("Microsoft-Syslog"); destinations = @($workspaceName) }
+                            )
+                        }
+                    }
+                )
+                outputs = @{
+                    dataCollectionRuleId = @{
+                        type = "string"
+                        value = "[resourceId('Microsoft.Insights/dataCollectionRules', '$DataCollectionRuleName')]"
+                    }
+                }
+            }
+            
+            # Save template to temp file
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $masterDcrTemplatePath = Join-Path $tempDir "master-dcr-template.json"
+            $masterDcrTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $masterDcrTemplatePath -Encoding UTF8
+            
+            $masterDcrDeployment = New-AzResourceGroupDeployment `
+                -Name "Master-DCR-Deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+                -ResourceGroupName $MasterDCRResourceGroup `
+                -TemplateFile $masterDcrTemplatePath `
+                -ErrorAction Stop
+            
+            $results.MasterDCRId = $masterDcrDeployment.Outputs.dataCollectionRuleId.Value
+            Write-Success "  ✓ Master DCR created/updated in managing tenant"
+            Write-Success "  Master DCR ID: $($results.MasterDCRId)"
+            
+            Remove-Item -Path $masterDcrTemplatePath -Force -ErrorAction SilentlyContinue
+            
+            # Switch back to source tenant subscription
+            Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction Stop | Out-Null
+        }
+        catch {
+            Write-WarningMsg "  ⚠ Could not create/update Master DCR: $($_.Exception.Message)"
+            Write-WarningMsg "  The source tenant DCR is available for use."
+            Write-WarningMsg "  You can manually create a Master DCR later for backup purposes."
+            $results.Errors += "Master DCR creation failed: $($_.Exception.Message)"
+            
+            # Make sure we're back in source tenant context
+            Set-AzContext -SubscriptionId $dcrSubscriptionId -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+    elseif (-not $sourceDCRCreatedOrExists) {
+        Write-WarningMsg "  Skipping Master DCR creation (source DCR not available)"
+    }
+    elseif ($SkipMasterDCR) {
+        Write-Info "  Skipping Master DCR creation (-SkipMasterDCR specified)"
+    }
+    #endregion
 }
 else {
     Write-Info "Skipping DCR creation (--SkipDCRCreation specified)"
