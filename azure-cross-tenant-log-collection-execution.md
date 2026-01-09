@@ -5937,6 +5937,18 @@ function Set-DiagnosticSettingWithAllLogs {
     )
     
     try {
+        # Determine if this resource type supports metrics
+        # Some resources like NSGs don't support AllMetrics
+        $resourceType = ($ResourceId -split "/providers/")[-1] -split "/" | Select-Object -First 2
+        $resourceTypeString = $resourceType -join "/"
+        
+        # Resource types that do NOT support metrics
+        $noMetricsResourceTypes = @(
+            "Microsoft.Network/networkSecurityGroups"
+        )
+        
+        $supportsMetrics = $resourceTypeString -notin $noMetricsResourceTypes
+        
         # Build the diagnostic setting properties
         $diagnosticSetting = @{
             properties = @{
@@ -5947,13 +5959,17 @@ function Set-DiagnosticSettingWithAllLogs {
                         enabled = $true
                     }
                 )
-                metrics = @(
-                    @{
-                        category = "AllMetrics"
-                        enabled = $true
-                    }
-                )
             }
+        }
+        
+        # Only add metrics if the resource type supports them
+        if ($supportsMetrics) {
+            $diagnosticSetting.properties.metrics = @(
+                @{
+                    category = "AllMetrics"
+                    enabled = $true
+                }
+            )
         }
         
         # Use REST API to create the diagnostic setting
@@ -5963,15 +5979,17 @@ function Set-DiagnosticSettingWithAllLogs {
         $response = Invoke-AzRestMethod -Path $uri -Method PUT -Payload ($diagnosticSetting | ConvertTo-Json -Depth 10)
         
         if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
-            return @{ Success = $true; Message = "Configured successfully" }
+            $metricsNote = if (-not $supportsMetrics) { " (logs only, no metrics)" } else { "" }
+            return @{ Success = $true; Message = "Configured successfully$metricsNote" }
         }
         else {
             $errorContent = $response.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
-            $errorMessage = if ($errorContent.error.message) { $errorContent.error.message } else { "HTTP $($response.StatusCode)" }
+            $errorMessage = if ($errorContent.error.message) { $errorContent.error.message } else { $response.Content }
+            if (-not $errorMessage) { $errorMessage = "HTTP $($response.StatusCode)" }
             
             # If allLogs is not supported, try with audit category group
-            if ($errorMessage -like "*categoryGroup*" -or $errorMessage -like "*allLogs*") {
-                return Set-DiagnosticSettingWithAudit -ResourceId $ResourceId -SettingName $SettingName -WorkspaceId $WorkspaceId
+            if ($errorMessage -like "*categoryGroup*" -or $errorMessage -like "*allLogs*" -or $errorMessage -like "*not valid*") {
+                return Set-DiagnosticSettingWithAudit -ResourceId $ResourceId -SettingName $SettingName -WorkspaceId $WorkspaceId -SupportsMetrics $supportsMetrics
             }
             
             return @{ Success = $false; Message = $errorMessage }
@@ -5988,7 +6006,8 @@ function Set-DiagnosticSettingWithAudit {
     param(
         [string]$ResourceId,
         [string]$SettingName,
-        [string]$WorkspaceId
+        [string]$WorkspaceId,
+        [bool]$SupportsMetrics = $true
     )
     
     try {
@@ -6001,13 +6020,17 @@ function Set-DiagnosticSettingWithAudit {
                         enabled = $true
                     }
                 )
-                metrics = @(
-                    @{
-                        category = "AllMetrics"
-                        enabled = $true
-                    }
-                )
             }
+        }
+        
+        # Only add metrics if the resource type supports them
+        if ($SupportsMetrics) {
+            $diagnosticSetting.properties.metrics = @(
+                @{
+                    category = "AllMetrics"
+                    enabled = $true
+                }
+            )
         }
         
         $apiVersion = "2021-05-01-preview"
@@ -6016,11 +6039,13 @@ function Set-DiagnosticSettingWithAudit {
         $response = Invoke-AzRestMethod -Path $uri -Method PUT -Payload ($diagnosticSetting | ConvertTo-Json -Depth 10)
         
         if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
-            return @{ Success = $true; Message = "Configured with audit category" }
+            $metricsNote = if (-not $SupportsMetrics) { " (logs only, no metrics)" } else { "" }
+            return @{ Success = $true; Message = "Configured with audit category$metricsNote" }
         }
         else {
             $errorContent = $response.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
-            $errorMessage = if ($errorContent.error.message) { $errorContent.error.message } else { "HTTP $($response.StatusCode)" }
+            $errorMessage = if ($errorContent.error.message) { $errorContent.error.message } else { $response.Content }
+            if (-not $errorMessage) { $errorMessage = "HTTP $($response.StatusCode)" }
             return @{ Success = $false; Message = $errorMessage }
         }
     }
