@@ -2511,6 +2511,7 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 | **License** | Microsoft Entra ID P1 or P2 license (for sign-in logs) |
 | **Permissions** | Global Administrator or Security Administrator in Atevet17 |
 | **Log Analytics Workspace** | Can send to workspace in Atevet12 (cross-tenant supported for data destination) |
+| **PowerShell Module** | Az PowerShell module (Az.Accounts) |
 
 ### 6.2 Available Entra ID Log Categories
 
@@ -2531,146 +2532,456 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 | **MicrosoftGraphActivityLogs** | Microsoft Graph API activity | P1/P2 |
 | **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | P1/P2 |
 
-### 6.3 Configure Entra ID Diagnostic Settings via Azure Portal
+### 6.3 PowerShell Script for Configuring Entra ID Diagnostic Settings
 
-**This must be done by an administrator in Atevet17:**
+The following comprehensive PowerShell script automates the configuration of Microsoft Entra ID diagnostic settings. It includes:
+- Embedded ARM template for deployment
+- REST API support for direct configuration
+- Parameter validation and error handling
+- Verification and rollback capabilities
+- License requirement warnings
 
-1. Sign in to the **Azure Portal** as a Global Administrator in **Atevet17**
-2. Navigate to **Microsoft Entra ID** (or search for "Azure Active Directory")
-3. Go to **Monitoring** → **Diagnostic settings**
-4. Click **+ Add diagnostic setting**
-5. Configure the setting:
-   - **Diagnostic setting name:** `SendEntraLogsToAtevet12`
-   - **Log categories:** Select all applicable categories:
-     - ☑️ AuditLogs
-     - ☑️ SignInLogs
-     - ☑️ NonInteractiveUserSignInLogs
-     - ☑️ ServicePrincipalSignInLogs
-     - ☑️ ManagedIdentitySignInLogs
-     - ☑️ ProvisioningLogs
-     - ☑️ RiskyUsers (if P2)
-     - ☑️ UserRiskEvents (if P2)
-     - ☑️ MicrosoftGraphActivityLogs
-   - **Destination details:**
-     - ☑️ Send to Log Analytics workspace
-     - **Subscription:** Select the Atevet12 subscription
-     - **Log Analytics workspace:** `law-central-atevet12`
-6. Click **Save**
-
-### 6.4 Configure Entra ID Diagnostic Settings via PowerShell
+Save this script as `Configure-EntraIDDiagnosticSettings.ps1`:
 
 ```powershell
-# Connect to Atevet17 tenant as Global Administrator
-Connect-AzAccount -TenantId "<Atevet17-Tenant-ID>"
+<#
+.SYNOPSIS
+    Configures Microsoft Entra ID (Azure AD) diagnostic settings to send logs to a Log Analytics workspace.
 
-# Get the Entra ID resource ID (this is a special format for tenant-level resources)
-$entraResourceId = "/providers/Microsoft.aadiam/diagnosticSettings"
+.DESCRIPTION
+    This script automates Step 6 of the Azure Cross-Tenant Log Collection Guide.
+    It configures Microsoft Entra ID diagnostic settings to stream identity logs
+    (Sign-in, Audit, Risk events, etc.) to a specified Log Analytics workspace.
+    
+    The script supports:
+    - Cross-tenant log collection (source tenant logs to destination tenant workspace)
+    - ARM template deployment for consistent, repeatable configuration
+    - REST API fallback for environments where ARM deployment is not available
+    - Verification of existing diagnostic settings
+    - Removal of existing settings before reconfiguration
+    
+    IMPORTANT: This script must be run by a Global Administrator or Security Administrator
+    in the SOURCE tenant (where Entra ID logs originate). Azure Lighthouse does NOT provide
+    access to configure Entra ID diagnostic settings cross-tenant.
 
-# Log Analytics Workspace in Atevet12
-$workspaceResourceId = "/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+.PARAMETER SourceTenantId
+    The Tenant ID of the source tenant (where Entra ID logs originate).
 
-# Define log categories to enable
-$logs = @(
-    @{ Category = "AuditLogs"; Enabled = $true },
-    @{ Category = "SignInLogs"; Enabled = $true },
-    @{ Category = "NonInteractiveUserSignInLogs"; Enabled = $true },
-    @{ Category = "ServicePrincipalSignInLogs"; Enabled = $true },
-    @{ Category = "ManagedIdentitySignInLogs"; Enabled = $true },
-    @{ Category = "ProvisioningLogs"; Enabled = $true },
-    @{ Category = "RiskyUsers"; Enabled = $true },
-    @{ Category = "UserRiskEvents"; Enabled = $true },
-    @{ Category = "RiskyServicePrincipals"; Enabled = $true },
-    @{ Category = "ServicePrincipalRiskEvents"; Enabled = $true },
-    @{ Category = "MicrosoftGraphActivityLogs"; Enabled = $true }
+.PARAMETER DestinationWorkspaceResourceId
+    The full resource ID of the Log Analytics workspace in the destination tenant.
+    Format: /subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.OperationalInsights/workspaces/{workspaceName}
+
+.PARAMETER DiagnosticSettingName
+    The name for the diagnostic setting. Default: "SendEntraLogsToLogAnalytics"
+
+.PARAMETER LogCategories
+    Array of log categories to enable. If not specified, all available categories will be enabled.
+
+.PARAMETER UseArmTemplate
+    If specified, deploys using ARM template. Otherwise uses REST API directly.
+
+.PARAMETER RemoveExisting
+    If specified, removes any existing diagnostic setting with the same name before creating a new one.
+
+.PARAMETER VerifyOnly
+    If specified, only verifies existing diagnostic settings without making changes.
+
+.NOTES
+    Author: Azure Cross-Tenant Log Collection Guide
+    Version: 1.0.0
+    Requires: Az PowerShell module (Az.Accounts), Global Administrator or Security Administrator role
+#>
+
+[CmdletBinding(SupportsShouldProcess = $true)]
+param(
+    [Parameter(Mandatory = $true, HelpMessage = "The Tenant ID of the source tenant where Entra ID logs originate")]
+    [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')]
+    [string]$SourceTenantId,
+
+    [Parameter(Mandatory = $true, HelpMessage = "Full resource ID of the destination Log Analytics workspace")]
+    [ValidatePattern('^/subscriptions/[0-9a-fA-F-]+/resourceGroups/[^/]+/providers/Microsoft\.OperationalInsights/workspaces/[^/]+$')]
+    [string]$DestinationWorkspaceResourceId,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Name for the diagnostic setting")]
+    [ValidateLength(1, 260)]
+    [string]$DiagnosticSettingName = "SendEntraLogsToLogAnalytics",
+
+    [Parameter(Mandatory = $false, HelpMessage = "Array of log categories to enable")]
+    [ValidateSet(
+        "AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs",
+        "ManagedIdentitySignInLogs", "ProvisioningLogs", "RiskyUsers", "UserRiskEvents",
+        "RiskyServicePrincipals", "ServicePrincipalRiskEvents", "MicrosoftGraphActivityLogs",
+        "NetworkAccessTrafficLogs", "EnrichedOffice365AuditLogs", "ADFSSignInLogs"
+    )]
+    [string[]]$LogCategories,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Deploy using ARM template instead of REST API")]
+    [switch]$UseArmTemplate,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Remove existing diagnostic setting before creating new one")]
+    [switch]$RemoveExisting,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Only verify existing settings without making changes")]
+    [switch]$VerifyOnly
 )
 
-# Create the diagnostic setting using REST API (PowerShell cmdlets have limited support)
-$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
-$headers = @{
-    "Authorization" = "Bearer $token"
-    "Content-Type" = "application/json"
+#region Script Configuration
+$ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+$ApiVersion = "2017-04-01"
+
+$DefaultLogCategories = @(
+    "AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs",
+    "ManagedIdentitySignInLogs", "ProvisioningLogs", "RiskyUsers", "UserRiskEvents",
+    "RiskyServicePrincipals", "ServicePrincipalRiskEvents", "MicrosoftGraphActivityLogs"
+)
+
+$LogCategoryLicenseRequirements = @{
+    "AuditLogs" = "Free"; "SignInLogs" = "P1/P2"; "NonInteractiveUserSignInLogs" = "P1/P2"
+    "ServicePrincipalSignInLogs" = "P1/P2"; "ManagedIdentitySignInLogs" = "P1/P2"
+    "ProvisioningLogs" = "P1/P2"; "RiskyUsers" = "P2"; "UserRiskEvents" = "P2"
+    "RiskyServicePrincipals" = "P2"; "ServicePrincipalRiskEvents" = "P2"
+    "MicrosoftGraphActivityLogs" = "P1/P2"; "NetworkAccessTrafficLogs" = "P1/P2"
+    "EnrichedOffice365AuditLogs" = "E5"; "ADFSSignInLogs" = "P1/P2"
+}
+#endregion
+
+#region ARM Template Definition (Embedded)
+$ArmTemplate = @'
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "settingName": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "logs": { "type": "array" }
+    },
+    "resources": [
+        {
+            "type": "microsoft.aadiam/diagnosticSettings",
+            "apiVersion": "2017-04-01",
+            "name": "[parameters('settingName')]",
+            "properties": {
+                "workspaceId": "[parameters('workspaceId')]",
+                "logs": "[parameters('logs')]"
+            }
+        }
+    ],
+    "outputs": {
+        "diagnosticSettingId": {
+            "type": "string",
+            "value": "[resourceId('microsoft.aadiam/diagnosticSettings', parameters('settingName'))]"
+        }
+    }
+}
+'@
+#endregion
+
+#region Helper Functions
+function Write-Log {
+    param([string]$Message, [ValidateSet("INFO","WARNING","ERROR","SUCCESS","DEBUG")][string]$Level = "INFO")
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $color = switch ($Level) { "INFO" {"White"} "WARNING" {"Yellow"} "ERROR" {"Red"} "SUCCESS" {"Green"} "DEBUG" {"Cyan"} }
+    $prefix = switch ($Level) { "INFO" {"[INFO]   "} "WARNING" {"[WARN]   "} "ERROR" {"[ERROR]  "} "SUCCESS" {"[OK]     "} "DEBUG" {"[DEBUG]  "} }
+    Write-Host "$timestamp $prefix$Message" -ForegroundColor $color
 }
 
-$body = @{
-    properties = @{
-        workspaceId = $workspaceResourceId
-        logs = $logs
-    }
-} | ConvertTo-Json -Depth 10
-
-$uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/SendEntraLogsToAtevet12?api-version=2017-04-01"
-
-Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body
-```
-
-### 6.5 Configure Entra ID Diagnostic Settings via Azure CLI
-
-```bash
-# Login to Atevet17 tenant
-az login --tenant "<Atevet17-Tenant-ID>"
-
-# Variables
-WORKSPACE_ID="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-
-# Create diagnostic setting for Entra ID
-az rest --method PUT \
-    --uri "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/SendEntraLogsToAtevet12?api-version=2017-04-01" \
-    --body "{
-        \"properties\": {
-            \"workspaceId\": \"$WORKSPACE_ID\",
-            \"logs\": [
-                {\"category\": \"AuditLogs\", \"enabled\": true},
-                {\"category\": \"SignInLogs\", \"enabled\": true},
-                {\"category\": \"NonInteractiveUserSignInLogs\", \"enabled\": true},
-                {\"category\": \"ServicePrincipalSignInLogs\", \"enabled\": true},
-                {\"category\": \"ManagedIdentitySignInLogs\", \"enabled\": true},
-                {\"category\": \"ProvisioningLogs\", \"enabled\": true},
-                {\"category\": \"RiskyUsers\", \"enabled\": true},
-                {\"category\": \"UserRiskEvents\", \"enabled\": true},
-                {\"category\": \"MicrosoftGraphActivityLogs\", \"enabled\": true}
-            ]
+function Test-AzureConnection {
+    param([string]$ExpectedTenantId)
+    try {
+        $context = Get-AzContext -ErrorAction Stop
+        if (-not $context) { Write-Log "Not connected to Azure. Please run Connect-AzAccount first." -Level "ERROR"; return $false }
+        if ($context.Tenant.Id -ne $ExpectedTenantId) {
+            Write-Log "Connected to tenant $($context.Tenant.Id), but expected $ExpectedTenantId" -Level "WARNING"
+            return $false
         }
-    }"
+        Write-Log "Connected to Azure tenant: $($context.Tenant.Id)" -Level "SUCCESS"
+        return $true
+    } catch { Write-Log "Failed to get Azure context: $_" -Level "ERROR"; return $false }
+}
+
+function Get-AzureAccessToken {
+    try { return (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token }
+    catch { Write-Log "Failed to get access token: $_" -Level "ERROR"; throw }
+}
+
+function Get-ExistingDiagnosticSettings {
+    param([string]$AccessToken, [string]$SettingName)
+    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
+    try {
+        $uri = if ($SettingName) { "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion" }
+               else { "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=$ApiVersion" }
+        return Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+    } catch { if ($_.Exception.Response.StatusCode -eq 404) { return $null }; throw }
+}
+
+function Remove-DiagnosticSetting {
+    param([string]$AccessToken, [string]$SettingName)
+    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
+    $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion"
+    try { Invoke-RestMethod -Uri $uri -Method Delete -Headers $headers -ErrorAction Stop; Write-Log "Removed: $SettingName" -Level "SUCCESS"; return $true }
+    catch { Write-Log "Failed to remove: $_" -Level "ERROR"; return $false }
+}
+
+function New-DiagnosticSettingViaRestApi {
+    param([string]$AccessToken, [string]$SettingName, [string]$WorkspaceResourceId, [array]$LogCategories)
+    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
+    $logs = $LogCategories | ForEach-Object { @{ category = $_; enabled = $true } }
+    $body = @{ properties = @{ workspaceId = $WorkspaceResourceId; logs = $logs } } | ConvertTo-Json -Depth 10
+    $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion"
+    try { return Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body -ErrorAction Stop }
+    catch { Write-Log "REST API Error: $($_.Exception.Message)" -Level "ERROR"; throw }
+}
+
+function New-DiagnosticSettingViaArmTemplate {
+    param([string]$SettingName, [string]$WorkspaceResourceId, [array]$LogCategories, [string]$Location)
+    $logs = $LogCategories | ForEach-Object { @{ category = $_; enabled = $true } }
+    $tempPath = Join-Path $env:TEMP "entra-diag-template.json"
+    $ArmTemplate | Out-File -FilePath $tempPath -Encoding UTF8 -Force
+    try {
+        $deployment = New-AzTenantDeployment -Name "EntraIDDiag-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
+            -Location $Location -TemplateFile $tempPath `
+            -TemplateParameterObject @{ settingName = $SettingName; workspaceId = $WorkspaceResourceId; logs = $logs } -ErrorAction Stop
+        return $deployment
+    } finally { if (Test-Path $tempPath) { Remove-Item $tempPath -Force -ErrorAction SilentlyContinue } }
+}
+
+function Show-DiagnosticSettingSummary {
+    param([object]$Setting)
+    Write-Host "`n═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "  DIAGNOSTIC SETTING SUMMARY" -ForegroundColor Cyan
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    if ($Setting.name) { Write-Host "  Setting Name: $($Setting.name)" -ForegroundColor White }
+    if ($Setting.properties.workspaceId) { Write-Host "  Workspace ID: $($Setting.properties.workspaceId)" -ForegroundColor White }
+    Write-Host "`n  Enabled Log Categories:" -ForegroundColor White
+    foreach ($log in $Setting.properties.logs) {
+        $status = if ($log.enabled) { "✓" } else { "✗" }
+        $color = if ($log.enabled) { "Green" } else { "Red" }
+        Write-Host "    $status $($log.category) (License: $($LogCategoryLicenseRequirements[$log.category]))" -ForegroundColor $color
+    }
+    Write-Host "═══════════════════════════════════════════════════════════════════`n" -ForegroundColor Cyan
+}
+
+function Show-LicenseRequirements {
+    param([array]$Categories)
+    Write-Host "`n═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
+    Write-Host "  LICENSE REQUIREMENTS" -ForegroundColor Yellow
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
+    foreach ($cat in $Categories) {
+        $lic = $LogCategoryLicenseRequirements[$cat]
+        $color = switch ($lic) { "Free" {"Green"} "P1/P2" {"Yellow"} "P2" {"Red"} "E5" {"Red"} }
+        Write-Host "    • $cat ($lic)" -ForegroundColor $color
+    }
+    Write-Host "═══════════════════════════════════════════════════════════════════`n" -ForegroundColor Yellow
+}
+#endregion
+
+#region Main Script Execution
+Write-Host "`n╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║   MICROSOFT ENTRA ID DIAGNOSTIC SETTINGS CONFIGURATION           ║" -ForegroundColor Cyan
+Write-Host "║   Azure Cross-Tenant Log Collection Guide - Step 6               ║" -ForegroundColor Cyan
+Write-Host "╚═══════════════════════════════════════════════════════════════════╝`n" -ForegroundColor Cyan
+
+# Validate Azure connection
+Write-Log "Validating Azure connection..." -Level "INFO"
+if (-not (Test-AzureConnection -ExpectedTenantId $SourceTenantId)) {
+    Write-Log "Please connect: Connect-AzAccount -TenantId $SourceTenantId" -Level "ERROR"
+    exit 1
+}
+
+# Determine log categories
+$categoriesToEnable = if ($LogCategories -and $LogCategories.Count -gt 0) { $LogCategories } else { $DefaultLogCategories }
+Write-Log "Log categories to enable: $($categoriesToEnable -join ', ')" -Level "INFO"
+Show-LicenseRequirements -Categories $categoriesToEnable
+
+# Get access token and check existing settings
+$accessToken = Get-AzureAccessToken
+Write-Log "Checking for existing diagnostic settings..." -Level "INFO"
+$existingSettings = Get-ExistingDiagnosticSettings -AccessToken $accessToken
+
+if ($existingSettings) {
+    $settingsList = if ($existingSettings.value) { $existingSettings.value } else { @($existingSettings) }
+    Write-Log "Found $($settingsList.Count) existing diagnostic setting(s)" -Level "INFO"
+}
+
+# Verify-only mode
+if ($VerifyOnly) {
+    if ($existingSettings) { foreach ($s in $settingsList) { Show-DiagnosticSettingSummary -Setting $s } }
+    else { Write-Log "No diagnostic settings configured." -Level "WARNING" }
+    Write-Log "Verification complete. No changes made." -Level "SUCCESS"
+    exit 0
+}
+
+# Check for existing setting with same name
+$existingWithSameName = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
+if ($existingWithSameName) {
+    if ($RemoveExisting) {
+        if ($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Remove existing diagnostic setting")) {
+            Write-Log "Removing existing setting: $DiagnosticSettingName" -Level "WARNING"
+            if (-not (Remove-DiagnosticSetting -AccessToken $accessToken -SettingName $DiagnosticSettingName)) { exit 1 }
+            Start-Sleep -Seconds 2
+        }
+    } else {
+        Write-Log "Setting '$DiagnosticSettingName' already exists. Use -RemoveExisting to replace." -Level "WARNING"
+        Show-DiagnosticSettingSummary -Setting $existingWithSameName
+        exit 0
+    }
+}
+
+# Create the diagnostic setting
+Write-Log "Creating diagnostic setting: $DiagnosticSettingName" -Level "INFO"
+Write-Log "Destination workspace: $DestinationWorkspaceResourceId" -Level "INFO"
+
+if ($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Entra ID diagnostic setting")) {
+    try {
+        if ($UseArmTemplate) {
+            Write-Log "Using ARM template deployment..." -Level "INFO"
+            $result = New-DiagnosticSettingViaArmTemplate -SettingName $DiagnosticSettingName `
+                -WorkspaceResourceId $DestinationWorkspaceResourceId -LogCategories $categoriesToEnable -Location "westus2"
+            if ($result.ProvisioningState -eq "Succeeded") { Write-Log "ARM deployment succeeded!" -Level "SUCCESS" }
+        } else {
+            Write-Log "Using REST API deployment..." -Level "INFO"
+            $result = New-DiagnosticSettingViaRestApi -AccessToken $accessToken -SettingName $DiagnosticSettingName `
+                -WorkspaceResourceId $DestinationWorkspaceResourceId -LogCategories $categoriesToEnable
+            Write-Log "REST API deployment succeeded!" -Level "SUCCESS"
+        }
+        
+        # Verify creation
+        Start-Sleep -Seconds 3
+        $verified = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
+        if ($verified) { Write-Log "Diagnostic setting verified!" -Level "SUCCESS"; Show-DiagnosticSettingSummary -Setting $verified }
+        else { Write-Log "Could not verify. It may take a few minutes to appear." -Level "WARNING" }
+    } catch {
+        Write-Log "Failed to create diagnostic setting: $_" -Level "ERROR"
+        Write-Host "`nTroubleshooting:" -ForegroundColor Red
+        Write-Host "  1. AuthorizationFailed: Ensure Global Admin or Security Admin role" -ForegroundColor Yellow
+        Write-Host "  2. ResourceNotFound: Verify workspace resource ID is correct" -ForegroundColor Yellow
+        Write-Host "  3. BadRequest: Check if log category is supported by your license" -ForegroundColor Yellow
+        exit 1
+    }
+}
+
+# Post-configuration info
+Write-Host "`n╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║   CONFIGURATION COMPLETE                                          ║" -ForegroundColor Green
+Write-Host "╚═══════════════════════════════════════════════════════════════════╝`n" -ForegroundColor Green
+
+Write-Host "Next Steps:" -ForegroundColor Cyan
+Write-Host "  1. Wait 5-15 minutes for initial data to appear in Log Analytics"
+Write-Host "  2. Verify data with KQL queries (see examples below)"
+Write-Host "  3. Monitor Log Analytics tables: SigninLogs, AuditLogs, AADNonInteractiveUserSignInLogs, etc.`n"
+
+Write-Log "Script execution completed." -Level "SUCCESS"
+#endregion
 ```
 
-### 6.6 Configure via Microsoft Graph API
+### 6.4 Usage Examples
 
-For automation scenarios, you can use Microsoft Graph API:
+#### Example 1: Configure All Default Log Categories (REST API)
+
+This is the simplest usage - enables all default log categories using REST API:
 
 ```powershell
-# Install Microsoft Graph PowerShell module
-Install-Module Microsoft.Graph -Scope CurrentUser
-
-# Connect with required permissions
-Connect-MgGraph -TenantId "<Atevet17-Tenant-ID>" -Scopes "AuditLog.Read.All", "Directory.Read.All"
-
-# Note: Diagnostic settings configuration requires Azure Resource Manager API
-# Use the REST API approach shown above for programmatic configuration
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
 
-### 6.7 Verify Entra ID Diagnostic Settings
+#### Example 2: Configure Specific Log Categories Only (P1 License)
 
-**Via Azure Portal:**
-1. Go to **Microsoft Entra ID** → **Monitoring** → **Diagnostic settings**
-2. Verify the setting `SendEntraLogsToAtevet12` is listed and enabled
+Use this when you only have Entra ID P1 license and want to avoid errors from P2-only categories:
 
-**Via Azure CLI:**
-```bash
-az rest --method GET \
-    --uri "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
-```
-
-**Via PowerShell:**
 ```powershell
-$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
-$headers = @{ "Authorization" = "Bearer $token" }
-$uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
-Invoke-RestMethod -Uri $uri -Method Get -Headers $headers
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs", "ManagedIdentitySignInLogs", "ProvisioningLogs")
 ```
 
-### 6.8 Query Entra ID Logs in Log Analytics
+#### Example 3: Configure Only Free Tier Logs (AuditLogs)
 
-Once configured, Entra ID logs will appear in the following tables in your Log Analytics workspace:
+Use this for tenants without any Entra ID premium license:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -LogCategories @("AuditLogs")
+```
+
+#### Example 4: Deploy Using ARM Template
+
+ARM template deployment provides better audit trail and is useful for infrastructure-as-code approaches:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -UseArmTemplate
+```
+
+#### Example 5: Verify Existing Diagnostic Settings (Read-Only)
+
+Check what diagnostic settings are currently configured without making changes:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -VerifyOnly
+```
+
+#### Example 6: Replace Existing Diagnostic Setting
+
+Use `-RemoveExisting` to delete the existing setting before creating a new one:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -RemoveExisting
+```
+
+#### Example 7: Preview Changes (WhatIf Mode)
+
+See what the script would do without making actual changes:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WhatIf
+```
+
+#### Example 8: Custom Diagnostic Setting Name
+
+Use a custom name for the diagnostic setting:
+
+```powershell
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DiagnosticSettingName "SendEntraLogsToAtevet12-Production"
+```
+
+#### Example 9: Cross-Tenant Scenario (Atevet17 to Atevet12)
+
+Real-world example: Configure Entra ID logs from Atevet17 (source tenant) to be sent to Log Analytics workspace in Atevet12 (destination tenant):
+
+```powershell
+# First, connect to the source tenant (Atevet17)
+Connect-AzAccount -TenantId "11111111-1111-1111-1111-111111111111"  # Atevet17 Tenant ID
+
+# Then run the script
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "11111111-1111-1111-1111-111111111111" `
+    -DestinationWorkspaceResourceId "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DiagnosticSettingName "SendEntraLogsToAtevet12"
+```
+
+### 6.5 Verify Entra ID Logs in Log Analytics
+
+Once configured, Entra ID logs will appear in the following tables:
 
 | Table Name | Description |
 |------------|-------------|
@@ -2682,136 +2993,34 @@ Once configured, Entra ID logs will appear in the following tables in your Log A
 | `AADProvisioningLogs` | Provisioning activities |
 | `AADRiskyUsers` | Risky user information |
 | `AADUserRiskEvents` | User risk events |
-| `AADRiskyServicePrincipals` | Risky service principals |
-| `AADServicePrincipalRiskEvents` | Service principal risk events |
 | `MicrosoftGraphActivityLogs` | Graph API activity |
 
-**Sample Queries:**
+**Verification KQL Queries:**
 
-**Query Sign-in Logs from Atevet17:**
 ```kusto
+// Check Sign-in Logs (wait 5-15 minutes after configuration)
 SigninLogs
-| where TimeGenerated > ago(24h)
-| where AADTenantId == "<Atevet17-Tenant-ID>"
+| where TimeGenerated > ago(1h)
 | summarize count() by ResultType, AppDisplayName
 | order by count_ desc
-```
 
-**Query Failed Sign-ins:**
-```kusto
-SigninLogs
-| where TimeGenerated > ago(24h)
-| where ResultType != "0"  // Non-successful sign-ins
-| project TimeGenerated, UserPrincipalName, AppDisplayName, ResultType, ResultDescription, IPAddress, Location
-| order by TimeGenerated desc
-```
-
-**Query Audit Logs for User Changes:**
-```kusto
+// Check Audit Logs
 AuditLogs
-| where TimeGenerated > ago(24h)
-| where Category == "UserManagement"
-| project TimeGenerated, OperationName, Result, InitiatedBy, TargetResources
-| order by TimeGenerated desc
-```
+| where TimeGenerated > ago(1h)
+| summarize count() by OperationName, Category
+| order by count_ desc
 
-**Query Risky Sign-ins:**
-```kusto
+// Check for failed sign-ins (security monitoring)
 SigninLogs
-| where TimeGenerated > ago(7d)
-| where RiskLevelDuringSignIn in ("high", "medium")
-| project TimeGenerated, UserPrincipalName, RiskLevelDuringSignIn, RiskState, IPAddress, Location
+| where TimeGenerated > ago(24h)
+| where ResultType != "0"
+| project TimeGenerated, UserPrincipalName, AppDisplayName, ResultType, ResultDescription, IPAddress
 | order by TimeGenerated desc
-```
 
-**Query Service Principal Sign-ins:**
-```kusto
-AADServicePrincipalSignInLogs
-| where TimeGenerated > ago(24h)
-| summarize count() by ServicePrincipalName, ResourceDisplayName
-| order by count_ desc
-```
-
-**Query Microsoft Graph API Activity:**
-```kusto
-MicrosoftGraphActivityLogs
-| where TimeGenerated > ago(24h)
-| summarize count() by RequestMethod, ApiVersion
-| order by count_ desc
-```
-
-### 6.9 Important Considerations for Cross-Tenant Entra ID Logs
-
-1. **Permissions:** The user configuring diagnostic settings must be a Global Administrator or Security Administrator in Atevet17. Azure Lighthouse delegation does NOT grant these permissions.
-
-2. **Licensing:** Sign-in logs require Microsoft Entra ID P1 or P2 licenses. Without proper licensing, only AuditLogs will be available.
-
-3. **Data Residency:** Entra ID logs will be stored in the Log Analytics workspace region (Atevet12). Ensure this complies with your data residency requirements.
-
-4. **Latency:** Entra ID logs may have a latency of 2-15 minutes before appearing in Log Analytics.
-
-5. **Retention:** Configure appropriate retention in your Log Analytics workspace. Entra ID logs can be verbose, especially sign-in logs.
-
-6. **Cost:** Sign-in logs can generate significant data volume. Monitor ingestion costs and consider:
-   - Using Basic Logs tier for high-volume tables
-   - Filtering unnecessary log categories
-   - Setting appropriate retention periods
-
-### 6.10 Automate Entra ID Diagnostic Settings with ARM Template
-
-For repeatable deployments, use this ARM template:
-
-```json
-{
-    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-    "contentVersion": "1.0.0.0",
-    "parameters": {
-        "settingName": {
-            "type": "string",
-            "defaultValue": "SendEntraLogsToAtevet12"
-        },
-        "workspaceId": {
-            "type": "string",
-            "metadata": {
-                "description": "Resource ID of the Log Analytics workspace"
-            }
-        }
-    },
-    "resources": [
-        {
-            "type": "microsoft.aadiam/diagnosticSettings",
-            "apiVersion": "2017-04-01",
-            "name": "[parameters('settingName')]",
-            "properties": {
-                "workspaceId": "[parameters('workspaceId')]",
-                "logs": [
-                    { "category": "AuditLogs", "enabled": true },
-                    { "category": "SignInLogs", "enabled": true },
-                    { "category": "NonInteractiveUserSignInLogs", "enabled": true },
-                    { "category": "ServicePrincipalSignInLogs", "enabled": true },
-                    { "category": "ManagedIdentitySignInLogs", "enabled": true },
-                    { "category": "ProvisioningLogs", "enabled": true },
-                    { "category": "RiskyUsers", "enabled": true },
-                    { "category": "UserRiskEvents", "enabled": true },
-                    { "category": "RiskyServicePrincipals", "enabled": true },
-                    { "category": "ServicePrincipalRiskEvents", "enabled": true },
-                    { "category": "MicrosoftGraphActivityLogs", "enabled": true }
-                ]
-            }
-        }
-    ]
-}
-```
-
-**Deploy the template:**
-```bash
-# Deploy at tenant level (requires Global Administrator)
-az deployment tenant create \
-    --name "EntraIDDiagnostics" \
-    --location "westus2" \
-    --template-file "entra-diagnostic-settings.json" \
-    --parameters workspaceId="/subscriptions/<Atevet12-Subscription-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-```
+// Check risky users (requires P2 license)
+AADRiskyUsers
+| where TimeGenerated > ago(7d)
+| project TimeGenerated, UserPrincipalName, RiskLevel, RiskState
 
 ---
 
