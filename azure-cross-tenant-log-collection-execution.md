@@ -3426,11 +3426,30 @@ if ($AssignRolesAsSourceAdmin) {
                 Start-Sleep -Seconds 15
                 
                 foreach ($found in ($adminResults.PolicyAssignmentsFound | Where-Object { $_.SubscriptionId -eq $subId })) {
-                    $remediationName = "remediate-$($found.Name)-$(Get-Date -Format 'yyyyMMddHHmmss')"
+                    $remediationName = "remediate-$($found.Name)"
                     
                     Write-Host "  Creating remediation: $remediationName"
                     
                     try {
+                        # Check for existing running remediations for this policy assignment
+                        $existingRemediations = Get-AzPolicyRemediation -Scope $scope -ErrorAction SilentlyContinue |
+                            Where-Object {
+                                $_.PolicyAssignmentId -eq $found.AssignmentId -and
+                                $_.ProvisioningState -in @("Accepted", "Running", "Evaluating")
+                            }
+                        
+                        if ($existingRemediations) {
+                            Write-Success "    ✓ Remediation already in progress: $($existingRemediations[0].Name)"
+                            Write-Host "      Status: $($existingRemediations[0].ProvisioningState)"
+                            $adminResults.RemediationTasksCreated += @{
+                                Name = $existingRemediations[0].Name
+                                PolicyAssignment = $found.Name
+                                Status = $existingRemediations[0].ProvisioningState
+                                Existing = $true
+                            }
+                            continue
+                        }
+                        
                         $remediation = Start-AzPolicyRemediation `
                             -Name $remediationName `
                             -PolicyAssignmentId $found.AssignmentId `
@@ -3445,8 +3464,20 @@ if ($AssignRolesAsSourceAdmin) {
                         }
                     }
                     catch {
-                        Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
-                        $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
+                        # Check if error is due to existing remediation
+                        if ($_.Exception.Message -like "*already running*" -or $_.Exception.Message -like "*InvalidCreateRemediationRequest*") {
+                            Write-Success "    ✓ Remediation already in progress for this policy"
+                            $adminResults.RemediationTasksCreated += @{
+                                Name = $remediationName
+                                PolicyAssignment = $found.Name
+                                Status = "AlreadyRunning"
+                                Existing = $true
+                            }
+                        }
+                        else {
+                            Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                            $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
+                        }
                     }
                 }
             }
@@ -4653,6 +4684,25 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
             try {
                 Set-AzContext -SubscriptionId $assignment.SubscriptionId -ErrorAction Stop | Out-Null
                 
+                # Check for existing running remediations for this policy assignment
+                $existingRemediations = Get-AzPolicyRemediation -Scope "/subscriptions/$($assignment.SubscriptionId)" -ErrorAction SilentlyContinue |
+                    Where-Object {
+                        $_.PolicyAssignmentId -eq $assignment.AssignmentId -and
+                        $_.ProvisioningState -in @("Accepted", "Running", "Evaluating")
+                    }
+                
+                if ($existingRemediations) {
+                    Write-Success "    ✓ Remediation already in progress: $($existingRemediations[0].Name)"
+                    Write-Host "      Status: $($existingRemediations[0].ProvisioningState)"
+                    $results.RemediationTasksCreated += @{
+                        Name = $existingRemediations[0].Name
+                        PolicyKey = $assignment.PolicyKey
+                        SubscriptionId = $assignment.SubscriptionId
+                        Existing = $true
+                    }
+                    continue
+                }
+                
                 $remediation = Start-AzPolicyRemediation `
                     -Name $remediationName `
                     -PolicyAssignmentId $assignment.AssignmentId `
@@ -4667,7 +4717,19 @@ if ($DeployPolicy -and $results.DataCollectionRuleId) {
                 }
             }
             catch {
-                Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                # Check if error is due to existing remediation (in case the check above missed it)
+                if ($_.Exception.Message -like "*already running*" -or $_.Exception.Message -like "*InvalidCreateRemediationRequest*") {
+                    Write-Success "    ✓ Remediation already in progress for this policy"
+                    $results.RemediationTasksCreated += @{
+                        Name = $remediationName
+                        PolicyKey = $assignment.PolicyKey
+                        SubscriptionId = $assignment.SubscriptionId
+                        Existing = $true
+                    }
+                }
+                else {
+                    Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                }
             }
         }
     }
@@ -5619,11 +5681,30 @@ if ($AssignRolesAsSourceAdmin) {
                 Start-Sleep -Seconds 15
                 
                 foreach ($found in ($adminResults.PolicyAssignmentsFound | Where-Object { $_.SubscriptionId -eq $subId })) {
-                    $remediationName = "remediate-$($found.Name)-$(Get-Date -Format 'yyyyMMddHHmmss')"
+                    $remediationName = "remediate-$($found.Name)"
                     
                     Write-Host "  Creating remediation: $remediationName"
                     
                     try {
+                        # Check for existing running remediations for this policy assignment
+                        $existingRemediations = Get-AzPolicyRemediation -Scope $scope -ErrorAction SilentlyContinue |
+                            Where-Object {
+                                $_.PolicyAssignmentId -eq $found.AssignmentId -and
+                                $_.ProvisioningState -in @("Accepted", "Running", "Evaluating")
+                            }
+                        
+                        if ($existingRemediations) {
+                            Write-Success "    ✓ Remediation already in progress: $($existingRemediations[0].Name)"
+                            Write-Host "      Status: $($existingRemediations[0].ProvisioningState)"
+                            $adminResults.RemediationTasksCreated += @{
+                                Name = $existingRemediations[0].Name
+                                PolicyAssignment = $found.Name
+                                Status = $existingRemediations[0].ProvisioningState
+                                Existing = $true
+                            }
+                            continue
+                        }
+                        
                         $remediation = Start-AzPolicyRemediation `
                             -Name $remediationName `
                             -PolicyAssignmentId $found.AssignmentId `
@@ -5638,8 +5719,20 @@ if ($AssignRolesAsSourceAdmin) {
                         }
                     }
                     catch {
-                        Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
-                        $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
+                        # Check if error is due to existing remediation
+                        if ($_.Exception.Message -like "*already running*" -or $_.Exception.Message -like "*InvalidCreateRemediationRequest*") {
+                            Write-Success "    ✓ Remediation already in progress for this policy"
+                            $adminResults.RemediationTasksCreated += @{
+                                Name = $remediationName
+                                PolicyAssignment = $found.Name
+                                Status = "AlreadyRunning"
+                                Existing = $true
+                            }
+                        }
+                        else {
+                            Write-WarningMsg "    ⚠ Could not create remediation: $($_.Exception.Message)"
+                            $adminResults.Errors += "Remediation for $($found.Name): $($_.Exception.Message)"
+                        }
                     }
                 }
             }
