@@ -6242,8 +6242,10 @@ if (-not $SkipPolicy) {
             }
             else {
                 # Create policy assignment
+                # Note: The built-in policy definition requires both 'logAnalytics' and 'profileName' parameters
                 $policyParams = @{
                     logAnalytics = $WorkspaceResourceId
+                    profileName = $DiagnosticSettingName
                 }
                 
                 $newAssignment = New-AzPolicyAssignment `
