@@ -3021,6 +3021,7 @@ SigninLogs
 AADRiskyUsers
 | where TimeGenerated > ago(7d)
 | project TimeGenerated, UserPrincipalName, RiskLevel, RiskState
+```
 
 ---
 
