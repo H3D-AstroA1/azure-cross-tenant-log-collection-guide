@@ -2586,6 +2586,33 @@ Save this script as `Configure-EntraIDDiagnosticSettings.ps1`:
 .PARAMETER VerifyOnly
     If specified, only verifies existing diagnostic settings without making changes.
 
+.EXAMPLE
+    # Configure all log categories using REST API
+    .\Configure-EntraIDDiagnosticSettings.ps1 `
+        -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central"
+
+.EXAMPLE
+    # Configure specific log categories only
+    .\Configure-EntraIDDiagnosticSettings.ps1 `
+        -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central" `
+        -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs")
+
+.EXAMPLE
+    # Deploy using ARM template
+    .\Configure-EntraIDDiagnosticSettings.ps1 `
+        -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central" `
+        -UseArmTemplate
+
+.EXAMPLE
+    # Verify existing settings only
+    .\Configure-EntraIDDiagnosticSettings.ps1 `
+        -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central" `
+        -VerifyOnly
+
 .NOTES
     Author: Azure Cross-Tenant Log Collection Guide
     Version: 1.0.0
@@ -2628,33 +2655,60 @@ param(
 #region Script Configuration
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+# API version for Entra ID diagnostic settings
 $ApiVersion = "2017-04-01"
 
+# Default log categories if none specified (all available categories)
 $DefaultLogCategories = @(
     "AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs",
     "ManagedIdentitySignInLogs", "ProvisioningLogs", "RiskyUsers", "UserRiskEvents",
     "RiskyServicePrincipals", "ServicePrincipalRiskEvents", "MicrosoftGraphActivityLogs"
 )
 
+# Log category license requirements
 $LogCategoryLicenseRequirements = @{
-    "AuditLogs" = "Free"; "SignInLogs" = "P1/P2"; "NonInteractiveUserSignInLogs" = "P1/P2"
-    "ServicePrincipalSignInLogs" = "P1/P2"; "ManagedIdentitySignInLogs" = "P1/P2"
-    "ProvisioningLogs" = "P1/P2"; "RiskyUsers" = "P2"; "UserRiskEvents" = "P2"
-    "RiskyServicePrincipals" = "P2"; "ServicePrincipalRiskEvents" = "P2"
-    "MicrosoftGraphActivityLogs" = "P1/P2"; "NetworkAccessTrafficLogs" = "P1/P2"
-    "EnrichedOffice365AuditLogs" = "E5"; "ADFSSignInLogs" = "P1/P2"
+    "AuditLogs"                    = "Free"
+    "SignInLogs"                   = "P1/P2"
+    "NonInteractiveUserSignInLogs" = "P1/P2"
+    "ServicePrincipalSignInLogs"   = "P1/P2"
+    "ManagedIdentitySignInLogs"    = "P1/P2"
+    "ProvisioningLogs"             = "P1/P2"
+    "RiskyUsers"                   = "P2"
+    "UserRiskEvents"               = "P2"
+    "RiskyServicePrincipals"       = "P2"
+    "ServicePrincipalRiskEvents"   = "P2"
+    "MicrosoftGraphActivityLogs"   = "P1/P2"
+    "NetworkAccessTrafficLogs"     = "P1/P2"
+    "EnrichedOffice365AuditLogs"   = "E5"
+    "ADFSSignInLogs"               = "P1/P2"
 }
 #endregion
 
-#region ARM Template Definition (Embedded)
+#region ARM Template Definition
 $ArmTemplate = @'
 {
     "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
     "contentVersion": "1.0.0.0",
     "parameters": {
-        "settingName": { "type": "string" },
-        "workspaceId": { "type": "string" },
-        "logs": { "type": "array" }
+        "settingName": {
+            "type": "string",
+            "metadata": {
+                "description": "Name of the diagnostic setting"
+            }
+        },
+        "workspaceId": {
+            "type": "string",
+            "metadata": {
+                "description": "Resource ID of the Log Analytics workspace"
+            }
+        },
+        "logs": {
+            "type": "array",
+            "metadata": {
+                "description": "Array of log category configurations"
+            }
+        }
     },
     "resources": [
         {
@@ -2671,6 +2725,10 @@ $ArmTemplate = @'
         "diagnosticSettingId": {
             "type": "string",
             "value": "[resourceId('microsoft.aadiam/diagnosticSettings', parameters('settingName'))]"
+        },
+        "diagnosticSettingName": {
+            "type": "string",
+            "value": "[parameters('settingName')]"
         }
     }
 }
@@ -2678,152 +2736,476 @@ $ArmTemplate = @'
 #endregion
 
 #region Helper Functions
+
 function Write-Log {
-    param([string]$Message, [ValidateSet("INFO","WARNING","ERROR","SUCCESS","DEBUG")][string]$Level = "INFO")
+    <#
+    .SYNOPSIS
+        Writes a log message with timestamp and severity level.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("INFO", "WARNING", "ERROR", "SUCCESS", "DEBUG")]
+        [string]$Level = "INFO"
+    )
+    
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $color = switch ($Level) { "INFO" {"White"} "WARNING" {"Yellow"} "ERROR" {"Red"} "SUCCESS" {"Green"} "DEBUG" {"Cyan"} }
-    $prefix = switch ($Level) { "INFO" {"[INFO]   "} "WARNING" {"[WARN]   "} "ERROR" {"[ERROR]  "} "SUCCESS" {"[OK]     "} "DEBUG" {"[DEBUG]  "} }
+    $color = switch ($Level) {
+        "INFO"    { "White" }
+        "WARNING" { "Yellow" }
+        "ERROR"   { "Red" }
+        "SUCCESS" { "Green" }
+        "DEBUG"   { "Cyan" }
+    }
+    
+    $prefix = switch ($Level) {
+        "INFO"    { "[INFO]   " }
+        "WARNING" { "[WARN]   " }
+        "ERROR"   { "[ERROR]  " }
+        "SUCCESS" { "[OK]     " }
+        "DEBUG"   { "[DEBUG]  " }
+    }
+    
     Write-Host "$timestamp $prefix$Message" -ForegroundColor $color
 }
 
 function Test-AzureConnection {
-    param([string]$ExpectedTenantId)
+    <#
+    .SYNOPSIS
+        Tests if connected to Azure and to the correct tenant.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTenantId
+    )
+    
     try {
         $context = Get-AzContext -ErrorAction Stop
-        if (-not $context) { Write-Log "Not connected to Azure. Please run Connect-AzAccount first." -Level "ERROR"; return $false }
-        if ($context.Tenant.Id -ne $ExpectedTenantId) {
-            Write-Log "Connected to tenant $($context.Tenant.Id), but expected $ExpectedTenantId" -Level "WARNING"
+        
+        if (-not $context) {
+            Write-Log "Not connected to Azure. Please run Connect-AzAccount first." -Level "ERROR"
             return $false
         }
+        
+        if ($context.Tenant.Id -ne $ExpectedTenantId) {
+            Write-Log "Connected to tenant $($context.Tenant.Id), but expected $ExpectedTenantId" -Level "WARNING"
+            Write-Log "Please run: Connect-AzAccount -TenantId $ExpectedTenantId" -Level "INFO"
+            return $false
+        }
+        
         Write-Log "Connected to Azure tenant: $($context.Tenant.Id)" -Level "SUCCESS"
+        Write-Log "Account: $($context.Account.Id)" -Level "INFO"
         return $true
-    } catch { Write-Log "Failed to get Azure context: $_" -Level "ERROR"; return $false }
+    }
+    catch {
+        Write-Log "Failed to get Azure context: $_" -Level "ERROR"
+        return $false
+    }
 }
 
 function Get-AzureAccessToken {
-    try { return (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token }
-    catch { Write-Log "Failed to get access token: $_" -Level "ERROR"; throw }
+    <#
+    .SYNOPSIS
+        Gets an access token for Azure Resource Manager API.
+    #>
+    try {
+        $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token
+        return $token
+    }
+    catch {
+        Write-Log "Failed to get access token: $_" -Level "ERROR"
+        throw
+    }
 }
 
 function Get-ExistingDiagnosticSettings {
-    param([string]$AccessToken, [string]$SettingName)
-    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
+    <#
+    .SYNOPSIS
+        Retrieves existing Entra ID diagnostic settings.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$SettingName
+    )
+    
+    $headers = @{
+        "Authorization" = "Bearer $AccessToken"
+        "Content-Type"  = "application/json"
+    }
+    
     try {
-        $uri = if ($SettingName) { "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion" }
-               else { "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=$ApiVersion" }
-        return Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
-    } catch { if ($_.Exception.Response.StatusCode -eq 404) { return $null }; throw }
+        if ($SettingName) {
+            $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion"
+        }
+        else {
+            $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=$ApiVersion"
+        }
+        
+        $response = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -ErrorAction Stop
+        return $response
+    }
+    catch {
+        if ($_.Exception.Response.StatusCode -eq 404) {
+            return $null
+        }
+        throw
+    }
 }
 
 function Remove-DiagnosticSetting {
-    param([string]$AccessToken, [string]$SettingName)
-    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
+    <#
+    .SYNOPSIS
+        Removes an existing Entra ID diagnostic setting.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$SettingName
+    )
+    
+    $headers = @{
+        "Authorization" = "Bearer $AccessToken"
+        "Content-Type"  = "application/json"
+    }
+    
     $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion"
-    try { Invoke-RestMethod -Uri $uri -Method Delete -Headers $headers -ErrorAction Stop; Write-Log "Removed: $SettingName" -Level "SUCCESS"; return $true }
-    catch { Write-Log "Failed to remove: $_" -Level "ERROR"; return $false }
+    
+    try {
+        Invoke-RestMethod -Uri $uri -Method Delete -Headers $headers -ErrorAction Stop
+        Write-Log "Successfully removed diagnostic setting: $SettingName" -Level "SUCCESS"
+        return $true
+    }
+    catch {
+        Write-Log "Failed to remove diagnostic setting: $_" -Level "ERROR"
+        return $false
+    }
 }
 
 function New-DiagnosticSettingViaRestApi {
-    param([string]$AccessToken, [string]$SettingName, [string]$WorkspaceResourceId, [array]$LogCategories)
-    $headers = @{ "Authorization" = "Bearer $AccessToken"; "Content-Type" = "application/json" }
-    $logs = $LogCategories | ForEach-Object { @{ category = $_; enabled = $true } }
-    $body = @{ properties = @{ workspaceId = $WorkspaceResourceId; logs = $logs } } | ConvertTo-Json -Depth 10
+    <#
+    .SYNOPSIS
+        Creates a new Entra ID diagnostic setting using REST API.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$SettingName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$WorkspaceResourceId,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$LogCategories
+    )
+    
+    $headers = @{
+        "Authorization" = "Bearer $AccessToken"
+        "Content-Type"  = "application/json"
+    }
+    
+    # Build logs array
+    $logs = @()
+    foreach ($category in $LogCategories) {
+        $logs += @{
+            category = $category
+            enabled  = $true
+        }
+    }
+    
+    $body = @{
+        properties = @{
+            workspaceId = $WorkspaceResourceId
+            logs        = $logs
+        }
+    } | ConvertTo-Json -Depth 10
+    
     $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${SettingName}?api-version=$ApiVersion"
-    try { return Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body -ErrorAction Stop }
-    catch { Write-Log "REST API Error: $($_.Exception.Message)" -Level "ERROR"; throw }
+    
+    try {
+        $response = Invoke-RestMethod -Uri $uri -Method Put -Headers $headers -Body $body -ErrorAction Stop
+        return $response
+    }
+    catch {
+        Write-Log "REST API Error: $($_.Exception.Message)" -Level "ERROR"
+        if ($_.ErrorDetails.Message) {
+            Write-Log "Error Details: $($_.ErrorDetails.Message)" -Level "ERROR"
+        }
+        throw
+    }
 }
 
 function New-DiagnosticSettingViaArmTemplate {
-    param([string]$SettingName, [string]$WorkspaceResourceId, [array]$LogCategories, [string]$Location)
-    $logs = $LogCategories | ForEach-Object { @{ category = $_; enabled = $true } }
-    $tempPath = Join-Path $env:TEMP "entra-diag-template.json"
-    $ArmTemplate | Out-File -FilePath $tempPath -Encoding UTF8 -Force
+    <#
+    .SYNOPSIS
+        Creates a new Entra ID diagnostic setting using ARM template deployment.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SettingName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$WorkspaceResourceId,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$LogCategories,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Location
+    )
+    
+    # Build logs array for ARM template
+    $logs = @()
+    foreach ($category in $LogCategories) {
+        $logs += @{
+            category = $category
+            enabled  = $true
+        }
+    }
+    
+    # Create temporary file for ARM template
+    $tempTemplatePath = Join-Path $env:TEMP "entra-diagnostic-settings-template.json"
+    $ArmTemplate | Out-File -FilePath $tempTemplatePath -Encoding UTF8 -Force
+    
     try {
-        $deployment = New-AzTenantDeployment -Name "EntraIDDiag-$(Get-Date -Format 'yyyyMMdd-HHmmss')" `
-            -Location $Location -TemplateFile $tempPath `
-            -TemplateParameterObject @{ settingName = $SettingName; workspaceId = $WorkspaceResourceId; logs = $logs } -ErrorAction Stop
+        # Deploy ARM template at tenant scope
+        $deploymentName = "EntraIDDiagnostics-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        
+        $templateParams = @{
+            settingName = $SettingName
+            workspaceId = $WorkspaceResourceId
+            logs        = $logs
+        }
+        
+        Write-Log "Deploying ARM template at tenant scope..." -Level "INFO"
+        
+        $deployment = New-AzTenantDeployment `
+            -Name $deploymentName `
+            -Location $Location `
+            -TemplateFile $tempTemplatePath `
+            -TemplateParameterObject $templateParams `
+            -ErrorAction Stop
+        
         return $deployment
-    } finally { if (Test-Path $tempPath) { Remove-Item $tempPath -Force -ErrorAction SilentlyContinue } }
+    }
+    finally {
+        # Clean up temporary file
+        if (Test-Path $tempTemplatePath) {
+            Remove-Item $tempTemplatePath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Show-DiagnosticSettingSummary {
-    param([object]$Setting)
-    Write-Host "`n═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    <#
+    .SYNOPSIS
+        Displays a summary of the diagnostic setting configuration.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Setting
+    )
+    
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host "  DIAGNOSTIC SETTING SUMMARY" -ForegroundColor Cyan
     Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-    if ($Setting.name) { Write-Host "  Setting Name: $($Setting.name)" -ForegroundColor White }
-    if ($Setting.properties.workspaceId) { Write-Host "  Workspace ID: $($Setting.properties.workspaceId)" -ForegroundColor White }
-    Write-Host "`n  Enabled Log Categories:" -ForegroundColor White
+    Write-Host ""
+    
+    if ($Setting.name) {
+        Write-Host "  Setting Name:     $($Setting.name)" -ForegroundColor White
+    }
+    
+    if ($Setting.properties.workspaceId) {
+        Write-Host "  Workspace ID:     $($Setting.properties.workspaceId)" -ForegroundColor White
+    }
+    
+    Write-Host ""
+    Write-Host "  Enabled Log Categories:" -ForegroundColor White
+    Write-Host "  ─────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+    
     foreach ($log in $Setting.properties.logs) {
         $status = if ($log.enabled) { "✓" } else { "✗" }
         $color = if ($log.enabled) { "Green" } else { "Red" }
-        Write-Host "    $status $($log.category) (License: $($LogCategoryLicenseRequirements[$log.category]))" -ForegroundColor $color
+        $license = $LogCategoryLicenseRequirements[$log.category]
+        Write-Host "    $status $($log.category) " -ForegroundColor $color -NoNewline
+        Write-Host "(License: $license)" -ForegroundColor DarkGray
     }
-    Write-Host "═══════════════════════════════════════════════════════════════════`n" -ForegroundColor Cyan
+    
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 function Show-LicenseRequirements {
-    param([array]$Categories)
-    Write-Host "`n═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
+    <#
+    .SYNOPSIS
+        Displays license requirements for the selected log categories.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [array]$Categories
+    )
+    
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
     Write-Host "  LICENSE REQUIREMENTS" -ForegroundColor Yellow
     Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
-    foreach ($cat in $Categories) {
-        $lic = $LogCategoryLicenseRequirements[$cat]
-        $color = switch ($lic) { "Free" {"Green"} "P1/P2" {"Yellow"} "P2" {"Red"} "E5" {"Red"} }
-        Write-Host "    • $cat ($lic)" -ForegroundColor $color
+    Write-Host ""
+    
+    $p1p2Required = $false
+    $p2Required = $false
+    $e5Required = $false
+    
+    foreach ($category in $Categories) {
+        $license = $LogCategoryLicenseRequirements[$category]
+        Write-Host "    • $category " -ForegroundColor White -NoNewline
+        
+        switch ($license) {
+            "Free" { 
+                Write-Host "(Free)" -ForegroundColor Green 
+            }
+            "P1/P2" { 
+                Write-Host "(Requires Entra ID P1 or P2)" -ForegroundColor Yellow
+                $p1p2Required = $true
+            }
+            "P2" { 
+                Write-Host "(Requires Entra ID P2)" -ForegroundColor Red
+                $p2Required = $true
+            }
+            "E5" { 
+                Write-Host "(Requires Microsoft 365 E5)" -ForegroundColor Red
+                $e5Required = $true
+            }
+        }
     }
-    Write-Host "═══════════════════════════════════════════════════════════════════`n" -ForegroundColor Yellow
+    
+    Write-Host ""
+    
+    if ($p2Required) {
+        Write-Host "  ⚠ WARNING: Some categories require Microsoft Entra ID P2 license." -ForegroundColor Red
+        Write-Host "             Without P2, these categories will not collect data." -ForegroundColor Red
+    }
+    elseif ($p1p2Required) {
+        Write-Host "  ⚠ NOTE: Some categories require Microsoft Entra ID P1 or P2 license." -ForegroundColor Yellow
+        Write-Host "          Without P1/P2, these categories will not collect data." -ForegroundColor Yellow
+    }
+    
+    if ($e5Required) {
+        Write-Host "  ⚠ WARNING: EnrichedOffice365AuditLogs requires Microsoft 365 E5 license." -ForegroundColor Red
+    }
+    
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Yellow
+    Write-Host ""
 }
 #endregion
 
 #region Main Script Execution
-Write-Host "`n╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+
+Write-Host ""
+Write-Host "╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║                                                                   ║" -ForegroundColor Cyan
 Write-Host "║   MICROSOFT ENTRA ID DIAGNOSTIC SETTINGS CONFIGURATION           ║" -ForegroundColor Cyan
 Write-Host "║   Azure Cross-Tenant Log Collection Guide - Step 6               ║" -ForegroundColor Cyan
-Write-Host "╚═══════════════════════════════════════════════════════════════════╝`n" -ForegroundColor Cyan
+Write-Host "║                                                                   ║" -ForegroundColor Cyan
+Write-Host "╚═══════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
 
 # Validate Azure connection
 Write-Log "Validating Azure connection..." -Level "INFO"
 if (-not (Test-AzureConnection -ExpectedTenantId $SourceTenantId)) {
-    Write-Log "Please connect: Connect-AzAccount -TenantId $SourceTenantId" -Level "ERROR"
+    Write-Log "Please connect to the source tenant and run the script again." -Level "ERROR"
+    Write-Host ""
+    Write-Host "Run the following command to connect:" -ForegroundColor Yellow
+    Write-Host "  Connect-AzAccount -TenantId $SourceTenantId" -ForegroundColor White
+    Write-Host ""
     exit 1
 }
 
-# Determine log categories
-$categoriesToEnable = if ($LogCategories -and $LogCategories.Count -gt 0) { $LogCategories } else { $DefaultLogCategories }
+# Determine which log categories to use
+$categoriesToEnable = if ($LogCategories -and $LogCategories.Count -gt 0) {
+    $LogCategories
+}
+else {
+    Write-Log "No specific log categories specified. Using default categories." -Level "INFO"
+    $DefaultLogCategories
+}
+
 Write-Log "Log categories to enable: $($categoriesToEnable -join ', ')" -Level "INFO"
+
+# Show license requirements
 Show-LicenseRequirements -Categories $categoriesToEnable
 
-# Get access token and check existing settings
+# Get access token
+Write-Log "Obtaining access token..." -Level "INFO"
 $accessToken = Get-AzureAccessToken
+
+# Check for existing diagnostic settings
 Write-Log "Checking for existing diagnostic settings..." -Level "INFO"
 $existingSettings = Get-ExistingDiagnosticSettings -AccessToken $accessToken
 
 if ($existingSettings) {
-    $settingsList = if ($existingSettings.value) { $existingSettings.value } else { @($existingSettings) }
-    Write-Log "Found $($settingsList.Count) existing diagnostic setting(s)" -Level "INFO"
+    if ($existingSettings.value) {
+        Write-Log "Found $($existingSettings.value.Count) existing diagnostic setting(s):" -Level "INFO"
+        foreach ($setting in $existingSettings.value) {
+            Write-Host "    • $($setting.name)" -ForegroundColor White
+        }
+    }
+    else {
+        Write-Log "Found existing diagnostic setting: $($existingSettings.name)" -Level "INFO"
+    }
+}
+else {
+    Write-Log "No existing diagnostic settings found." -Level "INFO"
 }
 
-# Verify-only mode
+# If VerifyOnly mode, show existing settings and exit
 if ($VerifyOnly) {
-    if ($existingSettings) { foreach ($s in $settingsList) { Show-DiagnosticSettingSummary -Setting $s } }
-    else { Write-Log "No diagnostic settings configured." -Level "WARNING" }
-    Write-Log "Verification complete. No changes made." -Level "SUCCESS"
+    Write-Log "Verify-only mode. Displaying existing settings..." -Level "INFO"
+    
+    if ($existingSettings) {
+        $settingsToShow = if ($existingSettings.value) { $existingSettings.value } else { @($existingSettings) }
+        foreach ($setting in $settingsToShow) {
+            Show-DiagnosticSettingSummary -Setting $setting
+        }
+    }
+    else {
+        Write-Log "No diagnostic settings configured for Entra ID." -Level "WARNING"
+    }
+    
+    Write-Host ""
+    Write-Log "Verification complete. No changes were made." -Level "SUCCESS"
     exit 0
 }
 
-# Check for existing setting with same name
-$existingWithSameName = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
-if ($existingWithSameName) {
+# Check if setting with same name exists
+$existingSettingWithSameName = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
+
+if ($existingSettingWithSameName) {
     if ($RemoveExisting) {
         if ($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Remove existing diagnostic setting")) {
-            Write-Log "Removing existing setting: $DiagnosticSettingName" -Level "WARNING"
-            if (-not (Remove-DiagnosticSetting -AccessToken $accessToken -SettingName $DiagnosticSettingName)) { exit 1 }
-            Start-Sleep -Seconds 2
+            Write-Log "Removing existing diagnostic setting: $DiagnosticSettingName" -Level "WARNING"
+            $removed = Remove-DiagnosticSetting -AccessToken $accessToken -SettingName $DiagnosticSettingName
+            if (-not $removed) {
+                Write-Log "Failed to remove existing setting. Aborting." -Level "ERROR"
+                exit 1
+            }
+            Start-Sleep -Seconds 2  # Brief pause to allow deletion to propagate
         }
-    } else {
-        Write-Log "Setting '$DiagnosticSettingName' already exists. Use -RemoveExisting to replace." -Level "WARNING"
-        Show-DiagnosticSettingSummary -Setting $existingWithSameName
+    }
+    else {
+        Write-Log "Diagnostic setting '$DiagnosticSettingName' already exists." -Level "WARNING"
+        Write-Log "Use -RemoveExisting to replace it, or choose a different name." -Level "INFO"
+        Show-DiagnosticSettingSummary -Setting $existingSettingWithSameName
         exit 0
     }
 }
@@ -2835,44 +3217,148 @@ Write-Log "Destination workspace: $DestinationWorkspaceResourceId" -Level "INFO"
 if ($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Entra ID diagnostic setting")) {
     try {
         if ($UseArmTemplate) {
-            Write-Log "Using ARM template deployment..." -Level "INFO"
-            $result = New-DiagnosticSettingViaArmTemplate -SettingName $DiagnosticSettingName `
-                -WorkspaceResourceId $DestinationWorkspaceResourceId -LogCategories $categoriesToEnable -Location "westus2"
-            if ($result.ProvisioningState -eq "Succeeded") { Write-Log "ARM deployment succeeded!" -Level "SUCCESS" }
-        } else {
-            Write-Log "Using REST API deployment..." -Level "INFO"
-            $result = New-DiagnosticSettingViaRestApi -AccessToken $accessToken -SettingName $DiagnosticSettingName `
-                -WorkspaceResourceId $DestinationWorkspaceResourceId -LogCategories $categoriesToEnable
+            Write-Log "Using ARM template deployment method..." -Level "INFO"
+            $result = New-DiagnosticSettingViaArmTemplate `
+                -SettingName $DiagnosticSettingName `
+                -WorkspaceResourceId $DestinationWorkspaceResourceId `
+                -LogCategories $categoriesToEnable `
+                -Location "westus2"
+            
+            if ($result.ProvisioningState -eq "Succeeded") {
+                Write-Log "ARM template deployment succeeded!" -Level "SUCCESS"
+            }
+            else {
+                Write-Log "ARM template deployment status: $($result.ProvisioningState)" -Level "WARNING"
+            }
+        }
+        else {
+            Write-Log "Using REST API deployment method..." -Level "INFO"
+            $result = New-DiagnosticSettingViaRestApi `
+                -AccessToken $accessToken `
+                -SettingName $DiagnosticSettingName `
+                -WorkspaceResourceId $DestinationWorkspaceResourceId `
+                -LogCategories $categoriesToEnable
+            
             Write-Log "REST API deployment succeeded!" -Level "SUCCESS"
         }
         
-        # Verify creation
-        Start-Sleep -Seconds 3
-        $verified = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
-        if ($verified) { Write-Log "Diagnostic setting verified!" -Level "SUCCESS"; Show-DiagnosticSettingSummary -Setting $verified }
-        else { Write-Log "Could not verify. It may take a few minutes to appear." -Level "WARNING" }
-    } catch {
+        # Verify the setting was created
+        Write-Log "Verifying diagnostic setting creation..." -Level "INFO"
+        Start-Sleep -Seconds 3  # Brief pause to allow creation to propagate
+        
+        $verifiedSetting = Get-ExistingDiagnosticSettings -AccessToken $accessToken -SettingName $DiagnosticSettingName
+        
+        if ($verifiedSetting) {
+            Write-Log "Diagnostic setting verified successfully!" -Level "SUCCESS"
+            Show-DiagnosticSettingSummary -Setting $verifiedSetting
+        }
+        else {
+            Write-Log "Could not verify diagnostic setting. It may take a few minutes to appear." -Level "WARNING"
+        }
+    }
+    catch {
         Write-Log "Failed to create diagnostic setting: $_" -Level "ERROR"
-        Write-Host "`nTroubleshooting:" -ForegroundColor Red
-        Write-Host "  1. AuthorizationFailed: Ensure Global Admin or Security Admin role" -ForegroundColor Yellow
-        Write-Host "  2. ResourceNotFound: Verify workspace resource ID is correct" -ForegroundColor Yellow
-        Write-Host "  3. BadRequest: Check if log category is supported by your license" -ForegroundColor Yellow
+        
+        # Provide troubleshooting guidance
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Write-Host "  TROUBLESHOOTING" -ForegroundColor Red
+        Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "  Common issues and solutions:" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  1. 'AuthorizationFailed' error:" -ForegroundColor Yellow
+        Write-Host "     - Ensure you have Global Administrator or Security Administrator role" -ForegroundColor Gray
+        Write-Host "     - Run: Connect-AzAccount -TenantId $SourceTenantId" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  2. 'ResourceNotFound' error:" -ForegroundColor Yellow
+        Write-Host "     - Verify the Log Analytics workspace resource ID is correct" -ForegroundColor Gray
+        Write-Host "     - Ensure the workspace exists and is accessible" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  3. 'BadRequest' error:" -ForegroundColor Yellow
+        Write-Host "     - Check if the log category is supported by your license" -ForegroundColor Gray
+        Write-Host "     - Some categories require Entra ID P1/P2 or E5 license" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  4. Cross-tenant workspace access:" -ForegroundColor Yellow
+        Write-Host "     - Ensure the destination workspace allows cross-tenant data ingestion" -ForegroundColor Gray
+        Write-Host "     - Verify network connectivity to the workspace" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════════════════" -ForegroundColor Red
+        Write-Host ""
+        
         exit 1
     }
 }
 
-# Post-configuration info
-Write-Host "`n╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║   CONFIGURATION COMPLETE                                          ║" -ForegroundColor Green
-Write-Host "╚═══════════════════════════════════════════════════════════════════╝`n" -ForegroundColor Green
+#endregion
 
+#region Post-Configuration Information
+
+Write-Host ""
+Write-Host "╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+Write-Host "║                                                                   ║" -ForegroundColor Green
+Write-Host "║   CONFIGURATION COMPLETE                                          ║" -ForegroundColor Green
+Write-Host "║                                                                   ║" -ForegroundColor Green
+Write-Host "╚═══════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host ""
+
+Write-Log "Entra ID diagnostic settings have been configured successfully!" -Level "SUCCESS"
+Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan
-Write-Host "  1. Wait 5-15 minutes for initial data to appear in Log Analytics"
-Write-Host "  2. Verify data with KQL queries (see examples below)"
-Write-Host "  3. Monitor Log Analytics tables: SigninLogs, AuditLogs, AADNonInteractiveUserSignInLogs, etc.`n"
+Write-Host "─────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  1. Wait 5-15 minutes for initial data to appear in Log Analytics" -ForegroundColor White
+Write-Host ""
+Write-Host "  2. Verify data ingestion with these KQL queries:" -ForegroundColor White
+Write-Host ""
+Write-Host "     // Check Sign-in Logs" -ForegroundColor Gray
+Write-Host "     SigninLogs" -ForegroundColor Yellow
+Write-Host "     | where TimeGenerated > ago(1h)" -ForegroundColor Yellow
+Write-Host "     | summarize count() by ResultType" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "     // Check Audit Logs" -ForegroundColor Gray
+Write-Host "     AuditLogs" -ForegroundColor Yellow
+Write-Host "     | where TimeGenerated > ago(1h)" -ForegroundColor Yellow
+Write-Host "     | summarize count() by OperationName" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  3. Log Analytics Tables that will be populated:" -ForegroundColor White
+Write-Host ""
+Write-Host "     Table Name                          Description" -ForegroundColor Gray
+Write-Host "     ─────────────────────────────────── ─────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "     SigninLogs                          Interactive user sign-ins" -ForegroundColor White
+Write-Host "     AADNonInteractiveUserSignInLogs     Non-interactive sign-ins" -ForegroundColor White
+Write-Host "     AADServicePrincipalSignInLogs       Service principal sign-ins" -ForegroundColor White
+Write-Host "     AADManagedIdentitySignInLogs        Managed identity sign-ins" -ForegroundColor White
+Write-Host "     AuditLogs                           Directory audit events" -ForegroundColor White
+Write-Host "     AADProvisioningLogs                 Provisioning activities" -ForegroundColor White
+Write-Host "     AADRiskyUsers                       Risky user information" -ForegroundColor White
+Write-Host "     AADUserRiskEvents                   User risk events" -ForegroundColor White
+Write-Host "     MicrosoftGraphActivityLogs          Graph API activity" -ForegroundColor White
+Write-Host ""
+Write-Host "─────────────────────────────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host ""
+
+# Display verification command
+Write-Host "To verify the diagnostic setting later, run:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  .\Configure-EntraIDDiagnosticSettings.ps1 ``" -ForegroundColor White
+Write-Host "      -SourceTenantId `"$SourceTenantId`" ``" -ForegroundColor White
+Write-Host "      -DestinationWorkspaceResourceId `"$DestinationWorkspaceResourceId`" ``" -ForegroundColor White
+Write-Host "      -VerifyOnly" -ForegroundColor White
+Write-Host ""
+
+# Display removal command
+Write-Host "To remove this diagnostic setting, run:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  # Using PowerShell REST API:" -ForegroundColor Gray
+Write-Host "  `$token = (Get-AzAccessToken -ResourceUrl `"https://management.azure.com`").Token" -ForegroundColor White
+Write-Host "  `$headers = @{ `"Authorization`" = `"Bearer `$token`"; `"Content-Type`" = `"application/json`" }" -ForegroundColor White
+Write-Host "  Invoke-RestMethod -Uri `"https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01`" -Method Delete -Headers `$headers" -ForegroundColor White
+Write-Host ""
+
+#endregion
 
 Write-Log "Script execution completed." -Level "SUCCESS"
-#endregion
 ```
 
 ### 6.4 Usage Examples
