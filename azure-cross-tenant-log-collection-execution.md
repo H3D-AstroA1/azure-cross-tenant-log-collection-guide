@@ -7025,30 +7025,80 @@ This script automates the entire setup process:
 
 ### Verify M365 Audit Logs
 
-After configuration, you can verify the subscriptions are active:
+After configuration, use the verification script to check that subscriptions are active and logs are being collected:
+
+#### Script: `Verify-M365AuditLogCollection.ps1`
+
+The complete verification script is located at: [`scripts/Verify-M365AuditLogCollection.ps1`](scripts/Verify-M365AuditLogCollection.ps1)
+
+#### Basic Usage
 
 ```powershell
-# Get OAuth token
-$appId = Get-AzKeyVaultSecret -VaultName "kv-central-atevet12" -Name "M365Collector-AppId" -AsPlainText
-$appSecret = Get-AzKeyVaultSecret -VaultName "kv-central-atevet12" -Name "M365Collector-Secret" -AsPlainText
+# Verify all configured tenants
+.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12"
+```
 
-$tokenResponse = Invoke-RestMethod `
-    -Uri "https://login.microsoftonline.com/<SOURCE-TENANT-ID>/oauth2/token" `
-    -Method POST `
-    -Body @{
-        grant_type = "client_credentials"
-        client_id = $appId
-        client_secret = $appSecret
-        resource = "https://manage.office.com"
-    }
+#### Verify Specific Tenant
 
-# List active subscriptions
-$headers = @{ "Authorization" = "Bearer $($tokenResponse.access_token)" }
-$subscriptions = Invoke-RestMethod `
-    -Uri "https://manage.office.com/api/v1.0/<SOURCE-TENANT-ID>/activity/feed/subscriptions/list" `
-    -Headers $headers
+```powershell
+# Verify a specific source tenant
+.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -SourceTenantId "<TENANT-ID>"
+```
 
-$subscriptions | Format-Table contentType, status
+#### Test Log Retrieval
+
+```powershell
+# Verify subscriptions AND test actual log retrieval
+.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -TestLogRetrieval
+
+# Check logs from the last 24 hours
+.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -TestLogRetrieval -HoursToCheck 24
+```
+
+#### Expected Output
+
+```
+========================================
+Verify M365 Audit Log Collection
+========================================
+
+Connected as: admin@atevet12.onmicrosoft.com
+
+Retrieving credentials from Key Vault: kv-central-atevet12
+  App ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  App Secret: ********
+  Configured tenants: 2
+
+========================================
+Verifying tenant: Atevet17 (yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy)
+  Added: 2024-01-15
+
+  OAuth token acquired
+
+  Checking subscriptions:
+    Audit.AzureActiveDirectory: enabled
+    Audit.Exchange: enabled
+    Audit.SharePoint: enabled
+    Audit.General: enabled
+    DLP.All: enabled
+
+========================================
+VERIFICATION SUMMARY
+========================================
+
+Tenants Checked:      2
+Tenants Successful:   2
+Tenants Failed:       0
+Active Subscriptions: 10
+
+All configured tenants verified successfully!
+
+To check logs in Log Analytics, run this KQL query:
+
+M365AuditLogs_CL
+| where TimeGenerated > ago(1h)
+| summarize count() by SourceTenantName_s, ContentType_s
+| order by count_ desc
 ```
 
 ### Key Vault Secrets Created
