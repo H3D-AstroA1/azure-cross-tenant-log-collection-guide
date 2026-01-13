@@ -30,6 +30,9 @@
 
 .PARAMETER KeyVaultName
     The name of the Key Vault in the managing tenant to store configuration.
+    If not specified, the script will auto-discover Key Vaults in the resource group:
+    - If one Key Vault is found, it will be used automatically
+    - If multiple Key Vaults are found, you will be prompted to select one
 
 .PARAMETER WorkspaceResourceId
     The full resource ID of the Log Analytics workspace in the managing tenant.
@@ -67,7 +70,7 @@
 
 .NOTES
     Author: Azure Cross-Tenant Log Collection Guide
-    Version: 2.1
+    Version: 2.2
     Requires: Az.Accounts, Az.KeyVault PowerShell modules
     
     Key difference from Step 7 (M365):
@@ -77,6 +80,11 @@
     Prerequisites:
     - Key Vault must exist in the managing tenant (created in Step 1)
     - Az.KeyVault module must be installed
+    
+    Key Vault Handling:
+    - If -KeyVaultName is specified, that Key Vault is used directly
+    - If not specified, auto-discovers Key Vaults in the resource group
+    - If multiple Key Vaults exist, prompts user to select one
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -84,7 +92,7 @@ param(
     [Parameter(Mandatory)][string]$ManagingTenantId,
     [Parameter(Mandatory)][string]$SourceTenantId,
     [Parameter(Mandatory)][string]$SourceTenantName,
-    [Parameter(Mandatory=$false)][string]$KeyVaultName = "kv-central-logging",
+    [Parameter(Mandatory=$false)][string]$KeyVaultName,
     [Parameter(Mandatory)][string]$WorkspaceResourceId,
     [string]$DiagnosticSettingName = "SendEntraLogsToManagingTenant",
     [string[]]$LogCategories = @(
@@ -247,21 +255,70 @@ if(-not $ctx -or $ctx.Tenant.Id -ne $ManagingTenantId) {
 }
 Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
 
-# Check Key Vault exists
-$keyVault = Get-AzKeyVault -VaultName $KeyVaultName -ErrorAction SilentlyContinue
-if(-not $keyVault) {
-    Write-Log "Key Vault '$KeyVaultName' not found in subscription $subscriptionId" -Level Error
-    Write-Log "" -Level Error
-    Write-Log "The Key Vault should have been created in Step 1 (Prepare-ManagingTenant.ps1)." -Level Error
-    Write-Log "Please ensure you have:" -Level Error
-    Write-Log "  1. Run Step 1 to create the Key Vault" -Level Error
-    Write-Log "  2. Specified the correct Key Vault name (default: kv-central-logging)" -Level Error
-    Write-Log "  3. Access to the subscription containing the Key Vault" -Level Error
-    Write-Log "" -Level Error
-    Write-Log "To create the Key Vault manually:" -Level Error
-    Write-Log "  New-AzKeyVault -VaultName '$KeyVaultName' -ResourceGroupName '$resourceGroupName' -Location '<location>' -EnableRbacAuthorization" -Level Error
-    exit 1
+# Handle Key Vault discovery/selection
+$keyVault = $null
+
+if($KeyVaultName) {
+    # User specified a Key Vault name - use it directly
+    $keyVault = Get-AzKeyVault -VaultName $KeyVaultName -ErrorAction SilentlyContinue
+    if(-not $keyVault) {
+        Write-Log "Key Vault '$KeyVaultName' not found in subscription $subscriptionId" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "The Key Vault should have been created in Step 1 (Prepare-ManagingTenant.ps1)." -Level Error
+        Write-Log "Please ensure you have:" -Level Error
+        Write-Log "  1. Run Step 1 to create the Key Vault" -Level Error
+        Write-Log "  2. Specified the correct Key Vault name" -Level Error
+        Write-Log "  3. Access to the subscription containing the Key Vault" -Level Error
+        exit 1
+    }
+} else {
+    # No Key Vault specified - discover Key Vaults in the resource group
+    Write-Log "No Key Vault name specified. Discovering Key Vaults in resource group '$resourceGroupName'..." -Level Info
+    
+    $keyVaults = Get-AzKeyVault -ResourceGroupName $resourceGroupName -ErrorAction SilentlyContinue
+    
+    if(-not $keyVaults -or $keyVaults.Count -eq 0) {
+        Write-Log "No Key Vaults found in resource group '$resourceGroupName'" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "The Key Vault should have been created in Step 1 (Prepare-ManagingTenant.ps1)." -Level Error
+        Write-Log "Please either:" -Level Error
+        Write-Log "  1. Run Step 1 to create the Key Vault" -Level Error
+        Write-Log "  2. Specify the Key Vault name with -KeyVaultName parameter" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "To create the Key Vault manually:" -Level Error
+        Write-Log "  New-AzKeyVault -VaultName 'kv-central-logging' -ResourceGroupName '$resourceGroupName' -Location '<location>' -EnableRbacAuthorization" -Level Error
+        exit 1
+    }
+    elseif($keyVaults.Count -eq 1) {
+        # Only one Key Vault found - use it
+        $keyVault = $keyVaults[0]
+        $KeyVaultName = $keyVault.VaultName
+        Write-Log "Found single Key Vault: $KeyVaultName" -Level Success
+    }
+    else {
+        # Multiple Key Vaults found - prompt user to select
+        Write-Log "Found $($keyVaults.Count) Key Vaults in resource group '$resourceGroupName':" -Level Warning
+        Write-Log "" -Level Info
+        
+        for($i = 0; $i -lt $keyVaults.Count; $i++) {
+            Write-Log "  [$($i + 1)] $($keyVaults[$i].VaultName)" -Level Info
+        }
+        Write-Log "" -Level Info
+        
+        $selection = $null
+        while($null -eq $selection -or $selection -lt 1 -or $selection -gt $keyVaults.Count) {
+            $input = Read-Host "Select Key Vault (1-$($keyVaults.Count))"
+            if($input -match '^\d+$') {
+                $selection = [int]$input
+            }
+        }
+        
+        $keyVault = $keyVaults[$selection - 1]
+        $KeyVaultName = $keyVault.VaultName
+        Write-Log "Selected Key Vault: $KeyVaultName" -Level Success
+    }
 }
+
 Write-Log "  Key Vault '$KeyVaultName': Found" -Level Success
 Write-Log "    Resource ID: $($keyVault.ResourceId)" -Level Info
 Write-Log "    URI: $($keyVault.VaultUri)" -Level Info
