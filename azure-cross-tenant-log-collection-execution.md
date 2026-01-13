@@ -7643,6 +7643,18 @@ AADRiskyUsers
 
 ---
 
+### Alternative Approach: Centralized Management from Managing Tenant
+
+> **Note:** If you require centralized control of Entra ID diagnostic settings from the managing tenant (rather than running scripts directly in each source tenant), an alternative approach using **Microsoft Graph API with a multi-tenant app registration** is available. This method allows you to configure and monitor diagnostic settings across all source tenants from a single location. However, the setup is significantly more complex, requiring:
+> - Multi-tenant app registration with appropriate API permissions
+> - Admin consent in each source tenant
+> - Secure credential management (Key Vault)
+> - Custom automation scripts or Azure Functions
+>
+> For most scenarios with a small number of source tenants, the direct admin access approach (Option 1) documented above is recommended due to its simplicity.
+
+---
+
 ### Next Steps
 
 After completing Step 6:
