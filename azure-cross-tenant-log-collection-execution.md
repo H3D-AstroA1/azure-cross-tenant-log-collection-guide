@@ -7148,11 +7148,13 @@ M365AuditLogs_CL
 
 | Issue | Solution |
 |-------|----------|
-| Runbook fails with "Key Vault access denied" | Verify Managed Identity has "Key Vault Secrets User" role |
-| No logs collected | Check subscriptions are active (Step 7 verification) |
-| OAuth token error | Verify app credentials in Key Vault are correct |
-| Logs not appearing in Log Analytics | Check Workspace ID and Key are correct |
-| Module import fails | Wait for previous module import to complete |
+| Runbook fails with "Key Vault access denied" | Verify Managed Identity has Key Vault access policy with `get` and `list` permissions for secrets (the script configures this via ARM template) |
+| No logs collected | Run `Verify-M365AuditLogCollection.ps1` to check subscriptions are active |
+| OAuth token error | Verify app credentials in Key Vault are correct (`M365Collector-AppId` and `M365Collector-Secret`) |
+| Logs not appearing in Log Analytics | Check `LogAnalytics-WorkspaceKey` secret is correct; verify Workspace ID in runbook parameters |
+| Module import fails | Wait for previous module import to complete; check Automation Account > Modules for status |
+| Subscription start fails with "already enabled" | This is informational - the subscription is already active |
+| Admin consent error in source tenant | Ensure you have Global Administrator role in the source tenant |
 
 ---
 
