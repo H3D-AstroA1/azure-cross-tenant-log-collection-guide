@@ -6646,11 +6646,16 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 ### Prerequisites
 
 Before running this script, you need:
-- **Global Administrator** role in the **source tenant** (for diagnostic settings)
-- **Microsoft Entra ID P1 or P2 license** (for sign-in logs; AuditLogs are free)
-- **Log Analytics Workspace Resource ID** from the managing tenant (Step 1)
-- **Key Vault** in the managing tenant (for tracking configured tenants)
-- **Az PowerShell module** installed (Az.Accounts, Az.KeyVault)
+
+| Requirement | Tenant | Details |
+|-------------|--------|---------|
+| **Global Administrator** | Source Tenant | Required to configure Entra ID diagnostic settings |
+| **Contributor or Key Vault access** | Managing Tenant | Required to update Key Vault tenant tracking |
+| **Microsoft Entra ID P1 or P2 license** | Source Tenant | Required for sign-in logs (AuditLogs are free) |
+| **Log Analytics Workspace Resource ID** | Managing Tenant | From Step 1 - destination for logs |
+| **Key Vault** | Managing Tenant | For tracking configured tenants |
+| **Az PowerShell module** | Local | Az.Accounts, Az.KeyVault modules installed |
+| **Completed Steps 1-2** | Both | Lighthouse delegation and workspace setup |
 
 ### Available Entra ID Log Categories
 
