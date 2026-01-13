@@ -7161,7 +7161,6 @@ M365AuditLogs_CL
 ### Next Steps
 
 After completing Step 7:
-- **Step 6**: [Configure Microsoft Entra ID (Azure AD) Logs](#step-6-configure-microsoft-entra-id-azure-ad-logs) - If not already completed
 - **Step 8**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
 - **Step 9**: Set up workbooks and dashboards for unified visibility
 - **Step 10**: Implement alerting and incident response workflows
