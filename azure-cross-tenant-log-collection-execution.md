@@ -6687,8 +6687,9 @@ This script automates the entire setup process:
 #### Basic Usage (All Log Categories)
 
 ```powershell
-# Full setup: Configure Entra ID diagnostic settings
-# The script will prompt for authentication to both tenants
+# Run from MANAGING TENANT (Atevet12) as Global Administrator
+# The script will prompt for authentication to the source tenant
+
 .\Configure-EntraIDDiagnosticSettings.ps1 `
     -ManagingTenantId "<ATEVET12-TENANT-ID>" `
     -SourceTenantId "<ATEVET17-TENANT-ID>" `
