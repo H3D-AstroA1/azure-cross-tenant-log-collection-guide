@@ -6687,8 +6687,11 @@ This script automates the entire setup process:
 #### Basic Usage (All Log Categories)
 
 ```powershell
-# Run from MANAGING TENANT (Atevet12) as Global Administrator
-# The script will prompt for authentication to the source tenant
+# Run from MANAGING TENANT (Atevet12)
+# Requires Global Administrator access to the SOURCE TENANT (where Entra ID logs originate)
+# The script will prompt for authentication to both tenants:
+#   1. Managing tenant (for Key Vault access)
+#   2. Source tenant (for configuring Entra ID diagnostic settings - requires Global Admin)
 
 .\Configure-EntraIDDiagnosticSettings.ps1 `
     -ManagingTenantId "<ATEVET12-TENANT-ID>" `
