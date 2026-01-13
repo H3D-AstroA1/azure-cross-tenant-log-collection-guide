@@ -587,7 +587,8 @@ This PowerShell script automates the preparation of the managing tenant by:
 1. Creating a security group for delegated access
 2. Creating a resource group for centralized logging
 3. Creating a Log Analytics workspace
-4. Outputting all required IDs for the Azure Lighthouse deployment
+4. Creating a Key Vault for tracking configured tenants
+5. Outputting all required IDs for the Azure Lighthouse deployment
 
 ### Script: `Prepare-ManagingTenant.ps1`
 
@@ -647,7 +648,7 @@ This PowerShell script automates the preparation of the managing tenant by:
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
-    Requires: Az.Accounts, Az.Resources, Az.OperationalInsights, Microsoft.Graph modules
+    Requires: Az.Accounts, Az.Resources, Az.OperationalInsights, Az.KeyVault, Microsoft.Graph modules
 #>
 
 [CmdletBinding()]
@@ -669,6 +670,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$WorkspaceName = "law-central-logging",
+
+    [Parameter(Mandatory = $false)]
+    [string]$KeyVaultName = "kv-central-logging",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
@@ -701,6 +705,9 @@ $results = @{
     WorkspaceId = $null
     WorkspaceResourceId = $null
     WorkspaceCustomerId = $null
+    KeyVaultName = $KeyVaultName
+    KeyVaultId = $null
+    KeyVaultUri = $null
     Location = $Location
     GroupMembersAdded = @()
     GroupMembersFailed = @()
@@ -1026,6 +1033,42 @@ else {
 Write-Host ""
 #endregion
 
+#region Create Key Vault
+Write-Info "Creating Key Vault: $KeyVaultName"
+
+try {
+    $existingKv = Get-AzKeyVault -VaultName $KeyVaultName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+    
+    if ($existingKv) {
+        Write-Warning "Key Vault '$KeyVaultName' already exists"
+        $keyVault = $existingKv
+    }
+    else {
+        $keyVault = New-AzKeyVault `
+            -VaultName $KeyVaultName `
+            -ResourceGroupName $ResourceGroupName `
+            -Location $results.Location `
+            -EnabledForDeployment `
+            -EnabledForTemplateDeployment `
+            -EnableRbacAuthorization `
+            -ErrorAction Stop
+        
+        Write-Success "  Created Key Vault"
+    }
+    
+    $results.KeyVaultId = $keyVault.ResourceId
+    $results.KeyVaultUri = $keyVault.VaultUri
+    
+    Write-Success "  Key Vault Resource ID: $($keyVault.ResourceId)"
+    Write-Success "  Key Vault URI: $($keyVault.VaultUri)"
+}
+catch {
+    Write-ErrorMsg "Failed to create Key Vault: $($_.Exception.Message)"
+    $results.Errors += "Key Vault creation failed: $($_.Exception.Message)"
+}
+Write-Host ""
+#endregion
+
 #region Output Summary
 Write-Host ""
 Write-Header "======================================================================"
@@ -1059,6 +1102,11 @@ Write-Host "Workspace Name:            $($results.WorkspaceName)"
 if ($results.WorkspaceResourceId) {
     Write-Host "Workspace Resource ID:     $($results.WorkspaceResourceId)"
 }
+Write-Host "Key Vault Name:            $($results.KeyVaultName)"
+if ($results.KeyVaultId) {
+    Write-Host "Key Vault Resource ID:     $($results.KeyVaultId)"
+    Write-Host "Key Vault URI:             $($results.KeyVaultUri)"
+}
 Write-Host "Location:                  $($results.Location)"
 Write-Host ""
 
@@ -1089,6 +1137,9 @@ $jsonOutput = @{
     workspaceName = $results.WorkspaceName
     workspaceResourceId = $results.WorkspaceResourceId
     workspaceCustomerId = $results.WorkspaceCustomerId
+    keyVaultName = $results.KeyVaultName
+    keyVaultResourceId = $results.KeyVaultId
+    keyVaultUri = $results.KeyVaultUri
     location = $results.Location
     groupMembersAdded = $results.GroupMembersAdded
     groupMembersFailed = $results.GroupMembersFailed
@@ -1141,6 +1192,7 @@ Write-Host "1. Add users to the security group '$SecurityGroupName'"
 Write-Host "2. Update the Lighthouse parameters file with the values above"
 Write-Host "3. Run the Azure Lighthouse deployment in the SOURCE tenant"
 Write-Host "4. Configure diagnostic settings to send logs to the workspace"
+Write-Host "5. Use the Key Vault '$KeyVaultName' to track configured tenants"
 Write-Host ""
 #endregion
 
