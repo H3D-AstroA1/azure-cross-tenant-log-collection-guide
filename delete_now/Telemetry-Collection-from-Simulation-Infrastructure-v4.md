@@ -232,9 +232,32 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ---
 
-## Appendix A – Hybrid Approach Architecture Diagram
+## Appendix A – Detailed Comparison Table
 
-> **Scope**: High-level overview showing ALL three collection methods (Lighthouse, Direct Diagnostic Settings, M365 API) and how they combine to provide complete telemetry coverage. See Appendix B for detailed Lighthouse-specific flow.
+> **Scope**: Comprehensive side-by-side comparison of all three cross-tenant log collection methods across multiple criteria. Use this table to understand the trade-offs and select the appropriate method(s) for your scenario.
+
+| Criteria | Continuous Export via Event Hub | Azure Lighthouse + Log Analytics Delegation | Microsoft Sentinel Multi-Tenant |
+|----------|--------------------------------|---------------------------------------------|--------------------------------|
+| **High-Level Description** | Uses Diagnostic Settings in Tenant A to stream logs to Event Hub; Tenant B ingests using Function or DCR. | Tenant A delegates subscription/RG access to Tenant B via Azure Lighthouse; Tenant B directly ingests logs into its Log Analytics workspace using AMA + DCR. | Tenant B operates Microsoft Sentinel centrally and queries/analyzes logs that remain in Tenant A workspaces via Lighthouse; no log ingestion into Tenant B. |
+| **Complexity Level** | Low (quick deployment, minimal prerequisites) | Medium (requires Lighthouse delegation and DCR/AMA configuration) | High (Sentinel enablement, Lighthouse, cross-workspace queries, analytics rules, automation) |
+| **Security Posture** | Medium – secure but depends on SAS keys unless Managed Identity and private endpoints are configured | High – RBAC-based delegation, Managed Identities, PIM/JIT elevation, audited access | Very High – SOC-grade RBAC, PIM, Sentinel controls, cross-tenant access governance |
+| **Access Model** | Event Hub access via SAS or Managed Identity | Delegated access via Lighthouse Registration Definition + Assignment | Delegated access + Sentinel-specific RBAC |
+| **Data Flow** | Tenant A → Event Hub → Tenant B ingestion → Log Analytics | Tenant A resources → AMA/DCR → Tenant B Log Analytics workspace directly | Tenant A & B workspaces → Sentinel (Tenant B) via cross-workspace (union) queries |
+| **Works With** | Azure Activity Logs, Resource Logs, Diagnostic logs | AMA-supported logs, Diagnostic Settings, VM and platform telemetry | Any data already stored in either tenant's Log Analytics workspaces (security events, telemetry) |
+| **Requires Lighthouse?** | ❌ No | ✅ Yes | ✅ Yes |
+| **Requires Event Hub?** | ✅ Yes | ❌ No | ❌ No |
+| **Ingestion Method** | Azure Function / Logic App → Log Analytics Data Collector API | Native ingestion via AMA + DCR | No ingestion – Sentinel analytics and cross-workspace queries only |
+| **Use Cases** | Quick log export, testing, raw telemetry forwarding | Secure enterprise log ingestion, centralized custody, multi-tenant telemetry pipelines | Central SOC operations, threat detection, hunting, incident management |
+| **Best For** | Simplicity and speed when governance is less critical | Security, governance, scalability, and centralized ingestion for simulations | Advanced security analytics and SOC workflows (not ingestion pipelines) |
+| **Costs** | Event Hub + Function App + Log Analytics ingestion | Standard Log Analytics ingestion + AMA overhead | Sentinel + Log Analytics ingestion + analytics rules |
+| **Limitations** | Requires extra infrastructure and key management; less governed | Requires Lighthouse setup and identity architecture | Not suitable for raw or near-raw log ingestion into Tenant B |
+| **Scalability** | Good (Event Hub scales well) | Excellent (DCR/AMA designed for scale) | Excellent for analytics; limited for ingestion scenarios |
+
+---
+
+## Appendix B – Hybrid Approach Architecture Diagram
+
+> **Scope**: High-level overview showing ALL three collection methods (Lighthouse, Direct Diagnostic Settings, M365 API) and how they combine to provide complete telemetry coverage. See Appendix C for detailed Lighthouse-specific flow.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -297,9 +320,9 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ---
 
-## Appendix B – Azure Lighthouse + Log Analytics Delegation – Detailed Flow Diagram
+## Appendix C – Azure Lighthouse + Log Analytics Delegation – Detailed Flow Diagram
 
-> **Scope**: Deep-dive into the Lighthouse delegation process, showing the step-by-step operational flow from offer creation to log ingestion. This is a detailed view of the Lighthouse component shown in Appendix A.
+> **Scope**: Deep-dive into the Lighthouse delegation process, showing the step-by-step operational flow from offer creation to log ingestion. This is a detailed view of the Lighthouse component shown in Appendix B.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -426,7 +449,7 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ---
 
-## Appendix C – Microsoft Sentinel Multi-Tenant Integration – Detailed Flow Diagram
+## Appendix D – Microsoft Sentinel Multi-Tenant Integration – Detailed Flow Diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -549,7 +572,7 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ---
 
-## Appendix D – Continuous Export via Azure Event Hub – Detailed Flow Diagram
+## Appendix E – Continuous Export via Azure Event Hub – Detailed Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -678,3 +701,4 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 | v4 | 2026-01-13 | Added Entra ID and M365 log collection requirements; clarified that no single method covers all log types; updated recommended approach to hybrid model |
 | v4.1 | 2026-01-13 | Added Appendix A (Hybrid Approach Architecture Diagram) and Appendix B (Event Hub Detailed Flow Diagram) |
 | v4.2 | 2026-01-13 | Added Appendix B (Azure Lighthouse Detailed Flow), Appendix C (Microsoft Sentinel Multi-Tenant with role clarification), renumbered Event Hub to Appendix D |
+| v4.3 | 2026-01-13 | Added Appendix A (Detailed Comparison Table), renumbered all appendices (A→B, B→C, C→D, D→E) |
