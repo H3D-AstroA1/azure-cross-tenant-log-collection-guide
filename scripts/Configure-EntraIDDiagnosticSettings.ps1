@@ -30,9 +30,10 @@
 
 .PARAMETER KeyVaultName
     The name of the Key Vault in the managing tenant to store configuration.
+    Use this parameter to specify which Key Vault to use when multiple exist.
     If not specified, the script will auto-discover Key Vaults in the resource group:
     - If one Key Vault is found, it will be used automatically
-    - If multiple Key Vaults are found, you will be prompted to select one
+    - If multiple Key Vaults are found, the script will list them and exit (use -KeyVaultName to select)
 
 .PARAMETER WorkspaceResourceId
     The full resource ID of the Log Analytics workspace in the managing tenant.
@@ -84,7 +85,7 @@
     Key Vault Handling:
     - If -KeyVaultName is specified, that Key Vault is used directly
     - If not specified, auto-discovers Key Vaults in the resource group
-    - If multiple Key Vaults exist, prompts user to select one
+    - If multiple Key Vaults exist, lists them and exits (re-run with -KeyVaultName to select)
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -296,26 +297,19 @@ if($KeyVaultName) {
         Write-Log "Found single Key Vault: $KeyVaultName" -Level Success
     }
     else {
-        # Multiple Key Vaults found - prompt user to select
-        Write-Log "Found $($keyVaults.Count) Key Vaults in resource group '$resourceGroupName':" -Level Warning
+        # Multiple Key Vaults found - list them and exit with instructions
+        Write-Log "Found $($keyVaults.Count) Key Vaults in resource group '$resourceGroupName':" -Level Error
         Write-Log "" -Level Info
         
-        for($i = 0; $i -lt $keyVaults.Count; $i++) {
-            Write-Log "  [$($i + 1)] $($keyVaults[$i].VaultName)" -Level Info
+        foreach($kv in $keyVaults) {
+            Write-Log "  - $($kv.VaultName)" -Level Info
         }
+        Write-Log "" -Level Error
+        Write-Log "Multiple Key Vaults found. Please specify which one to use with the -KeyVaultName parameter." -Level Error
         Write-Log "" -Level Info
-        
-        $selection = $null
-        while($null -eq $selection -or $selection -lt 1 -or $selection -gt $keyVaults.Count) {
-            $input = Read-Host "Select Key Vault (1-$($keyVaults.Count))"
-            if($input -match '^\d+$') {
-                $selection = [int]$input
-            }
-        }
-        
-        $keyVault = $keyVaults[$selection - 1]
-        $KeyVaultName = $keyVault.VaultName
-        Write-Log "Selected Key Vault: $KeyVaultName" -Level Success
+        Write-Log "Example:" -Level Info
+        Write-Log "  .\Configure-EntraIDDiagnosticSettings.ps1 -KeyVaultName '$($keyVaults[0].VaultName)' ..." -Level Info
+        exit 1
     }
 }
 
