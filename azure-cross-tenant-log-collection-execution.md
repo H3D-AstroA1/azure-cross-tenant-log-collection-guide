@@ -6632,18 +6632,24 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 
 ## Step 6: Configure Microsoft Entra ID (Azure AD) Logs
 
+> ⚠️ **IMPORTANT**: This script must be run from the **SOURCE TENANT** (Atevet17), NOT the managing tenant. Entra ID diagnostic settings are tenant-level configurations that require Global Administrator or Security Administrator permissions in the source tenant. Azure Lighthouse does NOT provide access to configure Entra ID diagnostic settings cross-tenant.
+
 Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
 
-> **Important:** Entra ID diagnostic settings must be configured **in the source tenant (Atevet17)** by a user with appropriate permissions in that tenant. Azure Lighthouse does NOT provide access to configure Entra ID diagnostic settings cross-tenant.
+### Where to Run This Script
+
+| Tenant | Role | What Happens |
+|--------|------|--------------|
+| **Source Tenant (Atevet17)** | ✅ **Run script here** | Configure Entra ID diagnostic settings |
+| **Managing Tenant (Atevet12)** | ❌ Cannot run here | Lighthouse doesn't provide Entra ID access |
 
 ### Prerequisites
 
-| Requirement | Description |
-|-------------|-------------|
-| **License** | Microsoft Entra ID P1 or P2 license (for sign-in logs) |
-| **Permissions** | Global Administrator or Security Administrator in Atevet17 |
-| **Log Analytics Workspace** | Can send to workspace in Atevet12 (cross-tenant supported for data destination) |
-| **PowerShell Module** | Az PowerShell module (Az.Accounts) |
+Before running this script, you need:
+- **Global Administrator** or **Security Administrator** role in the source tenant
+- **Microsoft Entra ID P1 or P2 license** (for sign-in logs; AuditLogs are free)
+- **Log Analytics Workspace Resource ID** from the managing tenant (Step 1)
+- **Az PowerShell module** installed (Az.Accounts)
 
 ### Available Entra ID Log Categories
 
@@ -7498,10 +7504,12 @@ Write-Log "Script execution completed." -Level "SUCCESS"
 #### Basic Usage (All Log Categories)
 
 ```powershell
-# Connect to the source tenant first
+# IMPORTANT: Connect to the SOURCE TENANT (where Entra ID logs originate)
+# You must have Global Administrator or Security Administrator role
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 # Configure Entra ID diagnostic settings with all default log categories
+# Logs will be sent to the Log Analytics workspace in the MANAGING TENANT
 .\Configure-EntraIDDiagnosticSettings.ps1 `
     -SourceTenantId "<SOURCE-TENANT-ID>" `
     -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
