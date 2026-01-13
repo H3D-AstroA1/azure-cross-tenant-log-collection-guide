@@ -6643,15 +6643,6 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 | **Managing Tenant (Atevet12)** | ✅ **Run script here** | Script execution starts here, updates Key Vault |
 | **Source Tenant (Atevet17)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure diagnostic settings |
 
-### Key Difference from Step 7 (M365 Logs)
-
-| Aspect | Step 6 (Entra ID) | Step 7 (M365) |
-|--------|-------------------|---------------|
-| **Log delivery** | Pushed directly via diagnostic settings | Pulled by runbook via API |
-| **Runbook needed** | ❌ No | ✅ Yes |
-| **Real-time** | ✅ Yes (near real-time) | ⚠️ Delayed (polling interval) |
-| **Configuration** | One-time setup per tenant | One-time setup + scheduled runbook |
-
 ### Prerequisites
 
 Before running this script, you need:
