@@ -7663,6 +7663,165 @@ After completing Step 6:
 - **Step 9**: Set up workbooks and dashboards for unified visibility
 - **Step 10**: Implement alerting and incident response workflows
 
+---
+
+## Step 7: Configure Microsoft 365 Audit Logs
+
+> ⚠️ **IMPORTANT**: This step requires **Global Administrator** access to BOTH the source tenant AND the managing tenant. Unlike Azure resource logs (Steps 3-5), Microsoft 365 audit logs are NOT accessible via Azure Lighthouse. This script uses a **multi-tenant app registration** with the Office 365 Management API to collect M365 audit logs from source tenants.
+
+Microsoft 365 audit logs capture activities across Exchange Online, SharePoint Online, OneDrive, Teams, and other M365 services. These logs are essential for security monitoring, compliance, and incident investigation.
+
+### Where to Run This Script
+
+| Tenant | Role | What Happens |
+|--------|------|--------------|
+| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Creates multi-tenant app, stores credentials in Key Vault |
+| **Source Tenant (Atevet17)** | ✅ **Admin consent required** | Script authenticates and grants permissions automatically |
+
+### Prerequisites
+
+Before running this script, you need:
+- **Global Administrator** role in the **managing tenant** (to create app registration)
+- **Global Administrator** role in the **source tenant** (to grant admin consent)
+- **Microsoft Graph PowerShell SDK** installed (`Install-Module Microsoft.Graph`)
+- **Az PowerShell module** installed (`Install-Module Az`)
+- **Key Vault** in the managing tenant (created in Step 1)
+- **Log Analytics Workspace** in the managing tenant (created in Step 1)
+
+### Available M365 Audit Log Content Types
+
+| Content Type | Description | Included Events |
+|--------------|-------------|-----------------|
+| **Audit.AzureActiveDirectory** | Entra ID events | User/group changes, app registrations |
+| **Audit.Exchange** | Exchange Online | Mailbox access, mail flow, admin actions |
+| **Audit.SharePoint** | SharePoint & OneDrive | File access, sharing, site changes |
+| **Audit.General** | General audit | Teams, Power Platform, Dynamics 365 |
+| **DLP.All** | Data Loss Prevention | DLP policy matches and actions |
+
+### Script: `Configure-M365AuditLogCollection.ps1`
+
+The complete PowerShell script is located at: [`scripts/Configure-M365AuditLogCollection.ps1`](scripts/Configure-M365AuditLogCollection.ps1)
+
+This script automates the entire setup process:
+1. Creates a multi-tenant app registration in the managing tenant
+2. Configures Office 365 Management API permissions
+3. Grants admin consent in the source tenant (automated)
+4. Stores credentials securely in Key Vault
+5. Creates audit log subscriptions
+
+### Usage Examples
+
+#### Full Setup (First Source Tenant)
+
+```powershell
+# Run from MANAGING TENANT (Atevet12) as Global Administrator
+# This creates the app and configures the first source tenant
+
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+#### Add Another Source Tenant (App Already Exists)
+
+```powershell
+# Skip app creation when adding additional source tenants
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET18-TENANT-ID>" `
+    -SourceTenantName "Atevet18" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipAppCreation
+```
+
+#### Specific Content Types Only
+
+```powershell
+# Configure only Exchange and SharePoint audit logs
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ContentTypes @("Audit.Exchange", "Audit.SharePoint")
+```
+
+#### Verify Existing Configuration
+
+```powershell
+# Check current configuration without making changes
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -VerifyOnly
+```
+
+#### Preview Changes (WhatIf Mode)
+
+```powershell
+# See what the script would do without making actual changes
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WhatIf
+```
+
+### Verify M365 Audit Logs
+
+After configuration, you can verify the subscriptions are active:
+
+```powershell
+# Get OAuth token
+$appId = Get-AzKeyVaultSecret -VaultName "kv-central-atevet12" -Name "M365Collector-AppId" -AsPlainText
+$appSecret = Get-AzKeyVaultSecret -VaultName "kv-central-atevet12" -Name "M365Collector-Secret" -AsPlainText
+
+$tokenResponse = Invoke-RestMethod `
+    -Uri "https://login.microsoftonline.com/<SOURCE-TENANT-ID>/oauth2/token" `
+    -Method POST `
+    -Body @{
+        grant_type = "client_credentials"
+        client_id = $appId
+        client_secret = $appSecret
+        resource = "https://manage.office.com"
+    }
+
+# List active subscriptions
+$headers = @{ "Authorization" = "Bearer $($tokenResponse.access_token)" }
+$subscriptions = Invoke-RestMethod `
+    -Uri "https://manage.office.com/api/v1.0/<SOURCE-TENANT-ID>/activity/feed/subscriptions/list" `
+    -Headers $headers
+
+$subscriptions | Format-Table contentType, status
+```
+
+### Key Vault Secrets Created
+
+| Secret Name | Description |
+|-------------|-------------|
+| `M365Collector-AppId` | Application (client) ID of the multi-tenant app |
+| `M365Collector-Secret` | Client secret for authentication |
+| `M365Collector-Tenants` | JSON list of configured source tenants |
+
+---
+
+### Next Steps
+
+After completing Step 7:
+- **Step 8**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
+- **Step 9**: Set up workbooks and dashboards for unified visibility
+- **Step 10**: Implement alerting and incident response workflows
+
 ## Additional Resources
 
 - [Main Guide: Azure Cross-Tenant Log Collection](azure-cross-tenant-log-collection-guide.md)
