@@ -6847,19 +6847,26 @@ This script automates the entire setup process:
 
 ### Verify Entra ID Logs in Log Analytics
 
-Once configured, Entra ID logs will appear in the following tables:
+Once configured, Entra ID logs will appear in the following Log Analytics tables (based on enabled categories):
 
-| Table Name | Description |
-|------------|-------------|
-| `SigninLogs` | Interactive user sign-ins |
-| `AADNonInteractiveUserSignInLogs` | Non-interactive sign-ins |
-| `AADServicePrincipalSignInLogs` | Service principal sign-ins |
-| `AADManagedIdentitySignInLogs` | Managed identity sign-ins |
-| `AuditLogs` | Directory audit events |
-| `AADProvisioningLogs` | Provisioning activities |
-| `AADRiskyUsers` | Risky user information |
-| `AADUserRiskEvents` | User risk events |
-| `MicrosoftGraphActivityLogs` | Graph API activity |
+| Log Category | Log Analytics Table | License Required |
+|--------------|---------------------|------------------|
+| `AuditLogs` | `AuditLogs` | Free |
+| `SignInLogs` | `SigninLogs` | P1/P2 |
+| `NonInteractiveUserSignInLogs` | `AADNonInteractiveUserSignInLogs` | P1/P2 |
+| `ServicePrincipalSignInLogs` | `AADServicePrincipalSignInLogs` | P1/P2 |
+| `ManagedIdentitySignInLogs` | `AADManagedIdentitySignInLogs` | P1/P2 |
+| `ProvisioningLogs` | `AADProvisioningLogs` | P1/P2 |
+| `ADFSSignInLogs` | `ADFSSignInLogs` | P1/P2 |
+| `RiskyUsers` | `AADRiskyUsers` | P2 |
+| `UserRiskEvents` | `AADUserRiskEvents` | P2 |
+| `RiskyServicePrincipals` | `AADRiskyServicePrincipals` | P2 |
+| `ServicePrincipalRiskEvents` | `AADServicePrincipalRiskEvents` | P2 |
+| `MicrosoftGraphActivityLogs` | `MicrosoftGraphActivityLogs` | P1/P2 |
+| `NetworkAccessTrafficLogs` | `NetworkAccessTrafficLogs` | P1/P2 |
+| `EnrichedOffice365AuditLogs` | `EnrichedOffice365AuditLogs` | E5 |
+
+> **Note:** Tables will only contain data if the corresponding log category was enabled during configuration and you have the required license.
 
 **Verification KQL Queries:**
 
@@ -6887,17 +6894,18 @@ SigninLogs
 AADRiskyUsers
 | where TimeGenerated > ago(7d)
 | project TimeGenerated, UserPrincipalName, RiskLevel, RiskState
+
+// Check which Entra ID tables have data
+union withsource=TableName
+    SigninLogs,
+    AADNonInteractiveUserSignInLogs,
+    AADServicePrincipalSignInLogs,
+    AADManagedIdentitySignInLogs,
+    AuditLogs
+| where TimeGenerated > ago(1h)
+| summarize Count=count() by TableName
+| order by Count desc
 ```
-
----
-
-### Next Steps
-
-After completing Step 6:
-- **Step 7**: Configure Microsoft 365 Audit Logs
-- **Step 8**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
-- **Step 9**: Set up workbooks and dashboards for unified visibility
-- **Step 10**: Implement alerting and incident response workflows
 
 ---
 
