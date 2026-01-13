@@ -67,12 +67,16 @@
 
 .NOTES
     Author: Azure Cross-Tenant Log Collection Guide
-    Version: 2.0
-    Requires: Az PowerShell module
+    Version: 2.1
+    Requires: Az.Accounts, Az.KeyVault PowerShell modules
     
     Key difference from Step 7 (M365):
     - Entra ID logs are PUSHED directly via diagnostic settings
     - No runbook/polling needed - logs flow automatically once configured
+    
+    Prerequisites:
+    - Key Vault must exist in the managing tenant (created in Step 1)
+    - Az.KeyVault module must be installed
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -80,7 +84,7 @@ param(
     [Parameter(Mandatory)][string]$ManagingTenantId,
     [Parameter(Mandatory)][string]$SourceTenantId,
     [Parameter(Mandatory)][string]$SourceTenantName,
-    [Parameter(Mandatory)][string]$KeyVaultName,
+    [Parameter(Mandatory=$false)][string]$KeyVaultName = "kv-central-logging",
     [Parameter(Mandatory)][string]$WorkspaceResourceId,
     [string]$DiagnosticSettingName = "SendEntraLogsToManagingTenant",
     [string[]]$LogCategories = @(
@@ -221,6 +225,47 @@ if($WorkspaceResourceId -match "/subscriptions/([^/]+)/resourceGroups/([^/]+)/.*
 
 # Validate log categories
 $validCategories = Get-ValidLogCategories -RequestedCategories $LogCategories
+
+#region Check Prerequisites
+Write-Log "" -Level Info
+Write-Log "Checking prerequisites..." -Level Info
+
+# Check Az.KeyVault module
+$keyVaultModule = Get-Module -ListAvailable Az.KeyVault -ErrorAction SilentlyContinue
+if(-not $keyVaultModule) {
+    Write-Log "Az.KeyVault module is not installed" -Level Error
+    Write-Log "Install it with: Install-Module Az.KeyVault -Scope CurrentUser" -Level Error
+    exit 1
+}
+Write-Log "  Az.KeyVault module: Installed" -Level Success
+
+# Connect to managing tenant to check Key Vault
+$ctx = Get-AzContext
+if(-not $ctx -or $ctx.Tenant.Id -ne $ManagingTenantId) {
+    Write-Log "Connecting to managing tenant ($ManagingTenantId)..." -Level Info
+    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop
+}
+Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
+
+# Check Key Vault exists
+$keyVault = Get-AzKeyVault -VaultName $KeyVaultName -ErrorAction SilentlyContinue
+if(-not $keyVault) {
+    Write-Log "Key Vault '$KeyVaultName' not found in subscription $subscriptionId" -Level Error
+    Write-Log "" -Level Error
+    Write-Log "The Key Vault should have been created in Step 1 (Prepare-ManagingTenant.ps1)." -Level Error
+    Write-Log "Please ensure you have:" -Level Error
+    Write-Log "  1. Run Step 1 to create the Key Vault" -Level Error
+    Write-Log "  2. Specified the correct Key Vault name (default: kv-central-logging)" -Level Error
+    Write-Log "  3. Access to the subscription containing the Key Vault" -Level Error
+    Write-Log "" -Level Error
+    Write-Log "To create the Key Vault manually:" -Level Error
+    Write-Log "  New-AzKeyVault -VaultName '$KeyVaultName' -ResourceGroupName '$resourceGroupName' -Location '<location>' -EnableRbacAuthorization" -Level Error
+    exit 1
+}
+Write-Log "  Key Vault '$KeyVaultName': Found" -Level Success
+Write-Log "    Resource ID: $($keyVault.ResourceId)" -Level Info
+Write-Log "    URI: $($keyVault.VaultUri)" -Level Info
+#endregion
 
 # Step 1: Connect to Managing Tenant and update Key Vault
 if(-not $SkipKeyVaultUpdate -and -not $VerifyOnly) {
