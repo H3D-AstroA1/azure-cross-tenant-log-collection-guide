@@ -6632,7 +6632,7 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 
 ## Step 6: Configure Microsoft Entra ID (Azure AD) Logs
 
-> ⚠️ **IMPORTANT**: This script must be run from the **SOURCE TENANT** (Atevet17), NOT the managing tenant. Entra ID diagnostic settings are tenant-level configurations that require Global Administrator or Security Administrator permissions in the source tenant. Azure Lighthouse does NOT provide access to configure Entra ID diagnostic settings cross-tenant.
+> ⚠️ **IMPORTANT**: This script is run from the **MANAGING TENANT** (Atevet12) but requires **Global Administrator** credentials for the source tenant. The script will prompt you to authenticate to the source tenant to configure diagnostic settings. Unlike M365 logs (Step 7), Entra ID logs are **pushed directly** via diagnostic settings - no runbook needed.
 
 Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
 
@@ -6640,16 +6640,26 @@ Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level log
 
 | Tenant | Role | What Happens |
 |--------|------|--------------|
-| **Source Tenant (Atevet17)** | ✅ **Run script here** | Configure Entra ID diagnostic settings |
-| **Managing Tenant (Atevet12)** | ❌ Cannot run here | Lighthouse doesn't provide Entra ID access |
+| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Script execution starts here, updates Key Vault |
+| **Source Tenant (Atevet17)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure diagnostic settings |
+
+### Key Difference from Step 7 (M365 Logs)
+
+| Aspect | Step 6 (Entra ID) | Step 7 (M365) |
+|--------|-------------------|---------------|
+| **Log delivery** | Pushed directly via diagnostic settings | Pulled by runbook via API |
+| **Runbook needed** | ❌ No | ✅ Yes |
+| **Real-time** | ✅ Yes (near real-time) | ⚠️ Delayed (polling interval) |
+| **Configuration** | One-time setup per tenant | One-time setup + scheduled runbook |
 
 ### Prerequisites
 
 Before running this script, you need:
-- **Global Administrator** or **Security Administrator** role in the source tenant
+- **Global Administrator** role in the **source tenant** (for diagnostic settings)
 - **Microsoft Entra ID P1 or P2 license** (for sign-in logs; AuditLogs are free)
 - **Log Analytics Workspace Resource ID** from the managing tenant (Step 1)
-- **Az PowerShell module** installed (Az.Accounts)
+- **Key Vault** in the managing tenant (for tracking configured tenants)
+- **Az PowerShell module** installed (Az.Accounts, Az.KeyVault)
 
 ### Available Entra ID Log Categories
 
