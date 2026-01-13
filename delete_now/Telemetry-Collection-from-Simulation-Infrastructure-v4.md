@@ -234,6 +234,8 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ## Appendix A – Hybrid Approach Architecture Diagram
 
+> **Scope**: High-level overview showing ALL three collection methods (Lighthouse, Direct Diagnostic Settings, M365 API) and how they combine to provide complete telemetry coverage. See Appendix B for detailed Lighthouse-specific flow.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           TENANT A (Simulation Game Board)                       │
@@ -296,6 +298,8 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 ---
 
 ## Appendix B – Azure Lighthouse + Log Analytics Delegation – Detailed Flow Diagram
+
+> **Scope**: Deep-dive into the Lighthouse delegation process, showing the step-by-step operational flow from offer creation to log ingestion. This is a detailed view of the Lighthouse component shown in Appendix A.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
