@@ -6687,15 +6687,14 @@ This script automates the entire setup process:
 #### Basic Usage (All Log Categories)
 
 ```powershell
-# IMPORTANT: Connect to the SOURCE TENANT (where Entra ID logs originate)
-# You must have Global Administrator or Security Administrator role
-Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
-
-# Configure Entra ID diagnostic settings with all default log categories
-# Logs will be sent to the Log Analytics workspace in the MANAGING TENANT
+# Full setup: Configure Entra ID diagnostic settings
+# The script will prompt for authentication to both tenants
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
 
 #### Specific Log Categories Only (P1 License)
@@ -6703,8 +6702,11 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Configure only P1-compatible log categories (avoids P2-only category errors)
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs", "ManagedIdentitySignInLogs", "ProvisioningLogs")
 ```
 
@@ -6713,19 +6715,12 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Configure only free tier logs (no premium license required)
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -LogCategories @("AuditLogs")
-```
-
-#### Deploy Using ARM Template
-
-```powershell
-# Use ARM template deployment for better audit trail
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -UseArmTemplate
 ```
 
 #### Verify Existing Settings (Read-Only)
@@ -6733,19 +6728,12 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Check current diagnostic settings without making changes
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -VerifyOnly
-```
-
-#### Replace Existing Diagnostic Setting
-
-```powershell
-# Remove existing setting and create a new one
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -RemoveExisting
 ```
 
 #### Custom Diagnostic Setting Name
@@ -6753,9 +6741,25 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Use a custom name for the diagnostic setting
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -DiagnosticSettingName "CrossTenantEntraLogs"
+```
+
+#### Skip Key Vault Update
+
+```powershell
+# Skip updating the Key Vault tenant tracking (useful for re-runs)
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SkipKeyVaultUpdate
 ```
 
 #### Preview Changes (WhatIf Mode)
@@ -6763,21 +6767,24 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # See what the script would do without making actual changes
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -WhatIf
 ```
 
-#### Combined Options Example
+#### Add Another Source Tenant
 
 ```powershell
-# Combine multiple options: custom name, specific categories, with preview
+# Configure a second source tenant (app and Key Vault already set up)
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DiagnosticSettingName "EntraLogsToMSEC" `
-    -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs") `
-    -WhatIf
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET18-TENANT-ID>" `
+    -SourceTenantName "Atevet18" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
 
 ### Verify Entra ID Logs in Log Analytics
