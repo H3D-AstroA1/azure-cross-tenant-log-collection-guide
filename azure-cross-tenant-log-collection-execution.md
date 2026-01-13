@@ -7495,105 +7495,98 @@ Write-Log "Script execution completed." -Level "SUCCESS"
 
 ### Usage Examples
 
-#### Example 1: Configure All Default Log Categories (REST API)
-
-This is the simplest usage - enables all default log categories using REST API:
+#### Basic Usage (All Log Categories)
 
 ```powershell
+# Connect to the source tenant first
+Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+
+# Configure Entra ID diagnostic settings with all default log categories
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 ```
 
-#### Example 2: Configure Specific Log Categories Only (P1 License)
-
-Use this when you only have Entra ID P1 license and want to avoid errors from P2-only categories:
+#### Specific Log Categories Only (P1 License)
 
 ```powershell
+# Configure only P1-compatible log categories (avoids P2-only category errors)
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs", "ManagedIdentitySignInLogs", "ProvisioningLogs")
 ```
 
-#### Example 3: Configure Only Free Tier Logs (AuditLogs)
-
-Use this for tenants without any Entra ID premium license:
+#### Free Tier Logs Only (AuditLogs)
 
 ```powershell
+# Configure only free tier logs (no premium license required)
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -LogCategories @("AuditLogs")
 ```
 
-#### Example 4: Deploy Using ARM Template
-
-ARM template deployment provides better audit trail and is useful for infrastructure-as-code approaches:
+#### Deploy Using ARM Template
 
 ```powershell
+# Use ARM template deployment for better audit trail
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -UseArmTemplate
 ```
 
-#### Example 5: Verify Existing Diagnostic Settings (Read-Only)
-
-Check what diagnostic settings are currently configured without making changes:
+#### Verify Existing Settings (Read-Only)
 
 ```powershell
+# Check current diagnostic settings without making changes
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -VerifyOnly
 ```
 
-#### Example 6: Replace Existing Diagnostic Setting
-
-Use `-RemoveExisting` to delete the existing setting before creating a new one:
+#### Replace Existing Diagnostic Setting
 
 ```powershell
+# Remove existing setting and create a new one
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -RemoveExisting
 ```
 
-#### Example 7: Preview Changes (WhatIf Mode)
-
-See what the script would do without making actual changes:
+#### Custom Diagnostic Setting Name
 
 ```powershell
+# Use a custom name for the diagnostic setting
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -DiagnosticSettingName "CrossTenantEntraLogs"
+```
+
+#### Preview Changes (WhatIf Mode)
+
+```powershell
+# See what the script would do without making actual changes
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -WhatIf
 ```
 
-#### Example 8: Custom Diagnostic Setting Name
-
-Use a custom name for the diagnostic setting:
+#### Cross-Tenant Scenario (Atevet17 to Atevet12)
 
 ```powershell
+# Step 1: Connect to the source tenant (Atevet17)
+Connect-AzAccount -TenantId "<ATEVET17-TENANT-ID>"
+
+# Step 2: Configure Entra ID logs to flow to Atevet12 workspace
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-    -DestinationWorkspaceResourceId "/subscriptions/yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DiagnosticSettingName "SendEntraLogsToAtevet12-Production"
-```
-
-#### Example 9: Cross-Tenant Scenario (Atevet17 to Atevet12)
-
-Real-world example: Configure Entra ID logs from Atevet17 (source tenant) to be sent to Log Analytics workspace in Atevet12 (destination tenant):
-
-```powershell
-# First, connect to the source tenant (Atevet17)
-Connect-AzAccount -TenantId "11111111-1111-1111-1111-111111111111"  # Atevet17 Tenant ID
-
-# Then run the script
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "11111111-1111-1111-1111-111111111111" `
-    -DestinationWorkspaceResourceId "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -DiagnosticSettingName "SendEntraLogsToAtevet12"
 ```
 
