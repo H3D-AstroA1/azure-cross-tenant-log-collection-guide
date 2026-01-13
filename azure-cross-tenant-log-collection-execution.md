@@ -14,6 +14,7 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
 7. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
 8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+9. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs](#step-6-configure-microsoft-entra-id-azure-ad-logs)
 
 ---
 
@@ -6628,9 +6629,10 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 ### Next Steps
 
 After completing Step 5:
-- **Step 6**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
-- **Step 7**: Set up workbooks and dashboards for unified visibility
-- **Step 8**: Implement alerting and incident response workflows
+- **Step 6**: Configure Microsoft Entra ID (Azure AD) Logs
+- **Step 7**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
+- **Step 8**: Set up workbooks and dashboards for unified visibility
+- **Step 9**: Implement alerting and incident response workflows
 
 ## Additional Resources
 
