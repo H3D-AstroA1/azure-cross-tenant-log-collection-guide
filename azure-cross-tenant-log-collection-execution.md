@@ -7008,17 +7008,19 @@ This script automates the entire setup process:
     -VerifyOnly
 ```
 
-#### Preview Changes (WhatIf Mode)
+#### Custom Configuration Options
 
 ```powershell
-# See what the script would do without making actual changes
+# Customize automation account name, location, and schedule interval
 .\Configure-M365AuditLogCollection.ps1 `
     -ManagingTenantId "<ATEVET12-TENANT-ID>" `
     -SourceTenantId "<ATEVET17-TENANT-ID>" `
     -SourceTenantName "Atevet17" `
     -KeyVaultName "kv-central-atevet12" `
     -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -WhatIf
+    -AutomationAccountName "aa-m365-collector-custom" `
+    -Location "eastus" `
+    -ScheduleIntervalMinutes 60
 ```
 
 ### Verify M365 Audit Logs
