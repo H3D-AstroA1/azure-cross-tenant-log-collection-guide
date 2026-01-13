@@ -7585,17 +7585,16 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
     -WhatIf
 ```
 
-#### Cross-Tenant Scenario (Atevet17 to Atevet12)
+#### Combined Options Example
 
 ```powershell
-# Step 1: Connect to the source tenant (Atevet17)
-Connect-AzAccount -TenantId "<ATEVET17-TENANT-ID>"
-
-# Step 2: Configure Entra ID logs to flow to Atevet12 workspace
+# Combine multiple options: custom name, specific categories, with preview
 .\Configure-EntraIDDiagnosticSettings.ps1 `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
     -DestinationWorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DiagnosticSettingName "SendEntraLogsToAtevet12"
+    -DiagnosticSettingName "EntraLogsToMSEC" `
+    -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs") `
+    -WhatIf
 ```
 
 ### Verify Entra ID Logs in Log Analytics
