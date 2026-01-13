@@ -2,7 +2,31 @@
 
 ## Problem Statement
 
-Current simulation infrastructure requires telemetry collection from simulation game boards and tenants for analysis and validation. Modifying target tenant configurations introduces risk, complexity, and adds potential compliance issues. The challenge is to collect telemetry securely, efficiently, and without altering tenant behaviour or existing configuration.
+### Background
+
+The simulation infrastructure operates across multiple Azure tenants, where each "game board" represents an isolated tenant environment used for security research, attack simulation, and defensive validation exercises. These environments generate critical telemetry—including Azure Activity Logs, Resource Diagnostic Logs, Virtual Machine telemetry, Microsoft Entra ID (Azure AD) sign-in and audit logs, and Microsoft 365 audit logs—that must be collected centrally for analysis, correlation, and validation of security controls.
+
+### Challenge
+
+Collecting telemetry from distributed simulation tenants presents several operational and security challenges:
+
+| Challenge | Description |
+|-----------|-------------|
+| **Tenant Isolation** | Each simulation game board operates as an independent Azure tenant with its own identity boundary, requiring cross-tenant access mechanisms |
+| **Configuration Integrity** | Modifying target tenant configurations (e.g., installing agents, changing diagnostic settings) may alter tenant behaviour and invalidate simulation results |
+| **Compliance & Governance** | Direct access to source tenants raises compliance concerns around data residency, access auditing, and separation of duties |
+| **Log Type Diversity** | Different log types (Azure Resource, Entra ID, M365) are exposed through fundamentally different APIs and authentication mechanisms |
+| **Operational Overhead** | Manual log collection across multiple tenants is unsustainable and error-prone at scale |
+
+### Objective
+
+Design and implement a telemetry collection architecture that:
+
+1. **Maintains Read-Only Posture** – Operates without modifying tenant behaviour or existing configurations beyond minimal, auditable changes
+2. **Ensures Complete Coverage** – Collects all required log types (Azure, Entra ID, M365) from source tenants
+3. **Preserves Tenant Isolation** – Prevents cross-contamination between simulation environments
+4. **Centralizes Custody** – Ingests telemetry into a central Log Analytics workspace in the Admin Center tenant for unified analysis
+5. **Supports Governance** – Provides full audit trails, RBAC-based access control, and compliance with enterprise security standards
 
 ## Proposed Solution
 
