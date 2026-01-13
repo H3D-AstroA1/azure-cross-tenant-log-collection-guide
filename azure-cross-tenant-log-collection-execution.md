@@ -16,6 +16,7 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
 9. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs](#step-6-configure-microsoft-entra-id-azure-ad-logs)
 10. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+11. [Step 7.1: Collect M365 Audit Logs to Log Analytics](#step-71-collect-m365-audit-logs-to-log-analytics)
 
 ---
 
@@ -7815,9 +7816,262 @@ $subscriptions | Format-Table contentType, status
 
 ---
 
+## Step 7.1: Collect M365 Audit Logs to Log Analytics
+
+> ⚠️ **IMPORTANT**: Step 7 only creates the subscriptions to M365 audit logs - it does NOT automatically send logs to Log Analytics. This step sets up the actual log collection mechanism using an Azure Automation Runbook.
+
+### Overview
+
+The Office 365 Management API makes audit logs **available for retrieval** but does not push them anywhere. This step creates an Azure Automation Runbook that:
+1. Runs on a schedule (every 15-30 minutes)
+2. Retrieves credentials from Key Vault using Managed Identity
+3. Pulls audit logs from all configured source tenants
+4. Sends logs to Log Analytics workspace
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MANAGING TENANT (Atevet12)                          │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  Azure Automation Account                                             │  │
+│  │  ├── Runbook: Collect-M365AuditLogs                                  │  │
+│  │  ├── Schedule: Every 15-30 minutes                                   │  │
+│  │  └── System Managed Identity                                         │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                              │                                              │
+│                              │ 1. Get credentials (Managed Identity)        │
+│                              ▼                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  Key Vault                                                            │  │
+│  │  ├── M365Collector-AppId                                             │  │
+│  │  ├── M365Collector-Secret                                            │  │
+│  │  ├── M365Collector-Tenants                                           │  │
+│  │  └── LogAnalytics-WorkspaceKey                                       │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                              │                                              │
+│                              │ 2. Pull logs & send to Log Analytics         │
+│                              ▼                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  Log Analytics Workspace                                              │  │
+│  │  └── Custom table: M365AuditLogs_CL                                  │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+Before running this step:
+- **Step 7 must be completed** (app registration and subscriptions configured)
+- **Azure Automation Account** in the managing tenant
+- **Log Analytics Workspace ID and Key** (from Step 1)
+
+### Script: `Collect-M365AuditLogs.ps1`
+
+The complete PowerShell script is located at: [`scripts/Collect-M365AuditLogs.ps1`](scripts/Collect-M365AuditLogs.ps1)
+
+### Setup Instructions
+
+#### 1. Store Log Analytics Workspace Key in Key Vault
+
+```powershell
+# Get your Log Analytics workspace key from Azure Portal or via PowerShell
+$workspaceKey = "<YOUR-WORKSPACE-PRIMARY-KEY>"
+
+# Store in Key Vault
+Set-AzKeyVaultSecret -VaultName "kv-central-atevet12" `
+    -Name "LogAnalytics-WorkspaceKey" `
+    -SecretValue (ConvertTo-SecureString $workspaceKey -AsPlainText -Force)
+```
+
+#### 2. Create Azure Automation Account (if not exists)
+
+```powershell
+# Create Automation Account
+$automationAccount = New-AzAutomationAccount `
+    -Name "aa-central-logging" `
+    -ResourceGroupName "rg-central-logging" `
+    -Location "uksouth" `
+    -AssignSystemIdentity
+
+Write-Host "Automation Account created with Managed Identity"
+Write-Host "Principal ID: $($automationAccount.Identity.PrincipalId)"
+```
+
+#### 3. Grant Managed Identity Access to Key Vault
+
+```powershell
+# Get the Automation Account's Managed Identity
+$automationAccount = Get-AzAutomationAccount `
+    -Name "aa-central-logging" `
+    -ResourceGroupName "rg-central-logging"
+
+$principalId = $automationAccount.Identity.PrincipalId
+
+# Grant Key Vault Secrets User role
+New-AzRoleAssignment `
+    -ObjectId $principalId `
+    -RoleDefinitionName "Key Vault Secrets User" `
+    -Scope "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.KeyVault/vaults/kv-central-atevet12"
+
+Write-Host "Granted Key Vault access to Automation Account Managed Identity"
+```
+
+#### 4. Import Required Modules to Automation Account
+
+```powershell
+# Import Az.Accounts module (required for Key Vault access)
+Import-AzAutomationModule `
+    -Name "Az.Accounts" `
+    -ResourceGroupName "rg-central-logging" `
+    -AutomationAccountName "aa-central-logging" `
+    -ContentLinkUri "https://www.powershellgallery.com/api/v2/package/Az.Accounts"
+
+# Import Az.KeyVault module
+Import-AzAutomationModule `
+    -Name "Az.KeyVault" `
+    -ResourceGroupName "rg-central-logging" `
+    -AutomationAccountName "aa-central-logging" `
+    -ContentLinkUri "https://www.powershellgallery.com/api/v2/package/Az.KeyVault"
+
+Write-Host "Modules imported - wait for import to complete before proceeding"
+```
+
+#### 5. Import the Runbook
+
+```powershell
+# Import the collection script as a runbook
+Import-AzAutomationRunbook `
+    -Name "Collect-M365AuditLogs" `
+    -Path ".\scripts\Collect-M365AuditLogs.ps1" `
+    -ResourceGroupName "rg-central-logging" `
+    -AutomationAccountName "aa-central-logging" `
+    -Type PowerShell `
+    -Published
+
+Write-Host "Runbook imported and published"
+```
+
+#### 6. Create Schedule
+
+```powershell
+# Create a schedule to run every 30 minutes
+$startTime = (Get-Date).AddMinutes(10)
+
+New-AzAutomationSchedule `
+    -Name "Every-30-Minutes" `
+    -ResourceGroupName "rg-central-logging" `
+    -AutomationAccountName "aa-central-logging" `
+    -StartTime $startTime `
+    -HourInterval 0 `
+    -MinuteInterval 30 `
+    -TimeZone "UTC"
+
+Write-Host "Schedule created: Every 30 minutes starting at $startTime"
+```
+
+#### 7. Link Runbook to Schedule
+
+```powershell
+# Get your Log Analytics Workspace ID (GUID, not resource ID)
+$workspaceId = "<YOUR-WORKSPACE-GUID>"
+
+# Register the runbook with the schedule
+Register-AzAutomationScheduledRunbook `
+    -RunbookName "Collect-M365AuditLogs" `
+    -ScheduleName "Every-30-Minutes" `
+    -ResourceGroupName "rg-central-logging" `
+    -AutomationAccountName "aa-central-logging" `
+    -Parameters @{
+        KeyVaultName = "kv-central-atevet12"
+        WorkspaceId = $workspaceId
+        HoursToCollect = 1
+    }
+
+Write-Host "Runbook linked to schedule"
+```
+
+### Usage Examples
+
+#### Run Manually (Testing)
+
+```powershell
+# Test the collection script locally
+.\Collect-M365AuditLogs.ps1 `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceId "<WORKSPACE-GUID>" `
+    -WorkspaceKey "<WORKSPACE-KEY>"
+```
+
+#### Collect from Specific Tenant Only
+
+```powershell
+.\Collect-M365AuditLogs.ps1 `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceId "<WORKSPACE-GUID>" `
+    -SpecificTenantId "<ATEVET17-TENANT-ID>"
+```
+
+#### Collect More Historical Data
+
+```powershell
+# Collect last 24 hours of logs (useful for initial backfill)
+.\Collect-M365AuditLogs.ps1 `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceId "<WORKSPACE-GUID>" `
+    -HoursToCollect 24
+```
+
+### Verify Logs in Log Analytics
+
+After the runbook runs, verify logs appear in Log Analytics:
+
+```kusto
+// Check M365 audit logs
+M365AuditLogs_CL
+| where TimeGenerated > ago(1h)
+| summarize count() by SourceTenantName_s, ContentType_s
+| order by count_ desc
+
+// View recent Exchange audit events
+M365AuditLogs_CL
+| where ContentType_s == "Audit.Exchange"
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s, ClientIP_s
+| order by TimeGenerated desc
+
+// View SharePoint file access events
+M365AuditLogs_CL
+| where ContentType_s == "Audit.SharePoint"
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s, ObjectId_s
+| order by TimeGenerated desc
+
+// View Teams events
+M365AuditLogs_CL
+| where ContentType_s == "Audit.General"
+| where Workload_s == "MicrosoftTeams"
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s
+| order by TimeGenerated desc
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Runbook fails with "Key Vault access denied" | Verify Managed Identity has "Key Vault Secrets User" role |
+| No logs collected | Check subscriptions are active (Step 7 verification) |
+| OAuth token error | Verify app credentials in Key Vault are correct |
+| Logs not appearing in Log Analytics | Check Workspace ID and Key are correct |
+| Module import fails | Wait for previous module import to complete |
+
+---
+
 ### Next Steps
 
-After completing Step 7:
+After completing Step 7.1:
 - **Step 8**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
 - **Step 9**: Set up workbooks and dashboards for unified visibility
 - **Step 10**: Implement alerting and incident response workflows
