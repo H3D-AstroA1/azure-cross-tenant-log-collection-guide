@@ -31,6 +31,7 @@
 .PARAMETER KeyVaultName
     The name of the Key Vault in the managing tenant to store configuration.
     Use this parameter to specify which Key Vault to use when multiple exist.
+    Default Key Vault name from Step 1: "kv-central-logging"
     If not specified, the script will auto-discover Key Vaults in the resource group:
     - If one Key Vault is found, it will be used automatically
     - If multiple Key Vaults are found, the script will list them and exit (use -KeyVaultName to select)
