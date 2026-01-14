@@ -4,7 +4,7 @@
 
 ### Background
 
-The simulation infrastructure operates across multiple Azure tenants, where each "game board" represents an isolated tenant environment used for security research, attack simulation, and defensive validation exercises. These environments generate critical telemetry—including Azure Activity Logs, Resource Diagnostic Logs, Virtual Machine telemetry, Microsoft Entra ID (Azure AD) sign-in and audit logs, and Microsoft 365 audit logs—that must be collected centrally for analysis, correlation, and validation of security controls.
+The simulation infrastructure operates across multiple Azure tenants, where each "game board" represents an isolated tenant environment used for security research, attack simulation, and defensive validation exercises. These environments generate critical telemetry including Azure Activity Logs, Resource Diagnostic Logs, Virtual Machine telemetry, Microsoft Entra ID (Azure AD) sign-in and audit logs, and Microsoft 365 audit logs that must be collected centrally for analysis, correlation, and validation of security controls.
 
 ### Challenge
 
@@ -58,7 +58,7 @@ A lightweight, infrastructure-based approach where Tenant A streams Azure platfo
 
 #### Method 2: Azure Lighthouse + Log Analytics Delegation
 
-A secure, enterprise-grade approach where Tenant A delegates controlled access to Tenant B using Azure Lighthouse. With this delegated access, Tenant B can configure diagnostic settings and Data Collection Rules (DCRs) to ingest logs directly from Tenant A's resources into its own Log Analytics workspace—without intermediate infrastructure such as Event Hub.
+A secure, enterprise-grade approach where Tenant A delegates controlled access to Tenant B using Azure Lighthouse. With this delegated access, Tenant B can configure diagnostic settings and Data Collection Rules (DCRs) to ingest logs directly from Tenant A's resources into its own Log Analytics workspace without intermediate infrastructure such as Event Hub.
 
 **Characteristics:**
 - Medium complexity, requires Lighthouse setup and DCR/AMA configuration
@@ -73,7 +73,7 @@ A comprehensive SOC-grade model where Tenant B operates Microsoft Sentinel centr
 **Characteristics:**
 - High complexity, requires Sentinel enablement and cross-workspace query configuration
 - Very high security posture with SOC-grade controls
-- **Does not ingest logs into Tenant B**—data remains in source tenant workspaces
+- **Does not ingest logs into Tenant B** - data remains in source tenant workspaces
 - Best suited for centralized SOC operations, not telemetry ingestion pipelines
 
 ---
@@ -161,7 +161,7 @@ This component serves as the foundation of the hybrid approach, enabling direct,
 1. Authenticate as Global Administrator in the source tenant (one-time)
 2. Configure Entra ID Diagnostic Settings to send logs to Tenant B workspace
 3. Logs flow automatically via Azure's native cross-tenant diagnostic settings capability
-4. No ongoing automation required—this is a push-based, fire-and-forget configuration
+4. No ongoing automation required, this is a push-based, fire-and-forget configuration
 
 **Available Log Categories:**
 
