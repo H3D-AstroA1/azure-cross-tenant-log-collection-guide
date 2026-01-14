@@ -603,6 +603,12 @@ This PowerShell script automates the preparation of the managing tenant by:
     - Security group for delegated access
     - Resource group for centralized logging
     - Log Analytics workspace to receive logs
+    - Key Vault for tracking configured tenants and storing credentials
+    
+    The Key Vault is used to:
+    - Track which source tenants have been configured for log collection
+    - Store credentials for M365 audit log collection (Step 7)
+    - Store any other secrets needed for cross-tenant operations
     
     The script outputs all required IDs needed for the Azure Lighthouse deployment.
 
@@ -610,7 +616,7 @@ This PowerShell script automates the preparation of the managing tenant by:
     The Azure tenant ID (GUID) of the managing tenant.
 
 .PARAMETER SubscriptionId
-    The subscription ID where the Log Analytics workspace will be created.
+    The subscription ID where the Log Analytics workspace and Key Vault will be created.
 
 .PARAMETER SecurityGroupName
     Name of the security group to create. Default: "Lighthouse-CrossTenant-Admins"
@@ -623,6 +629,10 @@ This PowerShell script automates the preparation of the managing tenant by:
 
 .PARAMETER WorkspaceName
     Name of the Log Analytics workspace. Default: "law-central-logging"
+
+.PARAMETER KeyVaultName
+    Name of the Key Vault to create for tracking configured tenants and storing credentials.
+    Default: "kv-central-logging"
 
 .PARAMETER Location
     Azure region for resources. Default: "westus2"
