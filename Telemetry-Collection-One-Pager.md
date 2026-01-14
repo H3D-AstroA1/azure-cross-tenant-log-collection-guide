@@ -1,14 +1,18 @@
-# Telemetry Collection from Simulation Infrastructure – Executive Summary
+# Telemetry Collection from Simulation Infrastructure
+
+## Executive Summary
 
 ## Challenge
 
-Simulation game boards operate as isolated Azure tenants generating critical telemetry (Azure logs, Entra ID logs, M365 audit logs) that must be collected centrally for analysis. The challenge: collect telemetry securely without modifying tenant behaviour or compromising isolation.
+Simulation game boards operate as **isolated Azure tenants**, each generating valuable telemetry—including **Azure platform logs, Entra ID logs, and Microsoft 365 audit logs** that must be analyzed centrally to support detection, validation, and exercise outcomes.
+
+The core challenge is to **collect this telemetry centrally without altering tenant behaviour, weakening isolation boundaries, or introducing operational risk** to the simulation environment.
 
 ---
 
 ## Solution: Hybrid Collection Architecture
 
-**No single method can collect all log types** due to Microsoft's architectural separation of Azure Resource Manager, Entra ID, and Microsoft 365. A hybrid approach combining three mechanisms is required:
+Due to Microsoft’s architectural separation between **Azure Resource Manager, Entra ID,** and **Microsoft 365,** no single mechanism can collect all required telemetry types. A hybrid approach is therefore required, combining three complementary collection methods.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -41,10 +45,10 @@ Simulation game boards operate as isolated Azure tenants generating critical tel
 
 | Log Type | Method | Access Required | Data Flow |
 |----------|--------|-----------------|-----------|
-| Azure Activity Logs | Lighthouse + Diagnostic Settings | Delegated RBAC | Push (auto) |
-| Azure Resource Logs | Lighthouse + Diagnostic Settings | Delegated RBAC | Push (auto) |
-| VM Telemetry | Lighthouse + AMA + DCR | Delegated RBAC | Push (auto) |
-| **Entra ID Logs** | Direct Diagnostic Settings | Global Admin (one-time) | Push (auto) |
+| Azure Activity Logs | Lighthouse + Diagnostic Settings | Delegated RBAC | Push (automatic) |
+| Azure Resource Logs | Lighthouse + Diagnostic Settings | Delegated RBAC | Push (automatic) |
+| VM Telemetry | Lighthouse + AMA + DCR | Delegated RBAC | Push (automatic) |
+| **Entra ID Logs** | Direct Diagnostic Settings | Global Admin (one-time) | Push (automatic) |
 | **M365 Audit Logs** | Office 365 Management API | App Registration + Consent | Pull (scheduled) |
 
 ---
@@ -53,8 +57,8 @@ Simulation game boards operate as isolated Azure tenants generating critical tel
 
 | Log Type | Why Lighthouse Cannot Collect |
 |----------|------------------------------|
-| **Entra ID** | Tenant-level logs require Global Admin; Lighthouse operates at subscription/resource level |
-| **M365** | Separate platform accessed via Office 365 Management API, not Azure APIs |
+| **Entra ID** | Tenant‑level identity logs require **Global Administrator** privileges; Lighthouse operates at subscription and resource scope only |
+| **M365** | M365 is a **separate platform** accessed via the Office 365 Management API, not Azure Monitor or ARM |
 
 ---
 
@@ -62,11 +66,11 @@ Simulation game boards operate as isolated Azure tenants generating critical tel
 
 | Benefit | Description |
 |---------|-------------|
-| ✅ Complete Coverage | All Azure, Entra ID, and M365 logs collected |
-| ✅ Read-Only Posture | Non-intrusive to simulation tenants |
-| ✅ Push-Based (mostly) | Only M365 requires scheduled automation |
-| ✅ Enterprise Governance | RBAC, PIM, Managed Identity, Key Vault |
-| ✅ Scalable | Aligned with Azure Monitor best practices |
+| ✅ Complete Telemetry Coverage | Unified ingestion of Azure, Entra ID, and M365 logs |
+| ✅ Read‑Only Operational Posture | No intrusive agents or behavioural changes to simulation tenants |
+| ✅ Primarily Push‑Based | Only M365 requires scheduled pull automation |
+| ✅ Enterprise‑Grade Governance | RBAC, PIM, Managed Identity, Key Vault–backed secrets |
+| ✅ Scalable and Repeatable | Aligned with Azure Monitor and Sentinel best practices |
 
 ---
 
@@ -77,8 +81,8 @@ Simulation game boards operate as isolated Azure tenants generating critical tel
 | 1 | Deploy Azure Lighthouse delegation | One-time |
 | 2 | Configure Activity/Resource Log diagnostic settings | One-time |
 | 3 | Deploy AMA + DCR for VM telemetry | One-time |
-| 4 | Configure Entra ID diagnostic settings (Global Admin) | One-time |
-| 5 | Deploy M365 audit log collection runbook | Ongoing |
+| 4 | Configure Entra ID Diagnostic Settings | One-time |
+| 5 | Deploy M365 audit log collection runbook automation | Ongoing |
 
 ---
 
