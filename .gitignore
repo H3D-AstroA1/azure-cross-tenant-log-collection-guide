@@ -18,7 +18,7 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Office temp files and documents in delete_now
+# Office temp files and documents
 ~$*
-delete_now/*.docx
-delete_now/*.pdf
+*.docx
+*.pdf
