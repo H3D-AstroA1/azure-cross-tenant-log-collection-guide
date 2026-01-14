@@ -4,7 +4,7 @@
 
 ## Challenge
 
-Simulation game boards operate as **isolated Azure tenants**, each generating valuable telemetry—including **Azure platform logs, Entra ID logs, and Microsoft 365 audit logs** that must be analyzed centrally to support detection, validation, and exercise outcomes.
+Simulation game boards operate as **isolated Azure tenants**, each generating valuable telemetry including **Azure platform logs, Entra ID logs, and Microsoft 365 audit logs** that must be analyzed centrally to support detection, validation, and exercise outcomes.
 
 The core challenge is to **collect this telemetry centrally without altering tenant behaviour, weakening isolation boundaries, or introducing operational risk** to the simulation environment.
 
