@@ -30,20 +30,51 @@ Design and implement a telemetry collection architecture that:
 
 ## Proposed Solution
 
-Implement a non-intrusive telemetry collection layer:
+### Solution Overview
 
-- **Read-Only Mode**: Operates without changing tenant existing settings.
-- **Proxy/Shadow Environment**: Captures telemetry passively.
-- **Multi-Tenant Isolation**: Prevents cross-contamination.
-- **Automated Export**: Sends data to central storage for analysis.
+To address the challenges outlined above, we propose implementing a **non-intrusive, multi-method telemetry collection architecture** that leverages Azure-native capabilities to collect logs from simulation game boards (Tenant A) into a central Admin Center (Tenant B). This architecture is designed around the following core principles:
 
-We have several approaches available for collecting logs; however, there are three primary options for transferring complete raw logs from Azure Tenant A (the simulation game board) to Azure Tenant B (the Admin Center):
+| Principle | Implementation |
+|-----------|----------------|
+| **Read-Only Posture** | Delegated access via Azure Lighthouse with minimal, auditable configuration changes |
+| **Passive Collection** | Logs flow automatically via diagnostic settings and Data Collection Rules (DCRs) after one-time setup |
+| **Tenant Isolation** | Each simulation tenant remains independent; telemetry is tagged and segregated in the central workspace |
+| **Automated Ingestion** | Push-based mechanisms for Azure and Entra ID logs; scheduled automation for M365 logs |
+| **Centralized Custody** | All telemetry ingested into a single Log Analytics workspace in Tenant B for unified analysis |
 
-- **Continuous Export via Event Hub** - A lightweight and straightforward option where Tenant A streams raw Azure logs such as Activity Logs, Resource Logs, and platform telemetry into an Event Hub namespace. Tenant B then ingests these events into its own Log Analytics workspace using an Azure Function or a Data Collection Rule (DCR) configured to pull from the Event Hub. This model is ideal for quick, minimal infrastructure cross tenant log forwarding and suits scenarios where simplicity and fast enablement are priorities.
+### Available Collection Methods
 
-- **Azure Lighthouse + Log Analytics Delegation** - A secure, enterprise grade approach where Tenant A delegates-controlled access to Tenant B using Azure Lighthouse. With this delegated access, Tenant B can create Data Collection Rules (DCRs) to ingest logs directly from Tenant A's resources into its own Log Analytics workspace, without relying on Event Hub or intermediate infrastructure. This model provides strong security assurances through fine grained RBAC, Just In Time access via PIM, and clear separation of duties, making it a robust choice for cross tenant log collection.
+Three primary methods are available for transferring telemetry from simulation game boards (Tenant A) to the Admin Center (Tenant B). Each method has distinct characteristics, trade-offs, and applicability depending on the log type and operational requirements.
 
-- **Microsoft Sentinel Multi Tenant Integration** - A comprehensive SOC grade model in which Tenant B centrally operates Sentinel and, through Azure Lighthouse, can query, hunt, detect, and manage incidents across Tenant A and other connected tenants. It enables unified security operations with cross workspace analytics, advanced correlation, and integrated automation.
+#### Method 1: Continuous Export via Event Hub
+
+A lightweight, infrastructure-based approach where Tenant A streams Azure platform logs (Activity Logs, Resource Logs, diagnostic telemetry) into an Event Hub namespace. Tenant B consumes these events using an Azure Function or Logic App, transforming and ingesting them into its Log Analytics workspace via the Data Collector API or Logs Ingestion API.
+
+**Characteristics:**
+- Low complexity, fast deployment
+- Requires Event Hub infrastructure and ingestion application
+- Best suited for scenarios prioritizing speed over governance
+- Does not require Azure Lighthouse delegation
+
+#### Method 2: Azure Lighthouse + Log Analytics Delegation
+
+A secure, enterprise-grade approach where Tenant A delegates controlled access to Tenant B using Azure Lighthouse. With this delegated access, Tenant B can configure diagnostic settings and Data Collection Rules (DCRs) to ingest logs directly from Tenant A's resources into its own Log Analytics workspace—without intermediate infrastructure such as Event Hub.
+
+**Characteristics:**
+- Medium complexity, requires Lighthouse setup and DCR/AMA configuration
+- Strong security posture: RBAC-based delegation, Managed Identities, PIM/JIT elevation
+- Native log ingestion via Azure Monitor Agent (AMA) and DCRs
+- Recommended for enterprise-grade, governed telemetry pipelines
+
+#### Method 3: Microsoft Sentinel Multi-Tenant Integration
+
+A comprehensive SOC-grade model where Tenant B operates Microsoft Sentinel centrally and, through Azure Lighthouse, can query, hunt, detect, and manage incidents across Tenant A and other connected tenants. This model enables unified security operations with cross-workspace analytics, advanced correlation, and integrated automation.
+
+**Characteristics:**
+- High complexity, requires Sentinel enablement and cross-workspace query configuration
+- Very high security posture with SOC-grade controls
+- **Does not ingest logs into Tenant B**—data remains in source tenant workspaces
+- Best suited for centralized SOC operations, not telemetry ingestion pipelines
 
 ---
 
