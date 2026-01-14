@@ -78,13 +78,24 @@ A comprehensive SOC-grade model where Tenant B operates Microsoft Sentinel centr
 
 ---
 
-## Comparison Table
+## Method Comparison Summary
 
-| Method | Complexity | Security | What It Does | Best For |
-|--------|------------|----------|--------------|----------|
-| 1. Continuous Export via Event Hub | Low | Medium | Streams platform and resource logs from Tenant A → Event Hub → Tenant B using a Function or DCR for ingestion. | Fastest and simplest option for raw log forwarding where speed matters more than governance. |
-| 2. Azure Lighthouse + Log Analytics Delegation | Medium | High | Tenant A delegates controlled access to Tenant B via Azure Lighthouse; Tenant B natively ingests logs directly into its Log Analytics workspace using AMA + DCR, without intermediary infrastructure. | Secure, enterprise grade cross tenant log ingestion with centralized ownership, governance, and compliance. |
-| 3. Microsoft Sentinel Multi Tenant | High | Very High | Tenant B operates Microsoft Sentinel centrally and queries, hunts, and analyzes data that remains in Tenant A workspaces via Lighthouse; no direct log ingestion into Tenant B. | Centralized SOC operations, analytics, hunting, and detections across tenants (not for ingestion pipelines). |
+The table below provides a quick-reference comparison of the three available methods. For a comprehensive side-by-side analysis across 14 criteria, see [Appendix A – Detailed Comparison Table](#appendix-a--detailed-comparison-table).
+
+| Method | Complexity | Security | Data Flow | Ingests to Tenant B? | Best For |
+|--------|------------|----------|-----------|---------------------|----------|
+| **Event Hub** | Low | Medium | Tenant A → Event Hub → Function/Logic App → Tenant B | ✅ Yes | Speed over governance; quick deployment |
+| **Lighthouse + DCR** | Medium | High | Tenant A → AMA/DCR → Tenant B (native) | ✅ Yes | Enterprise-grade ingestion with governance |
+| **Sentinel Multi-Tenant** | High | Very High | Query in place (no data movement) | ❌ No | SOC operations; analytics-only scenarios |
+
+### Key Decision Factors
+
+| If You Need... | Recommended Method |
+|----------------|-------------------|
+| Fastest deployment with minimal prerequisites | Event Hub |
+| Centralized custody with enterprise governance | Lighthouse + DCR |
+| SOC analytics without data transfer | Sentinel Multi-Tenant |
+| **Complete telemetry coverage (Azure + Entra ID + M365)** | **Hybrid Approach** (see below) |
 
 ---
 
