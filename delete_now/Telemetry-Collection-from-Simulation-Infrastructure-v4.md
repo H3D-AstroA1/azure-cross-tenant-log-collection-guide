@@ -101,109 +101,150 @@ The table below provides a quick-reference comparison of the three available met
 
 ## Recommended Approach for Simulation Scenarios
 
-For simulation scenarios that require secure ingestion of raw or near-raw telemetry into a central analysis environment, a **hybrid approach combining multiple methods** is required to achieve complete log coverage.
+### Overview
 
-### Critical Limitation: No Single Method Covers All Log Types
+Based on the analysis of available methods and the specific requirements of simulation telemetry collection, we recommend a **hybrid approach** that combines multiple collection mechanisms to achieve complete log coverage. This approach is necessary because Microsoft's platform architecture exposes different log types through fundamentally different APIs and authentication boundaries.
 
-> ⚠️ **Important**: Due to architectural differences in how Microsoft exposes different log types, **no single method can collect all telemetry**. The table below shows which methods are required for each log type:
+### Why a Hybrid Approach Is Required
 
-| Log Type | Lighthouse + DCR | Direct Diagnostic Settings | Office 365 Management API |
-|----------|------------------|---------------------------|---------------------------|
-| Azure Activity Logs | ✅ | - | - |
-| Azure Resource Logs | ✅ | - | - |
-| VM Logs (via AMA) | ✅ | - | - |
-| **Entra ID Logs** | ❌ | ✅ (requires Global Admin) | - |
-| **M365 Audit Logs** | ❌ | - | ✅ (requires separate API) |
+> ⚠️ **Critical Architectural Limitation**: No single method can collect all telemetry types due to how Microsoft separates Azure Resource Manager, Microsoft Entra ID, and Microsoft 365 into distinct control planes with different access models.
 
-### Primary Method: Azure Lighthouse + Log Analytics Delegation
+The following matrix illustrates which collection method is required for each log type:
 
-This model enables direct, native log ingestion from Tenant A (simulation game boards) into a central Log Analytics workspace in Tenant B using Azure Monitor Agent (AMA) and Data Collection Rules (DCRs), without introducing intermediary infrastructure or modifying tenant behavior. Delegated access is implemented via Azure Lighthouse, providing strong separation of duties, fine-grained RBAC, and Just-In-Time (JIT) elevation through PIM.
+| Log Type | Azure Lighthouse + DCR | Direct Diagnostic Settings | Office 365 Management API |
+|----------|:----------------------:|:--------------------------:|:-------------------------:|
+| Azure Activity Logs | ✅ Supported | — | — |
+| Azure Resource Logs | ✅ Supported | — | — |
+| VM Logs (via AMA) | ✅ Supported | — | — |
+| **Entra ID Logs** | ❌ Not Supported | ✅ Required | — |
+| **M365 Audit Logs** | ❌ Not Supported | — | ✅ Required |
 
-**Covers:**
-- Azure Activity Logs (subscription-level control plane operations)
-- Azure Resource Diagnostic Logs (Key Vault, Storage, SQL, etc.)
-- Virtual Machine telemetry (performance counters, Windows Event Logs, Linux Syslog)
+**Key Insight**: Lighthouse operates at the Azure subscription/resource level and cannot access tenant-level services (Entra ID) or non-Azure services (Microsoft 365).
 
-### Required Supplementary Method 1: Entra ID Logs
+---
+
+### Component 1: Azure Lighthouse + Log Analytics Delegation (Primary)
+
+**Purpose**: Collect all Azure resource-level telemetry with enterprise-grade governance.
+
+This component serves as the foundation of the hybrid approach, enabling direct, native log ingestion from simulation game boards (Tenant A) into the central Log Analytics workspace (Tenant B) using Azure Monitor Agent (AMA) and Data Collection Rules (DCRs).
+
+**Telemetry Covered:**
+
+| Log Category | Examples | Collection Mechanism |
+|--------------|----------|---------------------|
+| Activity Logs | Subscription-level control plane operations | Diagnostic Settings → Tenant B workspace |
+| Resource Logs | Key Vault access, Storage operations, SQL audits | Diagnostic Settings → Tenant B workspace |
+| VM Telemetry | Performance counters, Windows Events, Linux Syslog | AMA + DCR → Tenant B workspace |
+
+**Security & Governance Features:**
+- RBAC-based delegation via Lighthouse Registration Definition
+- Just-In-Time (JIT) access elevation via PIM
+- Full audit trail in both source and destination tenants
+- No credential sharing between tenants
+
+---
+
+### Component 2: Entra ID Logs (Supplementary – Required)
+
+**Purpose**: Collect identity and authentication telemetry from the source tenant.
 
 **Why Lighthouse Cannot Collect Entra ID Logs:**
-- Entra ID logs are **tenant-level logs**, not resource-level logs
-- They require **Global Administrator** credentials in the source tenant
-- Lighthouse delegation operates at the subscription/resource level and cannot access tenant-level diagnostic settings
 
-**Collection Method:**
-- Configure Entra ID Diagnostic Settings directly in the source tenant
-- Requires one-time Global Admin authentication to source tenant
-- Logs flow automatically via Azure's native cross-tenant diagnostic settings capability
-- No ongoing runbook or automation required (push-based)
+| Limitation | Explanation |
+|------------|-------------|
+| **Scope Mismatch** | Entra ID logs are tenant-level, not resource-level |
+| **Authentication Boundary** | Requires Global Administrator in the source tenant |
+| **API Separation** | Entra ID diagnostic settings are not accessible via Azure Resource Manager delegation |
 
-**Log Categories Available:**
+**Collection Mechanism:**
+1. Authenticate as Global Administrator in the source tenant (one-time)
+2. Configure Entra ID Diagnostic Settings to send logs to Tenant B workspace
+3. Logs flow automatically via Azure's native cross-tenant diagnostic settings capability
+4. No ongoing automation required—this is a push-based, fire-and-forget configuration
 
-| Category | License Required |
-|----------|------------------|
-| AuditLogs | Free |
-| SignInLogs | P1/P2 |
-| NonInteractiveUserSignInLogs | P1/P2 |
-| ServicePrincipalSignInLogs | P1/P2 |
-| ManagedIdentitySignInLogs | P1/P2 |
-| ProvisioningLogs | P1/P2 |
-| RiskyUsers | P2 |
-| UserRiskEvents | P2 |
-| RiskyServicePrincipals | P2 |
-| ServicePrincipalRiskEvents | P2 |
-| MicrosoftGraphActivityLogs | P1/P2 |
+**Available Log Categories:**
 
-### Required Supplementary Method 2: M365 Audit Logs
+| Category | License Requirement | Description |
+|----------|---------------------|-------------|
+| AuditLogs | Free | Directory changes, app registrations, role assignments |
+| SignInLogs | Entra ID P1/P2 | Interactive user sign-ins |
+| NonInteractiveUserSignInLogs | Entra ID P1/P2 | Background/service sign-ins |
+| ServicePrincipalSignInLogs | Entra ID P1/P2 | Application/service principal authentications |
+| ManagedIdentitySignInLogs | Entra ID P1/P2 | Managed Identity authentications |
+| ProvisioningLogs | Entra ID P1/P2 | User provisioning events |
+| RiskyUsers | Entra ID P2 | Users flagged for risk |
+| UserRiskEvents | Entra ID P2 | Risk detection events |
+| RiskyServicePrincipals | Entra ID P2 | Service principals flagged for risk |
+| ServicePrincipalRiskEvents | Entra ID P2 | Service principal risk events |
+| MicrosoftGraphActivityLogs | Entra ID P1/P2 | Graph API call telemetry |
+
+---
+
+### Component 3: M365 Audit Logs (Supplementary – Required)
+
+**Purpose**: Collect Microsoft 365 workload telemetry (Exchange, SharePoint, Teams, etc.).
 
 **Why Lighthouse Cannot Collect M365 Audit Logs:**
-- Microsoft 365 audit logs are **completely separate from Azure Resource Manager**
-- They are accessed via the **Office 365 Management API**, not Azure APIs
-- No Azure authentication mechanism (including Lighthouse) can access M365 audit data
 
-**Collection Method:**
-- Create a multi-tenant app registration with Office 365 Management API permissions
-- Deploy an Azure Automation Runbook to pull logs on a schedule
-- Store credentials securely in Key Vault
-- Ingest logs into Log Analytics using the Data Collector API
+| Limitation | Explanation |
+|------------|-------------|
+| **Platform Separation** | M365 is completely separate from Azure Resource Manager |
+| **API Boundary** | Accessed via Office 365 Management API, not Azure APIs |
+| **Authentication Model** | Requires app registration with M365-specific permissions |
 
-**Log Categories Available:**
+**Collection Mechanism:**
+1. Create a multi-tenant app registration in the managing tenant (Tenant B)
+2. Configure Office 365 Management API permissions (`ActivityFeed.Read`)
+3. Grant admin consent in each source tenant
+4. Deploy an Azure Automation Runbook to pull logs on a schedule (e.g., every 15 minutes)
+5. Store app credentials securely in Azure Key Vault
+6. Ingest logs into Log Analytics using the Data Collector API or Logs Ingestion API
 
-| Content Type | Description |
-|--------------|-------------|
-| Audit.AzureActiveDirectory | Entra ID events (via M365 API) |
-| Audit.Exchange | Exchange Online operations |
-| Audit.SharePoint | SharePoint & OneDrive activities |
-| Audit.General | Teams, Power Platform, Dynamics 365 |
-| DLP.All | Data Loss Prevention events |
+**Available Content Types:**
+
+| Content Type | Description | Examples |
+|--------------|-------------|----------|
+| Audit.AzureActiveDirectory | Entra ID events via M365 API | Sign-ins, directory changes |
+| Audit.Exchange | Exchange Online operations | Mailbox access, mail flow rules |
+| Audit.SharePoint | SharePoint & OneDrive activities | File access, sharing, permissions |
+| Audit.General | Cross-workload events | Teams, Power Platform, Dynamics 365 |
+| DLP.All | Data Loss Prevention events | Policy matches, sensitive data detection |
+
+---
+
+### Hybrid Approach Summary
+
+The following table summarizes the complete telemetry collection architecture:
+
+| Step | Log Type | Collection Method | Data Flow | Operational Model |
+|:----:|----------|-------------------|-----------|-------------------|
+| 1 | Azure Activity Logs | Lighthouse + Diagnostic Settings | Push (auto) | One-time setup |
+| 2 | Azure Resource Logs | Lighthouse + Diagnostic Settings | Push (auto) | One-time setup |
+| 3 | VM Telemetry | Lighthouse + AMA + DCR | Push (auto) | One-time setup |
+| 4 | **Entra ID Logs** | Direct Diagnostic Settings | Push (auto) | One-time setup (Global Admin) |
+| 5 | **M365 Audit Logs** | Office 365 Management API | Pull (scheduled) | Ongoing (Runbook) |
 
 ---
 
 ### Key Benefits of the Hybrid Approach
 
-| Benefit | Description |
-|---------|-------------|
-| **Complete Coverage** | All Azure, Entra ID, and M365 logs collected |
-| **Native Ingestion** | AMA + DCR for Azure logs (no Event Hub required) |
-| **Push-Based Where Possible** | Azure and Entra ID logs flow automatically after one-time setup |
-| **Pull-Based Only Where Required** | M365 logs require scheduled runbook (architectural limitation) |
-| **Read-Only Access** | Non-intrusive to simulation tenants |
-| **Strong Security** | RBAC, Managed Identity, PIM for Azure; App credentials in Key Vault for M365 |
-| **Multi-Tenant Isolation** | Clear custody of collected telemetry |
-| **Scalable & Auditable** | Aligned with Azure Monitor best practices |
+| Benefit | How It's Achieved |
+|---------|-------------------|
+| **Complete Coverage** | All Azure, Entra ID, and M365 logs collected through appropriate mechanisms |
+| **Native Ingestion** | AMA + DCR for Azure logs eliminates need for Event Hub infrastructure |
+| **Push-Based Where Possible** | Azure and Entra ID logs flow automatically after one-time configuration |
+| **Pull-Based Only Where Required** | M365 logs use scheduled runbook (Microsoft architectural limitation) |
+| **Read-Only Posture** | Non-intrusive to simulation tenants; minimal configuration changes |
+| **Strong Security** | RBAC + PIM for Azure; Managed Identity where possible; Key Vault for M365 credentials |
+| **Tenant Isolation** | Clear custody boundaries; telemetry tagged by source tenant |
+| **Scalable & Auditable** | Aligned with Azure Monitor best practices; full audit trails |
 
 ---
 
-### Summary: Methods Required for Complete Telemetry
+### Conclusion
 
-| Step | Log Type | Method | Operational Overhead |
-|------|----------|--------|---------------------|
-| 1 | Azure Activity Logs | Lighthouse + Diagnostic Settings | One-time setup, auto-push |
-| 2 | Azure Resource Logs | Lighthouse + Diagnostic Settings | One-time setup, auto-push |
-| 3 | VM Logs | Lighthouse + DCR + AMA + Azure Policy | One-time setup, auto-push |
-| 4 | **Entra ID Logs** | Direct Diagnostic Settings (Global Admin) | One-time setup, auto-push |
-| 5 | **M365 Audit Logs** | Office 365 Management API + Runbook | Ongoing (scheduled runbook) |
-
-This hybrid approach strikes the optimal balance between security, ingestion capability, operational simplicity, and compliance, making it the most appropriate choice for **complete** simulation telemetry collection and analysis.
+The hybrid approach represents the optimal balance between security, completeness, operational simplicity, and compliance. By combining Azure Lighthouse for resource-level logs, direct diagnostic settings for Entra ID, and the Office 365 Management API for M365 workloads, this architecture ensures **complete telemetry coverage** while maintaining the read-only, non-intrusive posture required for simulation environments.
 
 ---
 
