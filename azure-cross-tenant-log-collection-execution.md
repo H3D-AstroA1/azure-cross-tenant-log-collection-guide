@@ -892,7 +892,7 @@ if ($GroupMembers.Count -gt 0 -and $results.SecurityGroupId) {
             
             # Check if it's a GUID (Object ID)
             if ($member -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-                # It's an Object ID
+                # It's an Object ID - try to find user or guest
                 if ($graphModule) {
                     $user = Get-MgUser -UserId $member -ErrorAction SilentlyContinue
                 }
@@ -901,17 +901,50 @@ if ($GroupMembers.Count -gt 0 -and $results.SecurityGroupId) {
                 }
             }
             else {
-                # It's a UPN
+                # It's a UPN - could be a regular user or a guest user
                 if ($graphModule) {
+                    # First try direct lookup
                     $user = Get-MgUser -UserId $member -ErrorAction SilentlyContinue
+                    
+                    # If not found, try searching for guest users
+                    # Guest users have UPN format: user_domain.com#EXT#@tenant.onmicrosoft.com
+                    # But their mail or otherMails may contain the original email
+                    if (-not $user) {
+                        Write-Info "  Searching for user as potential guest: $member"
+                        # Search by mail property (works for guests)
+                        $user = Get-MgUser -Filter "mail eq '$member'" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        
+                        # If still not found, try searching by userPrincipalName pattern for guests
+                        if (-not $user) {
+                            # Convert user@domain.com to user_domain.com#EXT# pattern
+                            $guestUpnPattern = ($member -replace '@', '_') + "#EXT#"
+                            $user = Get-MgUser -Filter "startswith(userPrincipalName, '$guestUpnPattern')" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        }
+                    }
                 }
                 else {
+                    # Using Az module
                     $user = Get-AzADUser -UserPrincipalName $member -ErrorAction SilentlyContinue
+                    
+                    # If not found, try searching for guest users
+                    if (-not $user) {
+                        Write-Info "  Searching for user as potential guest: $member"
+                        # Search by mail property
+                        $user = Get-AzADUser -Filter "mail eq '$member'" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        
+                        # If still not found, try the guest UPN pattern
+                        if (-not $user) {
+                            $guestUpnPattern = ($member -replace '@', '_') + "#EXT#"
+                            $user = Get-AzADUser -Filter "startswith(userPrincipalName, '$guestUpnPattern')" -ErrorAction SilentlyContinue | Select-Object -First 1
+                        }
+                    }
                 }
             }
             
             if (-not $user) {
                 Write-ErrorMsg "  [X] User not found: $member"
+                Write-ErrorMsg "      If this is a guest user, ensure they have been invited to this tenant."
+                Write-ErrorMsg "      Guest users can be added by their Object ID from this tenant."
                 $results.GroupMembersFailed += $member
                 continue
             }
@@ -1382,6 +1415,74 @@ Install-Module Microsoft.Graph.Groups -Scope CurrentUser
 1. Verify the subscription ID is correct
 2. Ensure you have access to the subscription
 3. Check you're connected to the correct tenant
+
+#### User Not Found When Adding Group Members
+
+**Error:** `[X] User not found: user@otherdomain.com` or `[X] User not found: <object-id>`
+
+**Cause:** This typically occurs when trying to add **guest users (B2B users)** to the security group. Guest users have a different UPN format in the host tenant than their home tenant.
+
+For example, a user `username@subdomain.domain.com` invited as a guest to ATEVET12 will have a UPN like:
+`username_subdomain.domain.com#EXT#@ATEVET12.domain.com`
+
+**Solutions:**
+
+1. **Use the guest user's Object ID from the current tenant** (Recommended):
+   ```powershell
+   # Find the guest user's Object ID in the current tenant
+   Get-MgUser -Filter "mail eq 'username@subdomain.domain.com'" | Select-Object Id, DisplayName, UserPrincipalName
+   
+   # Or search by the guest UPN pattern
+   Get-MgUser -Filter "startswith(userPrincipalName, 'username_subdomain.domain.com#EXT#')" | Select-Object Id, DisplayName, UserPrincipalName
+   
+   # Then use the Object ID from the current tenant
+   .\Prepare-ManagingTenant.ps1 -TenantId "..." -SubscriptionId "..." -GroupMembers @("<object-id-from-current-tenant>")
+   ```
+
+2. **Skip the `-GroupMembers` parameter if users are already in the group**:
+   ```powershell
+   # If the users are already members of the security group, simply omit the parameter
+   .\Prepare-ManagingTenant.ps1 -TenantId "..." -SubscriptionId "..." -SecurityGroupName "Lighthouse-CrossTenant-Atevet17-Admins-TD"
+   ```
+
+3. **Add members manually via Azure Portal**:
+   - Go to **Microsoft Entra ID** → **Groups** → Select your security group
+   - Click **Members** → **Add members**
+   - Search for the guest user by their display name or email
+
+**Note:** The script has been updated to automatically search for guest users by their mail property and guest UPN pattern. If you're still seeing this error, ensure the user has been invited to the tenant first.
+
+#### Key Vault Creation Failed - EnableRbacAuthorization Parameter
+
+**Error:** `Failed to create Key Vault: A parameter cannot be found that matches parameter name 'EnableRbacAuthorization'.`
+
+**Cause:** Your installed `Az.KeyVault` module is an older version that doesn't support the `-EnableRbacAuthorization` parameter. This parameter was added in newer versions of the module.
+
+**Solution:**
+```powershell
+# Check your current Az.KeyVault version
+Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
+
+# Update the Az.KeyVault module
+Update-Module -Name Az.KeyVault -Force
+
+# Or install the latest version (if Update-Module doesn't work)
+Install-Module -Name Az.KeyVault -Force -AllowClobber
+
+# Verify the new version is installed
+Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
+
+# Re-run the script after updating
+.\Prepare-ManagingTenant.ps1 -TenantId "..." -SubscriptionId "..."
+```
+
+**Alternative:** If you cannot update the module, create the Key Vault manually via Azure Portal:
+1. Go to **Azure Portal** → **Create a resource** → **Key Vault**
+2. Select your subscription and resource group
+3. Enter the Key Vault name (e.g., `kv-central-logging-for-atevet17-TD`)
+4. Select the region (e.g., `westus2`)
+5. Under **Access configuration**, select **Azure role-based access control (recommended)**
+6. Click **Review + create** → **Create**
 
 ---
 
