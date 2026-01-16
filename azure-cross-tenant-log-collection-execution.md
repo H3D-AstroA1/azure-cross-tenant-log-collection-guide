@@ -1111,6 +1111,7 @@ Write-Host ""
 Write-Info "Creating Key Vault: $KeyVaultName"
 
 try {
+    # First, check if Key Vault already exists in the resource group
     $existingKv = Get-AzKeyVault -VaultName $KeyVaultName -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
     
     if ($existingKv) {
@@ -1118,57 +1119,113 @@ try {
         $keyVault = $existingKv
     }
     else {
-        # Try to create Key Vault with RBAC authorization first
-        # If the parameter is not supported, fall back to vault access policy mode
-        $keyVaultCreated = $false
-        
-        # First attempt: Try with -EnableRbacAuthorization parameter
+        # Check if Key Vault exists but was soft-deleted (globally unique names are reserved even after deletion)
+        Write-Info "  Checking for soft-deleted Key Vault..."
+        $deletedKv = $null
         try {
-            Write-Info "  Attempting to create Key Vault with RBAC authorization..."
-            $keyVault = New-AzKeyVault `
-                -VaultName $KeyVaultName `
-                -ResourceGroupName $ResourceGroupName `
-                -Location $results.Location `
-                -EnabledForDeployment `
-                -EnabledForTemplateDeployment `
-                -EnableRbacAuthorization `
-                -ErrorAction Stop
-            
-            $keyVaultCreated = $true
-            Write-Success "  Created Key Vault with RBAC authorization"
+            $deletedKv = Get-AzKeyVault -VaultName $KeyVaultName -Location $results.Location -InRemovedState -ErrorAction SilentlyContinue
         }
         catch {
-            $errorMessage = $_.Exception.Message
+            # InRemovedState parameter might not be supported in older versions
+            Write-Warning "  Could not check for soft-deleted vaults (older Az.KeyVault module)"
+        }
+        
+        if ($deletedKv) {
+            Write-Warning "  Key Vault '$KeyVaultName' was previously deleted and is in soft-deleted state"
+            Write-Info "  Attempting to recover the soft-deleted Key Vault..."
             
-            # Check if the error is specifically about the EnableRbacAuthorization parameter
-            if ($errorMessage -like "*EnableRbacAuthorization*" -or $errorMessage -like "*parameter name*") {
-                Write-Warning "  -EnableRbacAuthorization parameter not supported by current Az.KeyVault module"
-                Write-Warning "  Falling back to vault access policy mode..."
+            try {
+                # Recover the soft-deleted Key Vault
+                Undo-AzKeyVaultRemoval -VaultName $KeyVaultName -ResourceGroupName $ResourceGroupName -Location $results.Location -ErrorAction Stop
                 
-                # Second attempt: Create without RBAC parameter
-                try {
-                    $keyVault = New-AzKeyVault `
-                        -VaultName $KeyVaultName `
-                        -ResourceGroupName $ResourceGroupName `
-                        -Location $results.Location `
-                        -EnabledForDeployment `
-                        -EnabledForTemplateDeployment `
-                        -ErrorAction Stop
+                # Wait for recovery to complete
+                Write-Info "  Waiting for Key Vault recovery to complete..."
+                Start-Sleep -Seconds 10
+                
+                # Get the recovered Key Vault
+                $keyVault = Get-AzKeyVault -VaultName $KeyVaultName -ResourceGroupName $ResourceGroupName -ErrorAction Stop
+                Write-Success "  ✓ Key Vault recovered successfully"
+            }
+            catch {
+                Write-ErrorMsg "  Failed to recover Key Vault: $($_.Exception.Message)"
+                Write-Warning "  You may need to purge the deleted Key Vault first:"
+                Write-Warning "    Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState -Force"
+                Write-Warning "  Or wait for the retention period to expire (default: 90 days)"
+                $results.Errors += "Key Vault recovery failed: $($_.Exception.Message)"
+                throw $_
+            }
+        }
+        else {
+            # Key Vault doesn't exist and isn't soft-deleted - create new one
+            # Try to create Key Vault with RBAC authorization first
+            # If the parameter is not supported, fall back to vault access policy mode
+            $keyVaultCreated = $false
+            
+            # First attempt: Try with -EnableRbacAuthorization parameter
+            try {
+                Write-Info "  Attempting to create Key Vault with RBAC authorization..."
+                $keyVault = New-AzKeyVault `
+                    -VaultName $KeyVaultName `
+                    -ResourceGroupName $ResourceGroupName `
+                    -Location $results.Location `
+                    -EnabledForDeployment `
+                    -EnabledForTemplateDeployment `
+                    -EnableRbacAuthorization `
+                    -ErrorAction Stop
+                
+                $keyVaultCreated = $true
+                Write-Success "  Created Key Vault with RBAC authorization"
+            }
+            catch {
+                $errorMessage = $_.Exception.Message
+                
+                # Check if the error is specifically about the EnableRbacAuthorization parameter
+                if ($errorMessage -like "*EnableRbacAuthorization*" -or $errorMessage -like "*parameter name*") {
+                    Write-Warning "  -EnableRbacAuthorization parameter not supported by current Az.KeyVault module"
+                    Write-Warning "  Falling back to vault access policy mode..."
                     
-                    $keyVaultCreated = $true
-                    Write-Success "  Created Key Vault with vault access policy mode"
-                    Write-Info "  To enable RBAC authorization later:"
-                    Write-Info "    1. Go to Azure Portal > Key Vault > Access configuration"
-                    Write-Info "    2. Select 'Azure role-based access control'"
-                    Write-Info "    3. Or update Az.KeyVault module: Update-Module -Name Az.KeyVault -Force"
+                    # Second attempt: Create without RBAC parameter
+                    try {
+                        $keyVault = New-AzKeyVault `
+                            -VaultName $KeyVaultName `
+                            -ResourceGroupName $ResourceGroupName `
+                            -Location $results.Location `
+                            -EnabledForDeployment `
+                            -EnabledForTemplateDeployment `
+                            -ErrorAction Stop
+                        
+                        $keyVaultCreated = $true
+                        Write-Success "  Created Key Vault with vault access policy mode"
+                        Write-Info "  To enable RBAC authorization later:"
+                        Write-Info "    1. Go to Azure Portal > Key Vault > Access configuration"
+                        Write-Info "    2. Select 'Azure role-based access control'"
+                        Write-Info "    3. Or update Az.KeyVault module: Update-Module -Name Az.KeyVault -Force"
+                    }
+                    catch {
+                        # Check if this is a soft-delete conflict that we missed
+                        if ($_.Exception.Message -like "*already in use*" -or $_.Exception.Message -like "*soft delete*" -or $_.Exception.Message -like "*recoverable state*") {
+                            Write-ErrorMsg "  Key Vault name '$KeyVaultName' is reserved by a soft-deleted vault"
+                            Write-Warning "  To resolve this, either:"
+                            Write-Warning "    1. Purge the deleted vault: Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState -Force"
+                            Write-Warning "    2. Use a different Key Vault name with -KeyVaultName parameter"
+                            Write-Warning "    3. Wait for the retention period to expire (default: 90 days)"
+                        }
+                        throw $_
+                    }
                 }
-                catch {
+                # Check if this is a soft-delete conflict
+                elseif ($errorMessage -like "*already in use*" -or $errorMessage -like "*soft delete*" -or $errorMessage -like "*recoverable state*") {
+                    Write-ErrorMsg "  Key Vault name '$KeyVaultName' is reserved by a soft-deleted vault"
+                    Write-Warning "  To resolve this, either:"
+                    Write-Warning "    1. Purge the deleted vault: Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState -Force"
+                    Write-Warning "    2. Use a different Key Vault name with -KeyVaultName parameter"
+                    Write-Warning "    3. Wait for the retention period to expire (default: 90 days)"
                     throw $_
                 }
-            }
-            else {
-                # Re-throw if it's a different error
-                throw $_
+                else {
+                    # Re-throw if it's a different error
+                    throw $_
+                }
             }
         }
     }
