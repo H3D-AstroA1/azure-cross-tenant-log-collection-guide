@@ -797,8 +797,9 @@ if (-not $SkipGroupCreation) {
     if ($graphModule) {
         try {
             # Connect to Microsoft Graph
+            # Note: User.Read.All is required to look up users by Object ID or search for guest users
             Write-Info "Connecting to Microsoft Graph..."
-            Connect-MgGraph -TenantId $TenantId -Scopes "Group.ReadWrite.All" -NoWelcome -ErrorAction Stop
+            Connect-MgGraph -TenantId $TenantId -Scopes "User.Read.All", "Group.ReadWrite.All" -NoWelcome -ErrorAction Stop
             
             # Check if group already exists
             $existingGroup = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ErrorAction SilentlyContinue
