@@ -632,6 +632,7 @@ This PowerShell script automates the preparation of the managing tenant by:
 
 .PARAMETER KeyVaultName
     Name of the Key Vault to create for tracking configured tenants and storing credentials.
+    Azure Key Vault names have a strict limit: 3-24 characters, alphanumeric and hyphens only.
     Default: "kv-central-logging"
 
 .PARAMETER Location
