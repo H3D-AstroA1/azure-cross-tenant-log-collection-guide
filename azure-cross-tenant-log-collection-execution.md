@@ -1213,13 +1213,36 @@ try {
                         throw $_
                     }
                 }
-                # Check if this is a soft-delete conflict
-                elseif ($errorMessage -like "*already in use*" -or $errorMessage -like "*soft delete*" -or $errorMessage -like "*recoverable state*") {
-                    Write-ErrorMsg "  Key Vault name '$KeyVaultName' is reserved by a soft-deleted vault"
-                    Write-Warning "  To resolve this, either:"
-                    Write-Warning "    1. Purge the deleted vault: Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState -Force"
-                    Write-Warning "    2. Use a different Key Vault name with -KeyVaultName parameter"
-                    Write-Warning "    3. Wait for the retention period to expire (default: 90 days)"
+                # Check if this is a name conflict (soft-delete or cross-tenant)
+                elseif ($errorMessage -like "*already in use*" -or $errorMessage -like "*soft delete*" -or $errorMessage -like "*recoverable state*" -or $errorMessage -like "*VaultAlreadyExists*") {
+                    Write-ErrorMsg "  Key Vault name '$KeyVaultName' is globally reserved"
+                    Write-Host ""
+                    Write-WarningMsg "  ╔══════════════════════════════════════════════════════════════════════╗"
+                    Write-WarningMsg "  ║  IMPORTANT: Azure Key Vault names are GLOBALLY UNIQUE across ALL    ║"
+                    Write-WarningMsg "  ║  of Azure, not just within your tenant or subscription.             ║"
+                    Write-WarningMsg "  ╚══════════════════════════════════════════════════════════════════════╝"
+                    Write-Host ""
+                    Write-Info "  This error can occur if:"
+                    Write-Host "    1. The Key Vault was soft-deleted in THIS tenant (can be recovered or purged)"
+                    Write-Host "    2. The Key Vault name is used in a DIFFERENT tenant (cannot be detected)"
+                    Write-Host "    3. The Key Vault name is reserved by another Azure customer"
+                    Write-Host ""
+                    Write-Info "  To resolve this, try ONE of these options:"
+                    Write-Host ""
+                    Write-Host "    Option A: Check for soft-deleted vault in THIS tenant:"
+                    Write-Host "      Get-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState"
+                    Write-Host ""
+                    Write-Host "    Option B: Purge the soft-deleted vault (if found in Option A):"
+                    Write-Host "      Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '$($results.Location)' -InRemovedState -Force"
+                    Write-Host ""
+                    Write-Host "    Option C: Use a different Key Vault name (RECOMMENDED if vault is in another tenant):"
+                    Write-Host "      .\Prepare-ManagingTenant.ps1 ... -KeyVaultName 'kv-logs-$((Get-Random -Maximum 9999))'"
+                    Write-Host ""
+                    Write-Host "    Option D: If you created the vault in another tenant, delete it there first:"
+                    Write-Host "      Connect-AzAccount -TenantId '<OTHER-TENANT-ID>'"
+                    Write-Host "      Remove-AzKeyVault -VaultName '$KeyVaultName' -ResourceGroupName '<RG-NAME>'"
+                    Write-Host "      Remove-AzKeyVault -VaultName '$KeyVaultName' -Location '<LOCATION>' -InRemovedState -Force"
+                    Write-Host ""
                     throw $_
                 }
                 else {
@@ -1614,6 +1637,60 @@ Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
 4. Select the region (e.g., `westus2`)
 5. Under **Access configuration**, select **Azure role-based access control (recommended)**
 6. Click **Review + create** → **Create**
+
+#### Key Vault Name Already In Use (Global Uniqueness)
+
+**Error:** `Key Vault name 'xxx' is globally reserved` or `VaultAlreadyExists`
+
+**Cause:** Azure Key Vault names are **globally unique across ALL of Azure** - not just within your tenant or subscription. This error occurs when:
+1. The Key Vault was soft-deleted in your current tenant (can be recovered or purged)
+2. The Key Vault name is used in a **different tenant** (cannot be detected by the script)
+3. The Key Vault name is reserved by another Azure customer
+
+**Solutions:**
+
+1. **Check for soft-deleted vault in your current tenant:**
+   ```powershell
+   # Check if the vault is soft-deleted in your current subscription
+   Get-AzKeyVault -VaultName 'your-keyvault-name' -Location 'westus2' -InRemovedState
+   ```
+
+2. **Purge the soft-deleted vault (if found above):**
+   ```powershell
+   # Permanently delete the soft-deleted vault
+   Remove-AzKeyVault -VaultName 'your-keyvault-name' -Location 'westus2' -InRemovedState -Force
+   ```
+
+3. **Use a different Key Vault name (RECOMMENDED if vault is in another tenant):**
+   ```powershell
+   # Use a unique name with a random suffix
+   .\Prepare-ManagingTenant.ps1 `
+       -TenantId "..." `
+       -SubscriptionId "..." `
+       -KeyVaultName "kv-logs-$(Get-Random -Maximum 9999)"
+   
+   # Or use a more descriptive unique name
+   .\Prepare-ManagingTenant.ps1 `
+       -TenantId "..." `
+       -SubscriptionId "..." `
+       -KeyVaultName "kv-central-atevet12-prod"
+   ```
+
+4. **If you created the vault in another tenant, delete it there first:**
+   ```powershell
+   # Connect to the OTHER tenant where the Key Vault exists
+   Connect-AzAccount -TenantId "<OTHER-TENANT-ID>"
+   
+   # Delete the Key Vault
+   Remove-AzKeyVault -VaultName 'your-keyvault-name' -ResourceGroupName '<RG-NAME>'
+   
+   # Purge the soft-deleted vault (required to release the name)
+   Remove-AzKeyVault -VaultName 'your-keyvault-name' -Location '<LOCATION>' -InRemovedState -Force
+   
+   # Wait a few minutes for the name to be released, then re-run the script
+   ```
+
+**Note:** The script cannot detect Key Vaults in other tenants because Azure only allows querying resources within your current tenant context. If you're unsure whether the name is used elsewhere, the safest option is to choose a different, more unique name.
 
 ---
 
