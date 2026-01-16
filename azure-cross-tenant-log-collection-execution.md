@@ -802,11 +802,13 @@ if (-not $SkipGroupCreation) {
             Connect-MgGraph -TenantId $TenantId -Scopes "User.Read.All", "Group.ReadWrite.All" -NoWelcome -ErrorAction Stop
             
             # Check if group already exists
-            $existingGroup = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ErrorAction SilentlyContinue
+            # Note: Filter may return multiple groups if names are similar, so we select the first exact match
+            $existingGroups = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ErrorAction SilentlyContinue
+            $existingGroup = $existingGroups | Select-Object -First 1
             
             if ($existingGroup) {
                 Write-Warning "Security group '$SecurityGroupName' already exists"
-                $results.SecurityGroupId = $existingGroup.Id
+                $results.SecurityGroupId = [string]$existingGroup.Id
                 Write-Success "  Group ID: $($existingGroup.Id)"
             }
             else {
@@ -954,13 +956,16 @@ if ($GroupMembers.Count -gt 0 -and $results.SecurityGroupId) {
             $userId = if ($graphModule) { $user.Id } else { $user.Id }
             
             # Check if user is already a member
+            # Ensure SecurityGroupId is a string (not an array)
+            $groupId = [string]$results.SecurityGroupId
+            
             $isMember = $false
             if ($graphModule) {
-                $existingMembers = Get-MgGroupMember -GroupId $results.SecurityGroupId -ErrorAction SilentlyContinue
+                $existingMembers = Get-MgGroupMember -GroupId $groupId -ErrorAction SilentlyContinue
                 $isMember = $existingMembers.Id -contains $userId
             }
             else {
-                $existingMembers = Get-AzADGroupMember -GroupObjectId $results.SecurityGroupId -ErrorAction SilentlyContinue
+                $existingMembers = Get-AzADGroupMember -GroupObjectId $groupId -ErrorAction SilentlyContinue
                 $isMember = $existingMembers.Id -contains $userId
             }
             
@@ -971,14 +976,15 @@ if ($GroupMembers.Count -gt 0 -and $results.SecurityGroupId) {
             }
             
             # Add user to group
+            # Use the groupId variable we already defined above
             if ($graphModule) {
                 $memberRef = @{
                     "@odata.id" = "https://graph.microsoft.com/v1.0/directoryObjects/$userId"
                 }
-                New-MgGroupMemberByRef -GroupId $results.SecurityGroupId -BodyParameter $memberRef -ErrorAction Stop
+                New-MgGroupMemberByRef -GroupId $groupId -BodyParameter $memberRef -ErrorAction Stop
             }
             else {
-                Add-AzADGroupMember -TargetGroupObjectId $results.SecurityGroupId -MemberObjectId $userId -ErrorAction Stop
+                Add-AzADGroupMember -TargetGroupObjectId $groupId -MemberObjectId $userId -ErrorAction Stop
             }
             
             Write-Success "  [+] Added: $member"
@@ -1089,18 +1095,13 @@ try {
         $keyVault = $existingKv
     }
     else {
-        # Check if the Az.KeyVault module supports -EnableRbacAuthorization parameter
-        # This parameter was added in newer versions of the module
-        $kvModule = Get-Module -Name Az.KeyVault -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
-        $supportsRbac = $false
+        # Try to create Key Vault with RBAC authorization first
+        # If the parameter is not supported, fall back to vault access policy mode
+        $keyVaultCreated = $false
         
-        if ($kvModule) {
-            # EnableRbacAuthorization was added around version 4.0.0
-            $supportsRbac = $kvModule.Version -ge [Version]"4.0.0"
-        }
-        
-        if ($supportsRbac) {
-            Write-Info "  Using RBAC authorization (Az.KeyVault version $($kvModule.Version))"
+        # First attempt: Try with -EnableRbacAuthorization parameter
+        try {
+            Write-Info "  Attempting to create Key Vault with RBAC authorization..."
             $keyVault = New-AzKeyVault `
                 -VaultName $KeyVaultName `
                 -ResourceGroupName $ResourceGroupName `
@@ -1109,25 +1110,44 @@ try {
                 -EnabledForTemplateDeployment `
                 -EnableRbacAuthorization `
                 -ErrorAction Stop
-        }
-        else {
-            Write-Warning "  Az.KeyVault module version doesn't support -EnableRbacAuthorization parameter"
-            Write-Warning "  Creating Key Vault with vault access policy (consider updating Az.KeyVault module)"
-            Write-Warning "  To update: Update-Module -Name Az.KeyVault -Force"
             
-            $keyVault = New-AzKeyVault `
-                -VaultName $KeyVaultName `
-                -ResourceGroupName $ResourceGroupName `
-                -Location $results.Location `
-                -EnabledForDeployment `
-                -EnabledForTemplateDeployment `
-                -ErrorAction Stop
-            
-            Write-Info "  Key Vault created with vault access policy mode"
-            Write-Info "  You can enable RBAC later via Azure Portal or by updating the Az.KeyVault module"
+            $keyVaultCreated = $true
+            Write-Success "  Created Key Vault with RBAC authorization"
         }
-        
-        Write-Success "  Created Key Vault"
+        catch {
+            $errorMessage = $_.Exception.Message
+            
+            # Check if the error is specifically about the EnableRbacAuthorization parameter
+            if ($errorMessage -like "*EnableRbacAuthorization*" -or $errorMessage -like "*parameter name*") {
+                Write-Warning "  -EnableRbacAuthorization parameter not supported by current Az.KeyVault module"
+                Write-Warning "  Falling back to vault access policy mode..."
+                
+                # Second attempt: Create without RBAC parameter
+                try {
+                    $keyVault = New-AzKeyVault `
+                        -VaultName $KeyVaultName `
+                        -ResourceGroupName $ResourceGroupName `
+                        -Location $results.Location `
+                        -EnabledForDeployment `
+                        -EnabledForTemplateDeployment `
+                        -ErrorAction Stop
+                    
+                    $keyVaultCreated = $true
+                    Write-Success "  Created Key Vault with vault access policy mode"
+                    Write-Info "  To enable RBAC authorization later:"
+                    Write-Info "    1. Go to Azure Portal > Key Vault > Access configuration"
+                    Write-Info "    2. Select 'Azure role-based access control'"
+                    Write-Info "    3. Or update Az.KeyVault module: Update-Module -Name Az.KeyVault -Force"
+                }
+                catch {
+                    throw $_
+                }
+            }
+            else {
+                # Re-throw if it's a different error
+                throw $_
+            }
+        }
     }
     
     $results.KeyVaultId = $keyVault.ResourceId
