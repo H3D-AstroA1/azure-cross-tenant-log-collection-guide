@@ -1089,14 +1089,43 @@ try {
         $keyVault = $existingKv
     }
     else {
-        $keyVault = New-AzKeyVault `
-            -VaultName $KeyVaultName `
-            -ResourceGroupName $ResourceGroupName `
-            -Location $results.Location `
-            -EnabledForDeployment `
-            -EnabledForTemplateDeployment `
-            -EnableRbacAuthorization `
-            -ErrorAction Stop
+        # Check if the Az.KeyVault module supports -EnableRbacAuthorization parameter
+        # This parameter was added in newer versions of the module
+        $kvModule = Get-Module -Name Az.KeyVault -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1
+        $supportsRbac = $false
+        
+        if ($kvModule) {
+            # EnableRbacAuthorization was added around version 4.0.0
+            $supportsRbac = $kvModule.Version -ge [Version]"4.0.0"
+        }
+        
+        if ($supportsRbac) {
+            Write-Info "  Using RBAC authorization (Az.KeyVault version $($kvModule.Version))"
+            $keyVault = New-AzKeyVault `
+                -VaultName $KeyVaultName `
+                -ResourceGroupName $ResourceGroupName `
+                -Location $results.Location `
+                -EnabledForDeployment `
+                -EnabledForTemplateDeployment `
+                -EnableRbacAuthorization `
+                -ErrorAction Stop
+        }
+        else {
+            Write-Warning "  Az.KeyVault module version doesn't support -EnableRbacAuthorization parameter"
+            Write-Warning "  Creating Key Vault with vault access policy (consider updating Az.KeyVault module)"
+            Write-Warning "  To update: Update-Module -Name Az.KeyVault -Force"
+            
+            $keyVault = New-AzKeyVault `
+                -VaultName $KeyVaultName `
+                -ResourceGroupName $ResourceGroupName `
+                -Location $results.Location `
+                -EnabledForDeployment `
+                -EnabledForTemplateDeployment `
+                -ErrorAction Stop
+            
+            Write-Info "  Key Vault created with vault access policy mode"
+            Write-Info "  You can enable RBAC later via Azure Portal or by updating the Az.KeyVault module"
+        }
         
         Write-Success "  Created Key Vault"
     }
