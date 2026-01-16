@@ -801,10 +801,31 @@ if (-not $SkipGroupCreation) {
             Write-Info "Connecting to Microsoft Graph..."
             Connect-MgGraph -TenantId $TenantId -Scopes "User.Read.All", "Group.ReadWrite.All" -NoWelcome -ErrorAction Stop
             
-            # Check if group already exists
-            # Note: Filter may return multiple groups if names are similar, so we select the first exact match
-            $existingGroups = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ErrorAction SilentlyContinue
-            $existingGroup = $existingGroups | Select-Object -First 1
+            # Check if group already exists - use explicit error handling to ensure we detect existing groups
+            Write-Info "  Checking if security group already exists..."
+            $existingGroup = $null
+            
+            try {
+                # Use -ConsistencyLevel eventual for better search results
+                # Filter for exact match on displayName
+                $existingGroups = Get-MgGroup -Filter "displayName eq '$SecurityGroupName'" -ConsistencyLevel eventual -ErrorAction Stop
+                
+                # If multiple groups returned, find exact match
+                if ($existingGroups) {
+                    $existingGroup = $existingGroups | Where-Object { $_.DisplayName -eq $SecurityGroupName } | Select-Object -First 1
+                }
+            }
+            catch {
+                # If the filter fails, try getting all groups and filtering locally (fallback for older Graph API versions)
+                Write-Warning "  Filter query failed, trying alternative lookup method..."
+                try {
+                    $allGroups = Get-MgGroup -All -ErrorAction Stop
+                    $existingGroup = $allGroups | Where-Object { $_.DisplayName -eq $SecurityGroupName } | Select-Object -First 1
+                }
+                catch {
+                    Write-Warning "  Could not query existing groups: $($_.Exception.Message)"
+                }
+            }
             
             if ($existingGroup) {
                 Write-Warning "Security group '$SecurityGroupName' already exists"
@@ -812,6 +833,8 @@ if (-not $SkipGroupCreation) {
                 Write-Success "  Group ID: $($existingGroup.Id)"
             }
             else {
+                Write-Info "  Security group does not exist, creating new group..."
+                
                 # Create the security group
                 $groupParams = @{
                     DisplayName = $SecurityGroupName
@@ -822,7 +845,7 @@ if (-not $SkipGroupCreation) {
                 }
                 
                 $newGroup = New-MgGroup @groupParams -ErrorAction Stop
-                $results.SecurityGroupId = $newGroup.Id
+                $results.SecurityGroupId = [string]$newGroup.Id
                 Write-Success "  Created security group successfully"
                 Write-Success "  Group ID: $($newGroup.Id)"
             }
