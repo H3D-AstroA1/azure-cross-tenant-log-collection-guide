@@ -6031,9 +6031,39 @@ The complete PowerShell script is located at: [`scripts/Configure-EntraIDDiagnos
 This script automates the entire setup process:
 1. Connects to managing tenant and updates Key Vault tracking
 2. Prompts for source tenant authentication
-3. Deploys Entra ID diagnostic settings via REST API
+3. Deploys Entra ID diagnostic settings via multiple methods (see below)
 4. Verifies configuration
 5. Logs flow automatically (no runbook needed - Entra ID pushes directly)
+
+### Cross-Tenant Automation Methods
+
+The script attempts **three automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios:
+
+| Method | Description | When It Works |
+|--------|-------------|---------------|
+| **Method 1: Azure CLI with Auxiliary Tenants** | Uses `az rest` with `--auxiliary-tenants` parameter | When Azure CLI is installed and supports cross-tenant resource access |
+| **Method 2: Invoke-AzRestMethod** | Standard PowerShell REST API call | When authenticated context has direct access to both tenants |
+| **Method 3: Lighthouse Delegation** | Runs from managing tenant with Lighthouse permissions | When Lighthouse delegation includes Entra ID permissions |
+
+> **Note:** If all automated methods fail due to the `LinkedAuthorizationFailed` error (cross-tenant authorization limitation), the script provides detailed Azure Portal instructions as a fallback.
+
+### Understanding the LinkedAuthorizationFailed Error
+
+When configuring Entra ID diagnostic settings to send logs to a Log Analytics workspace in a **different tenant**, you may encounter:
+
+```
+LinkedAuthorizationFailed: The client has permission to perform action
+'microsoft.operationalinsights/workspaces/sharedKeys/action' on scope
+'/providers/microsoft.aadiam/diagnosticSettings/...', however the current
+tenant '<source-tenant-id>' is not authorized to access linked subscription
+'<managing-tenant-subscription-id>'.
+```
+
+**Root Cause:** The Entra ID diagnostic settings API (`microsoft.aadiam/diagnosticSettings`) cannot access resources in a different tenant when called from PowerShell while authenticated to the source tenant.
+
+**Why Azure Portal Works:** The Azure Portal handles cross-tenant authorization correctly through its UI, allowing you to select workspaces from other tenants via the "Change directory" option.
+
+**Automated Solutions:** The script tries multiple methods to work around this limitation. If all fail, follow the Portal instructions provided by the script.
 
 ### Usage Examples
 

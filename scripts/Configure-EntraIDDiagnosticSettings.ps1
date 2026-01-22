@@ -496,8 +496,8 @@ if($existingWithSameName) {
     }
 }
 
-# Deploy via REST API using Invoke-AzRestMethod (handles authentication automatically)
-Write-Log "Creating diagnostic setting using Invoke-AzRestMethod..." -Level Info
+# Deploy via REST API - Try multiple methods for cross-tenant scenarios
+Write-Log "Creating diagnostic setting..." -Level Info
 
 $logsArray = $validCategories | ForEach-Object {
     @{ category = $_; enabled = $true }
@@ -510,144 +510,180 @@ $body = @{
     }
 } | ConvertTo-Json -Depth 10
 
-try {
-    $createPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
-    
-    if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
-        $createResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
-        
-        if($createResponse.StatusCode -in @(200, 201)) {
-            Write-Log "Diagnostic setting created successfully" -Level Success
-            Write-Log "  Name: $DiagnosticSettingName" -Level Info
-            Write-Log "  Destination: $WorkspaceResourceId" -Level Info
-            Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
-        } else {
-            throw "HTTP $($createResponse.StatusCode): $($createResponse.Content)"
-        }
-    }
-} catch {
-    $errorMessage = $_.Exception.Message
-    Write-Log "Failed to create diagnostic setting: $errorMessage" -Level Error
-    
-    # Check for LinkedAuthorizationFailed error (cross-tenant issue)
-    if($errorMessage -like "*LinkedAuthorizationFailed*" -or $errorMessage -like "*not authorized to access linked subscription*") {
-        Write-Log "" -Level Error
-        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Error
-        Write-Log "║  CROSS-TENANT AUTHORIZATION ERROR                                    ║" -Level Error
-        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Error
-        Write-Log "" -Level Error
-        Write-Log "This error occurs because the Entra ID diagnostic settings API cannot" -Level Error
-        Write-Log "access the Log Analytics workspace in a different tenant via PowerShell." -Level Error
-        Write-Log "" -Level Error
-        Write-Log "When authenticated to the SOURCE tenant ($SourceTenantName), you cannot" -Level Error
-        Write-Log "access resources in the MANAGING tenant's subscription." -Level Error
-        Write-Log "" -Level Error
-        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Warning
-        Write-Log "║  SOLUTION: Configure via Azure Portal (Recommended)                  ║" -Level Warning
-        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Warning
-        Write-Log "" -Level Warning
-        Write-Log "The Azure Portal handles cross-tenant authorization correctly." -Level Warning
-        Write-Log "" -Level Warning
-        Write-Log "Step-by-step instructions:" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "  1. Sign in to Azure Portal as Global Administrator of the SOURCE tenant:" -Level Info
-        Write-Log "     https://portal.azure.com" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "  2. Navigate to Microsoft Entra ID > Diagnostic settings:" -Level Info
-        Write-Log "     https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "  3. Click '+ Add diagnostic setting'" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "  4. Configure the diagnostic setting:" -Level Info
-        Write-Log "     - Name: $DiagnosticSettingName" -Level Info
-        Write-Log "     - Select log categories:" -Level Info
-        foreach($cat in $validCategories | Select-Object -First 5) {
-            Write-Log "       ☑ $cat" -Level Info
-        }
-        if($validCategories.Count -gt 5) {
-            Write-Log "       ... and $($validCategories.Count - 5) more categories" -Level Info
-        }
-        Write-Log "" -Level Info
-        Write-Log "  5. Under 'Destination details':" -Level Info
-        Write-Log "     ☑ Send to Log Analytics workspace" -Level Info
-        Write-Log "     - Subscription: Select the MANAGING tenant subscription" -Level Info
-        Write-Log "       (You may need to change the directory filter to see it)" -Level Info
-        Write-Log "     - Log Analytics workspace: $workspaceName" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "  6. Click 'Save'" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Info
-        Write-Log "║  IMPORTANT: Cross-Tenant Workspace Selection in Portal               ║" -Level Info
-        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "To select a workspace from another tenant in the Azure Portal:" -Level Info
-        Write-Log "  1. In the 'Subscription' dropdown, click 'Change directory'" -Level Info
-        Write-Log "  2. Select the managing tenant directory" -Level Info
-        Write-Log "  3. The workspace from the managing tenant should now appear" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "If you don't see the managing tenant's subscription:" -Level Info
-        Write-Log "  - Ensure you have been invited as a guest user to the managing tenant" -Level Info
-        Write-Log "  - Ensure you have at least Reader access to the workspace" -Level Info
-        Write-Log "  - Azure Lighthouse delegation should provide this access" -Level Info
-        Write-Log "" -Level Info
-        Write-Log "Target workspace details:" -Level Info
-        Write-Log "  Workspace Resource ID: $WorkspaceResourceId" -Level Info
-        Write-Log "  Workspace Name: $workspaceName" -Level Info
-        Write-Log "  Managing Tenant Subscription: $subscriptionId" -Level Info
-        Write-Log "" -Level Info
-        exit 1
-    }
-    
-    # Provide detailed troubleshooting for 401/403 errors
-    if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*" -or $errorMessage -like "*403*" -or $errorMessage -like "*Forbidden*") {
-        Write-Log "" -Level Error
-        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Error
-        Write-Log "║  PERMISSION ERROR - Cannot Create Diagnostic Setting                 ║" -Level Error
-        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Error
-        Write-Log "" -Level Error
-        Write-Log "The microsoft.aadiam/diagnosticSettings API requires:" -Level Error
-        Write-Log "  - Global Administrator OR Security Administrator role in Entra ID" -Level Error
-        Write-Log "  - The role must be ACTIVE (if using PIM, ensure it's activated)" -Level Error
-        Write-Log "" -Level Error
-        Write-Log "Current authentication context:" -Level Info
-        $ctx = Get-AzContext
-        Write-Log "  Account: $($ctx.Account.Id)" -Level Info
-        Write-Log "  Tenant: $($ctx.Tenant.Id)" -Level Info
-        Write-Log "  Subscription: $($ctx.Subscription.Name) ($($ctx.Subscription.Id))" -Level Info
-        Write-Log "" -Level Error
-        Write-Log "RECOMMENDED: Configure via Azure Portal instead:" -Level Warning
-        Write-Log "  1. Go to: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Warning
-        Write-Log "  2. Click '+ Add diagnostic setting'" -Level Warning
-        Write-Log "  3. Select the log categories you need" -Level Warning
-        Write-Log "  4. Choose 'Send to Log Analytics workspace'" -Level Warning
-        Write-Log "  5. Select subscription and workspace from the managing tenant" -Level Warning
-        Write-Log "" -Level Warning
-        exit 1
-    }
-    
-    # Try with fewer categories (some may not be available due to licensing)
-    Write-Log "Retrying with basic categories only (AuditLogs, SignInLogs)..." -Level Warning
-    $basicCategories = @("AuditLogs", "SignInLogs")
-    $logsArray = $basicCategories | ForEach-Object { @{ category = $_; enabled = $true } }
-    $body = @{ properties = @{ workspaceId = $WorkspaceResourceId; logs = $logsArray } } | ConvertTo-Json -Depth 10
-    
+$createPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+$deploymentSucceeded = $false
+
+# Method 1: Try Azure CLI with auxiliary tenants (best for cross-tenant)
+Write-Log "Method 1: Attempting deployment using Azure CLI with auxiliary tenants..." -Level Info
+
+$azCliAvailable = $null -ne (Get-Command az -ErrorAction SilentlyContinue)
+if($azCliAvailable) {
     try {
-        $retryResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
+        # First, ensure we're logged in to the source tenant with Azure CLI
+        Write-Log "  Logging into source tenant with Azure CLI..." -Level Info
+        $azLoginResult = az login --tenant $SourceTenantId --allow-no-subscriptions 2>&1
         
-        if($retryResponse.StatusCode -in @(200, 201)) {
-            Write-Log "Diagnostic setting created with basic categories" -Level Success
-            Write-Log "  Categories: $($basicCategories -join ', ')" -Level Info
-            Write-Log "  Note: Some categories may require additional licenses (P1/P2/E5)" -Level Warning
+        if($LASTEXITCODE -eq 0) {
+            Write-Log "  Azure CLI logged in to source tenant" -Level Success
+            
+            # Build the REST API call with auxiliary tenant for cross-tenant access
+            $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+            
+            # Use az rest with auxiliary-tenants to allow cross-tenant resource access
+            Write-Log "  Creating diagnostic setting with cross-tenant access..." -Level Info
+            
+            # Write body to temp file for az rest
+            $bodyFile = [IO.Path]::GetTempFileName()
+            $body | Out-File $bodyFile -Encoding UTF8
+            
+            try {
+                # The --auxiliary-tenants parameter allows access to resources in other tenants
+                $azRestResult = az rest --method PUT --uri $uri --body "@$bodyFile" --headers "Content-Type=application/json" --auxiliary-tenants $ManagingTenantId 2>&1
+                
+                if($LASTEXITCODE -eq 0) {
+                    Write-Log "Diagnostic setting created successfully via Azure CLI" -Level Success
+                    Write-Log "  Name: $DiagnosticSettingName" -Level Info
+                    Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+                    Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+                    $deploymentSucceeded = $true
+                } else {
+                    Write-Log "  Azure CLI method failed: $azRestResult" -Level Warning
+                }
+            } finally {
+                Remove-Item $bodyFile -Force -ErrorAction SilentlyContinue
+            }
         } else {
-            throw "HTTP $($retryResponse.StatusCode): $($retryResponse.Content)"
+            Write-Log "  Azure CLI login failed: $azLoginResult" -Level Warning
         }
     } catch {
-        Write-Log "Failed to create diagnostic setting: $($_.Exception.Message)" -Level Error
-        Write-Log "" -Level Error
-        Write-Log "Please try configuring via Azure Portal:" -Level Warning
-        Write-Log "  https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Warning
-        exit 1
+        Write-Log "  Azure CLI method failed: $($_.Exception.Message)" -Level Warning
     }
+} else {
+    Write-Log "  Azure CLI not available, skipping this method" -Level Warning
+}
+
+# Method 2: Try Invoke-AzRestMethod (standard PowerShell method)
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Info
+    Write-Log "Method 2: Attempting deployment using Invoke-AzRestMethod..." -Level Info
+    
+    try {
+        if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
+            $createResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
+            
+            if($createResponse.StatusCode -in @(200, 201)) {
+                Write-Log "Diagnostic setting created successfully via PowerShell" -Level Success
+                Write-Log "  Name: $DiagnosticSettingName" -Level Info
+                Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+                Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+                $deploymentSucceeded = $true
+            } else {
+                $responseContent = $createResponse.Content
+                Write-Log "  PowerShell method returned HTTP $($createResponse.StatusCode)" -Level Warning
+                
+                # Check for specific error types
+                if($responseContent -like "*LinkedAuthorizationFailed*" -or $responseContent -like "*not authorized to access linked subscription*") {
+                    Write-Log "  Cross-tenant authorization error detected" -Level Warning
+                }
+            }
+        }
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Log "  PowerShell method failed: $errorMessage" -Level Warning
+    }
+}
+
+# Method 3: Try with token from managing tenant context (Lighthouse scenario)
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Info
+    Write-Log "Method 3: Attempting deployment from managing tenant context via Lighthouse..." -Level Info
+    
+    try {
+        # Switch to managing tenant but target the source tenant's Entra ID
+        Write-Log "  Connecting to managing tenant..." -Level Info
+        Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
+        Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
+        
+        # Get token for management.azure.com
+        $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+        
+        # Make REST call with explicit tenant header
+        $headers = @{
+            "Authorization" = "Bearer $token"
+            "Content-Type" = "application/json"
+            "x-ms-tenant-id" = $SourceTenantId  # Target the source tenant's Entra ID
+        }
+        
+        $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+        
+        Write-Log "  Creating diagnostic setting with Lighthouse delegation..." -Level Info
+        $response = Invoke-RestMethod -Uri $uri -Method PUT -Headers $headers -Body $body -ErrorAction Stop
+        
+        Write-Log "Diagnostic setting created successfully via Lighthouse" -Level Success
+        Write-Log "  Name: $DiagnosticSettingName" -Level Info
+        Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+        $deploymentSucceeded = $true
+        
+    } catch {
+        Write-Log "  Lighthouse method failed: $($_.Exception.Message)" -Level Warning
+    }
+}
+
+# If all automated methods failed, provide guidance
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Error
+    Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Error
+    Write-Log "║  ALL AUTOMATED METHODS FAILED                                        ║" -Level Error
+    Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Error
+    Write-Log "" -Level Error
+    Write-Log "The cross-tenant Entra ID diagnostic settings could not be configured" -Level Error
+    Write-Log "automatically. This is a known limitation of the Azure API when the" -Level Error
+    Write-Log "Log Analytics workspace is in a different tenant." -Level Error
+    Write-Log "" -Level Error
+    
+    Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Warning
+    Write-Log "║  RECOMMENDED: Use Azure Portal (handles cross-tenant correctly)      ║" -Level Warning
+    Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Warning
+    Write-Log "" -Level Warning
+    Write-Log "The Azure Portal's UI handles cross-tenant authorization correctly." -Level Warning
+    Write-Log "" -Level Warning
+    Write-Log "Quick steps:" -Level Info
+    Write-Log "  1. Open: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Info
+    Write-Log "  2. Sign in as Global Admin of SOURCE tenant ($SourceTenantName)" -Level Info
+    Write-Log "  3. Click '+ Add diagnostic setting'" -Level Info
+    Write-Log "  4. Name: $DiagnosticSettingName" -Level Info
+    Write-Log "  5. Select log categories (AuditLogs, SignInLogs, etc.)" -Level Info
+    Write-Log "  6. Check 'Send to Log Analytics workspace'" -Level Info
+    Write-Log "  7. Click 'Change directory' in Subscription dropdown" -Level Info
+    Write-Log "  8. Select the MANAGING tenant directory" -Level Info
+    Write-Log "  9. Select workspace: $workspaceName" -Level Info
+    Write-Log "  10. Click 'Save'" -Level Info
+    Write-Log "" -Level Info
+    
+    Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Info
+    Write-Log "║  ALTERNATIVE: Automate with Selenium/Playwright (Advanced)           ║" -Level Info
+    Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "For full automation, you could use browser automation tools like:" -Level Info
+    Write-Log "  - Selenium WebDriver with PowerShell" -Level Info
+    Write-Log "  - Playwright for .NET/PowerShell" -Level Info
+    Write-Log "  - Azure DevOps pipeline with UI testing" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "This would automate the Portal steps above programmatically." -Level Info
+    Write-Log "" -Level Info
+    
+    Write-Log "Target workspace details:" -Level Info
+    Write-Log "  Workspace Resource ID: $WorkspaceResourceId" -Level Info
+    Write-Log "  Workspace Name: $workspaceName" -Level Info
+    Write-Log "  Managing Tenant: $ManagingTenantId" -Level Info
+    Write-Log "  Managing Subscription: $subscriptionId" -Level Info
+    Write-Log "" -Level Info
+    
+    # Re-connect to source tenant for any subsequent operations
+    Write-Log "Reconnecting to source tenant for verification..." -Level Info
+    Connect-AzAccount -TenantId $SourceTenantId -ErrorAction SilentlyContinue | Out-Null
+    
+    exit 1
 }
 
 # Step 5: Verify Configuration
