@@ -383,48 +383,50 @@ try {
 Write-Log "" -Level Info
 Write-Log "Step 3: Checking existing Entra ID diagnostic settings..." -Level Info
 
-# Get a fresh access token for the source tenant
-# This is critical - the token must be obtained AFTER setting the subscription context
-Write-Log "  Acquiring access token for Azure Management API..." -Level Info
+# Verify the current context is for the correct tenant
+$currentContext = Get-AzContext
+Write-Log "  Current context tenant: $($currentContext.Tenant.Id)" -Level Info
+Write-Log "  Current context subscription: $($currentContext.Subscription.Name)" -Level Info
+
+if($currentContext.Tenant.Id -ne $SourceTenantId) {
+    Write-Log "Context is for wrong tenant! Expected: $SourceTenantId, Got: $($currentContext.Tenant.Id)" -Level Error
+    Write-Log "Please ensure you are authenticated to the source tenant." -Level Error
+    exit 1
+}
+
+# Use Invoke-AzRestMethod which handles authentication automatically and correctly
+# This is more reliable than manually getting tokens for cross-tenant scenarios
+Write-Log "  Querying Entra ID diagnostic settings using Invoke-AzRestMethod..." -Level Info
 $existingSettings = $null
-$headers = $null
+$useAzRestMethod = $true
+
 try {
-    $tokenResponse = Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop
-    $token = $tokenResponse.Token
+    # Use the ARM path format for Invoke-AzRestMethod (without the https://management.azure.com prefix)
+    $apiPath = "/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
+    $response = Invoke-AzRestMethod -Path $apiPath -Method GET -ErrorAction Stop
     
-    # Verify the token is for the correct tenant
-    $currentContext = Get-AzContext
-    Write-Log "  Current context tenant: $($currentContext.Tenant.Id)" -Level Info
-    Write-Log "  Current context subscription: $($currentContext.Subscription.Name)" -Level Info
-    
-    if($currentContext.Tenant.Id -ne $SourceTenantId) {
-        Write-Log "Token is for wrong tenant! Expected: $SourceTenantId, Got: $($currentContext.Tenant.Id)" -Level Error
-        Write-Log "Please ensure you are authenticated to the source tenant." -Level Error
-        exit 1
-    }
-    
-    $headers = @{ "Authorization" = "Bearer $token"; "Content-Type" = "application/json" }
-    Write-Log "  Access token acquired successfully" -Level Success
-    
-    $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
-    $response = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction Stop
-    $existingSettings = $response.value
-    
-    if($existingSettings.Count -gt 0) {
-        Write-Log "Found $($existingSettings.Count) existing diagnostic setting(s):" -Level Info
-        foreach($setting in $existingSettings) {
-            $enabledCategories = ($setting.properties.logs | Where-Object {$_.enabled -eq $true}).category -join ", "
-            Write-Log "  - $($setting.name): $enabledCategories" -Level Info
-            if($setting.properties.workspaceId -eq $WorkspaceResourceId) {
-                Write-Log "    → Already sending to target workspace" -Level Success
+    if($response.StatusCode -eq 200) {
+        $existingSettings = ($response.Content | ConvertFrom-Json).value
+        Write-Log "  Successfully queried diagnostic settings" -Level Success
+        
+        if($existingSettings -and $existingSettings.Count -gt 0) {
+            Write-Log "Found $($existingSettings.Count) existing diagnostic setting(s):" -Level Info
+            foreach($setting in $existingSettings) {
+                $enabledCategories = ($setting.properties.logs | Where-Object {$_.enabled -eq $true}).category -join ", "
+                Write-Log "  - $($setting.name): $enabledCategories" -Level Info
+                if($setting.properties.workspaceId -eq $WorkspaceResourceId) {
+                    Write-Log "    → Already sending to target workspace" -Level Success
+                }
             }
+        } else {
+            Write-Log "No existing diagnostic settings found" -Level Info
         }
     } else {
-        Write-Log "No existing diagnostic settings found" -Level Info
+        throw "HTTP $($response.StatusCode): $($response.Content)"
     }
 } catch {
     $errorMessage = $_.Exception.Message
-    Write-Log "Could not check existing settings: $errorMessage" -Level Warning
+    Write-Log "Could not check existing settings using Invoke-AzRestMethod: $errorMessage" -Level Warning
     
     # Provide more detailed troubleshooting for 401 errors
     if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*") {
@@ -434,9 +436,9 @@ try {
         Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Warning
         Write-Log "" -Level Warning
         Write-Log "This error typically occurs when:" -Level Warning
-        Write-Log "  1. You don't have Global Administrator role in the source tenant" -Level Warning
-        Write-Log "  2. The access token is for the wrong tenant" -Level Warning
-        Write-Log "  3. The account doesn't have permission to configure Entra ID diagnostic settings" -Level Warning
+        Write-Log "  1. You don't have Global Administrator or Security Administrator role" -Level Warning
+        Write-Log "  2. The Entra ID diagnostic settings API requires elevated permissions" -Level Warning
+        Write-Log "  3. The tenant may not have the required license (P1/P2) for some log categories" -Level Warning
         Write-Log "" -Level Warning
         Write-Log "Current authentication context:" -Level Info
         $ctx = Get-AzContext
@@ -444,13 +446,16 @@ try {
         Write-Log "  Tenant: $($ctx.Tenant.Id)" -Level Info
         Write-Log "  Subscription: $($ctx.Subscription.Name) ($($ctx.Subscription.Id))" -Level Info
         Write-Log "" -Level Warning
+        Write-Log "IMPORTANT: The microsoft.aadiam/diagnosticSettings API requires:" -Level Warning
+        Write-Log "  - Global Administrator OR Security Administrator role in Entra ID" -Level Warning
+        Write-Log "  - The role must be ACTIVE (if using PIM, ensure it's activated)" -Level Warning
+        Write-Log "" -Level Warning
         Write-Log "To fix this issue:" -Level Warning
-        Write-Log "  1. Ensure you have Global Administrator role in tenant: $SourceTenantId" -Level Warning
-        Write-Log "  2. Try disconnecting and reconnecting:" -Level Warning
-        Write-Log "     Disconnect-AzAccount" -Level Warning
-        Write-Log "     Connect-AzAccount -TenantId '$SourceTenantId'" -Level Warning
-        Write-Log "  3. Verify your role in Azure Portal:" -Level Warning
+        Write-Log "  1. Verify your Entra ID role (not just Azure RBAC role):" -Level Warning
         Write-Log "     https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RolesAndAdministrators" -Level Warning
+        Write-Log "  2. If using PIM, activate your Global Administrator role first" -Level Warning
+        Write-Log "  3. Try configuring via Azure Portal instead:" -Level Warning
+        Write-Log "     https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Warning
         Write-Log "" -Level Warning
     }
 }
@@ -461,26 +466,9 @@ if($VerifyOnly) {
     exit 0
 }
 
-# Step 4: Deploy Entra ID Diagnostic Settings via ARM Template
+# Step 4: Deploy Entra ID Diagnostic Settings via REST API
 Write-Log "" -Level Info
-Write-Log "Step 4: Deploying Entra ID diagnostic settings via ARM template..." -Level Info
-
-# Ensure we have valid headers (refresh token if needed)
-if(-not $headers) {
-    Write-Log "  Refreshing access token..." -Level Info
-    try {
-        $tokenResponse = Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop
-        $token = $tokenResponse.Token
-        $headers = @{ "Authorization" = "Bearer $token"; "Content-Type" = "application/json" }
-        Write-Log "  Access token refreshed successfully" -Level Success
-    } catch {
-        Write-Log "Failed to acquire access token: $($_.Exception.Message)" -Level Error
-        Write-Log "" -Level Error
-        Write-Log "This is required to configure Entra ID diagnostic settings." -Level Error
-        Write-Log "Please ensure you have Global Administrator role in the source tenant." -Level Error
-        exit 1
-    }
-}
+Write-Log "Step 4: Deploying Entra ID diagnostic settings via REST API..." -Level Info
 
 # Check if setting with same name exists
 $existingWithSameName = $existingSettings | Where-Object { $_.name -eq $DiagnosticSettingName }
@@ -492,20 +480,24 @@ if($existingWithSameName) {
         exit 0
     }
     
-    # Delete existing setting first
+    # Delete existing setting first using Invoke-AzRestMethod
     Write-Log "Removing existing diagnostic setting..." -Level Info
     try {
-        $deleteUri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
-        Invoke-RestMethod -Uri $deleteUri -Method DELETE -Headers $headers -ErrorAction Stop
-        Write-Log "Existing setting removed" -Level Success
+        $deletePath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+        $deleteResponse = Invoke-AzRestMethod -Path $deletePath -Method DELETE -ErrorAction Stop
+        if($deleteResponse.StatusCode -in @(200, 202, 204)) {
+            Write-Log "Existing setting removed" -Level Success
+        } else {
+            Write-Log "Delete returned status $($deleteResponse.StatusCode): $($deleteResponse.Content)" -Level Warning
+        }
         Start-Sleep -Seconds 5  # Wait for deletion to propagate
     } catch {
         Write-Log "Could not remove existing setting: $($_.Exception.Message)" -Level Warning
     }
 }
 
-# Deploy via REST API (ARM template deployment at tenant scope requires special handling)
-Write-Log "Creating diagnostic setting via REST API..." -Level Info
+# Deploy via REST API using Invoke-AzRestMethod (handles authentication automatically)
+Write-Log "Creating diagnostic setting using Invoke-AzRestMethod..." -Level Info
 
 $logsArray = $validCategories | ForEach-Object {
     @{ category = $_; enabled = $true }
@@ -519,31 +511,72 @@ $body = @{
 } | ConvertTo-Json -Depth 10
 
 try {
-    $createUri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+    $createPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
     
     if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
-        $result = Invoke-RestMethod -Uri $createUri -Method PUT -Headers $headers -Body $body -ErrorAction Stop
-        Write-Log "Diagnostic setting created successfully" -Level Success
-        Write-Log "  Name: $DiagnosticSettingName" -Level Info
-        Write-Log "  Destination: $WorkspaceResourceId" -Level Info
-        Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+        $createResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
+        
+        if($createResponse.StatusCode -in @(200, 201)) {
+            Write-Log "Diagnostic setting created successfully" -Level Success
+            Write-Log "  Name: $DiagnosticSettingName" -Level Info
+            Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+            Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+        } else {
+            throw "HTTP $($createResponse.StatusCode): $($createResponse.Content)"
+        }
     }
 } catch {
-    Write-Log "Failed to create diagnostic setting: $($_.Exception.Message)" -Level Error
+    $errorMessage = $_.Exception.Message
+    Write-Log "Failed to create diagnostic setting: $errorMessage" -Level Error
     
-    # Try with fewer categories (some may not be available)
-    Write-Log "Retrying with basic categories only..." -Level Warning
+    # Provide detailed troubleshooting for 401/403 errors
+    if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*" -or $errorMessage -like "*403*" -or $errorMessage -like "*Forbidden*") {
+        Write-Log "" -Level Error
+        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Error
+        Write-Log "║  PERMISSION ERROR - Cannot Create Diagnostic Setting                 ║" -Level Error
+        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "The microsoft.aadiam/diagnosticSettings API requires:" -Level Error
+        Write-Log "  - Global Administrator OR Security Administrator role in Entra ID" -Level Error
+        Write-Log "  - The role must be ACTIVE (if using PIM, ensure it's activated)" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "Current authentication context:" -Level Info
+        $ctx = Get-AzContext
+        Write-Log "  Account: $($ctx.Account.Id)" -Level Info
+        Write-Log "  Tenant: $($ctx.Tenant.Id)" -Level Info
+        Write-Log "  Subscription: $($ctx.Subscription.Name) ($($ctx.Subscription.Id))" -Level Info
+        Write-Log "" -Level Error
+        Write-Log "RECOMMENDED: Configure via Azure Portal instead:" -Level Warning
+        Write-Log "  1. Go to: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Warning
+        Write-Log "  2. Click '+ Add diagnostic setting'" -Level Warning
+        Write-Log "  3. Select the log categories you need" -Level Warning
+        Write-Log "  4. Choose 'Send to Log Analytics workspace'" -Level Warning
+        Write-Log "  5. Select subscription and workspace from the managing tenant" -Level Warning
+        Write-Log "" -Level Warning
+        exit 1
+    }
+    
+    # Try with fewer categories (some may not be available due to licensing)
+    Write-Log "Retrying with basic categories only (AuditLogs, SignInLogs)..." -Level Warning
     $basicCategories = @("AuditLogs", "SignInLogs")
     $logsArray = $basicCategories | ForEach-Object { @{ category = $_; enabled = $true } }
     $body = @{ properties = @{ workspaceId = $WorkspaceResourceId; logs = $logsArray } } | ConvertTo-Json -Depth 10
     
     try {
-        $result = Invoke-RestMethod -Uri $createUri -Method PUT -Headers $headers -Body $body -ErrorAction Stop
-        Write-Log "Diagnostic setting created with basic categories" -Level Success
-        Write-Log "  Categories: $($basicCategories -join ', ')" -Level Info
-        Write-Log "  Note: Some categories may require additional licenses" -Level Warning
+        $retryResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
+        
+        if($retryResponse.StatusCode -in @(200, 201)) {
+            Write-Log "Diagnostic setting created with basic categories" -Level Success
+            Write-Log "  Categories: $($basicCategories -join ', ')" -Level Info
+            Write-Log "  Note: Some categories may require additional licenses (P1/P2/E5)" -Level Warning
+        } else {
+            throw "HTTP $($retryResponse.StatusCode): $($retryResponse.Content)"
+        }
     } catch {
         Write-Log "Failed to create diagnostic setting: $($_.Exception.Message)" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "Please try configuring via Azure Portal:" -Level Warning
+        Write-Log "  https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Warning
         exit 1
     }
 }
@@ -555,14 +588,19 @@ Write-Log "Step 5: Verifying configuration..." -Level Info
 Start-Sleep -Seconds 5  # Wait for setting to propagate
 
 try {
-    $verifyUri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
-    $verifySetting = Invoke-RestMethod -Uri $verifyUri -Method GET -Headers $headers -ErrorAction Stop
+    $verifyPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+    $verifyResponse = Invoke-AzRestMethod -Path $verifyPath -Method GET -ErrorAction Stop
     
-    Write-Log "Diagnostic setting verified:" -Level Success
-    Write-Log "  Name: $($verifySetting.name)" -Level Info
-    Write-Log "  Workspace: $($verifySetting.properties.workspaceId)" -Level Info
-    $enabledCats = ($verifySetting.properties.logs | Where-Object {$_.enabled -eq $true}).category
-    Write-Log "  Enabled categories: $($enabledCats -join ', ')" -Level Info
+    if($verifyResponse.StatusCode -eq 200) {
+        $verifySetting = $verifyResponse.Content | ConvertFrom-Json
+        Write-Log "Diagnostic setting verified:" -Level Success
+        Write-Log "  Name: $($verifySetting.name)" -Level Info
+        Write-Log "  Workspace: $($verifySetting.properties.workspaceId)" -Level Info
+        $enabledCats = ($verifySetting.properties.logs | Where-Object {$_.enabled -eq $true}).category
+        Write-Log "  Enabled categories: $($enabledCats -join ', ')" -Level Info
+    } else {
+        Write-Log "Verification returned status $($verifyResponse.StatusCode)" -Level Warning
+    }
 } catch {
     Write-Log "Could not verify setting: $($_.Exception.Message)" -Level Warning
 }
