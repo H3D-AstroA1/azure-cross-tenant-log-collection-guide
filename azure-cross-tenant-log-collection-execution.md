@@ -1258,6 +1258,49 @@ try {
     
     Write-Success "  Key Vault Resource ID: $($keyVault.ResourceId)"
     Write-Success "  Key Vault URI: $($keyVault.VaultUri)"
+    
+    # Assign Key Vault Secrets Officer role to the security group
+    # This ensures all group members can write secrets in subsequent steps (e.g., Step 6, Step 7)
+    if ($results.SecurityGroupId) {
+        Write-Info "  Assigning Key Vault Secrets Officer role to security group..."
+        try {
+            # Ensure SecurityGroupId is a string (not an array)
+            $groupId = [string]$results.SecurityGroupId
+            
+            # Check if role assignment already exists for the security group
+            $existingAssignment = Get-AzRoleAssignment `
+                -ObjectId $groupId `
+                -RoleDefinitionName "Key Vault Secrets Officer" `
+                -Scope $keyVault.ResourceId `
+                -ErrorAction SilentlyContinue
+            
+            if ($existingAssignment) {
+                Write-Warning "  Key Vault Secrets Officer role already assigned to security group"
+            }
+            else {
+                New-AzRoleAssignment `
+                    -ObjectId $groupId `
+                    -RoleDefinitionName "Key Vault Secrets Officer" `
+                    -Scope $keyVault.ResourceId `
+                    -ErrorAction Stop | Out-Null
+                
+                Write-Success "  ✓ Key Vault Secrets Officer role assigned to security group '$SecurityGroupName'"
+                Write-Info "    (All group members can now write secrets in Step 6 and Step 7)"
+            }
+        }
+        catch {
+            Write-Warning "  Could not assign Key Vault Secrets Officer role to security group: $($_.Exception.Message)"
+            Write-Warning "  You may need to manually assign this role before running Step 6"
+            Write-Info "  To assign manually, run:"
+            Write-Info "    New-AzRoleAssignment -ObjectId '$($results.SecurityGroupId)' -RoleDefinitionName 'Key Vault Secrets Officer' -Scope '$($keyVault.ResourceId)'"
+        }
+    }
+    else {
+        Write-Warning "  Security group not available - skipping Key Vault role assignment"
+        Write-Warning "  You will need to manually assign Key Vault Secrets Officer role to users who need to run Step 6 or Step 7"
+        Write-Info "  To assign manually, run:"
+        Write-Info "    New-AzRoleAssignment -ObjectId '<security-group-or-user-object-id>' -RoleDefinitionName 'Key Vault Secrets Officer' -Scope '$($keyVault.ResourceId)'"
+    }
 }
 catch {
     Write-ErrorMsg "Failed to create Key Vault: $($_.Exception.Message)"
@@ -1489,6 +1532,14 @@ Creating Log Analytics workspace: law-central-logging
   Created Log Analytics workspace
   Workspace Resource ID: /subscriptions/.../workspaces/law-central-logging
   Workspace Customer ID: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+
+Creating Key Vault: kv-central-logging
+  Created Key Vault with RBAC authorization
+  Key Vault Resource ID: /subscriptions/.../vaults/kv-central-logging
+  Key Vault URI: https://kv-central-logging.vault.azure.net/
+  Assigning Key Vault Secrets Officer role to security group...
+  ✓ Key Vault Secrets Officer role assigned to security group 'Lighthouse-CrossTenant-Admins'
+    (All group members can now write secrets in Step 6 and Step 7)
 
 ======================================================================
                               SUMMARY
