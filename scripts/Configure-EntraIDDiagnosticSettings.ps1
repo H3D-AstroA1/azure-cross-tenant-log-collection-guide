@@ -529,6 +529,75 @@ try {
     $errorMessage = $_.Exception.Message
     Write-Log "Failed to create diagnostic setting: $errorMessage" -Level Error
     
+    # Check for LinkedAuthorizationFailed error (cross-tenant issue)
+    if($errorMessage -like "*LinkedAuthorizationFailed*" -or $errorMessage -like "*not authorized to access linked subscription*") {
+        Write-Log "" -Level Error
+        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Error
+        Write-Log "║  CROSS-TENANT AUTHORIZATION ERROR                                    ║" -Level Error
+        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "This error occurs because the Entra ID diagnostic settings API cannot" -Level Error
+        Write-Log "access the Log Analytics workspace in a different tenant via PowerShell." -Level Error
+        Write-Log "" -Level Error
+        Write-Log "When authenticated to the SOURCE tenant ($SourceTenantName), you cannot" -Level Error
+        Write-Log "access resources in the MANAGING tenant's subscription." -Level Error
+        Write-Log "" -Level Error
+        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Warning
+        Write-Log "║  SOLUTION: Configure via Azure Portal (Recommended)                  ║" -Level Warning
+        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Warning
+        Write-Log "" -Level Warning
+        Write-Log "The Azure Portal handles cross-tenant authorization correctly." -Level Warning
+        Write-Log "" -Level Warning
+        Write-Log "Step-by-step instructions:" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "  1. Sign in to Azure Portal as Global Administrator of the SOURCE tenant:" -Level Info
+        Write-Log "     https://portal.azure.com" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "  2. Navigate to Microsoft Entra ID > Diagnostic settings:" -Level Info
+        Write-Log "     https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "  3. Click '+ Add diagnostic setting'" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "  4. Configure the diagnostic setting:" -Level Info
+        Write-Log "     - Name: $DiagnosticSettingName" -Level Info
+        Write-Log "     - Select log categories:" -Level Info
+        foreach($cat in $validCategories | Select-Object -First 5) {
+            Write-Log "       ☑ $cat" -Level Info
+        }
+        if($validCategories.Count -gt 5) {
+            Write-Log "       ... and $($validCategories.Count - 5) more categories" -Level Info
+        }
+        Write-Log "" -Level Info
+        Write-Log "  5. Under 'Destination details':" -Level Info
+        Write-Log "     ☑ Send to Log Analytics workspace" -Level Info
+        Write-Log "     - Subscription: Select the MANAGING tenant subscription" -Level Info
+        Write-Log "       (You may need to change the directory filter to see it)" -Level Info
+        Write-Log "     - Log Analytics workspace: $workspaceName" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "  6. Click 'Save'" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Info
+        Write-Log "║  IMPORTANT: Cross-Tenant Workspace Selection in Portal               ║" -Level Info
+        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "To select a workspace from another tenant in the Azure Portal:" -Level Info
+        Write-Log "  1. In the 'Subscription' dropdown, click 'Change directory'" -Level Info
+        Write-Log "  2. Select the managing tenant directory" -Level Info
+        Write-Log "  3. The workspace from the managing tenant should now appear" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "If you don't see the managing tenant's subscription:" -Level Info
+        Write-Log "  - Ensure you have been invited as a guest user to the managing tenant" -Level Info
+        Write-Log "  - Ensure you have at least Reader access to the workspace" -Level Info
+        Write-Log "  - Azure Lighthouse delegation should provide this access" -Level Info
+        Write-Log "" -Level Info
+        Write-Log "Target workspace details:" -Level Info
+        Write-Log "  Workspace Resource ID: $WorkspaceResourceId" -Level Info
+        Write-Log "  Workspace Name: $workspaceName" -Level Info
+        Write-Log "  Managing Tenant Subscription: $subscriptionId" -Level Info
+        Write-Log "" -Level Info
+        exit 1
+    }
+    
     # Provide detailed troubleshooting for 401/403 errors
     if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*" -or $errorMessage -like "*403*" -or $errorMessage -like "*Forbidden*") {
         Write-Log "" -Level Error
