@@ -568,94 +568,112 @@ $body = @{
 $createPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
 $deploymentSucceeded = $false
 
-# Method 1: Try Azure CLI with auxiliary tenants (best for cross-tenant)
+# Method 1: Direct REST API call from SOURCE tenant context
+# This is the simplest approach - we're already authenticated to the source tenant
+# The API should accept the cross-tenant workspace reference if we have proper permissions
 Write-Log "" -Level Info
 Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
-Write-Log "Method 1: Azure CLI with --auxiliary-tenants" -Level Info
+Write-Log "Method 1: Direct REST API from SOURCE tenant" -Level Info
 Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
-Write-Log "  Strategy: Login to SOURCE tenant, use --auxiliary-tenants for MANAGING tenant" -Level Info
-Write-Log "  This allows the API to access the workspace in the managing tenant" -Level Info
+Write-Log "  Strategy: Use current SOURCE tenant context to call Entra ID API" -Level Info
+Write-Log "  The workspace resource ID points to the MANAGING tenant" -Level Info
 Write-Log "" -Level Info
 
-$azCliAvailable = $null -ne (Get-Command az -ErrorAction SilentlyContinue)
-if($azCliAvailable) {
-    try {
-        # First, ensure we're logged in to the source tenant with Azure CLI
-        Write-Log "  → Logging into SOURCE tenant ($SourceTenantName) with Azure CLI..." -Level Info
-        $azLoginResult = az login --tenant $SourceTenantId --allow-no-subscriptions 2>&1
-        
-        if($LASTEXITCODE -eq 0) {
-            Write-Log "  Azure CLI logged in to source tenant" -Level Success
-            
-            # Build the REST API call with auxiliary tenant for cross-tenant access
-            $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
-            
-            # Use az rest with auxiliary-tenants to allow cross-tenant resource access
-            Write-Log "  Creating diagnostic setting with cross-tenant access..." -Level Info
-            
-            # Write body to temp file for az rest
-            $bodyFile = [IO.Path]::GetTempFileName()
-            $body | Out-File $bodyFile -Encoding UTF8
-            
-            try {
-                # The --auxiliary-tenants parameter allows access to resources in other tenants
-                $azRestResult = az rest --method PUT --uri $uri --body "@$bodyFile" --headers "Content-Type=application/json" --auxiliary-tenants $ManagingTenantId 2>&1
-                
-                if($LASTEXITCODE -eq 0) {
-                    Write-Log "Diagnostic setting created successfully via Azure CLI" -Level Success
-                    Write-Log "  Name: $DiagnosticSettingName" -Level Info
-                    Write-Log "  Destination: $WorkspaceResourceId" -Level Info
-                    Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
-                    $deploymentSucceeded = $true
-                } else {
-                    Write-Log "  Azure CLI method failed: $azRestResult" -Level Warning
-                }
-            } finally {
-                Remove-Item $bodyFile -Force -ErrorAction SilentlyContinue
-            }
-        } else {
-            Write-Log "  Azure CLI login failed: $azLoginResult" -Level Warning
+try {
+    # Ensure we're in the source tenant context
+    $ctx = Get-AzContext
+    if($ctx.Tenant.Id -ne $SourceTenantId) {
+        Write-Log "  → Reconnecting to SOURCE tenant..." -Level Info
+        Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        $sourceSubscriptions = Get-AzSubscription -TenantId $SourceTenantId -ErrorAction SilentlyContinue
+        if($sourceSubscriptions -and $sourceSubscriptions.Count -gt 0) {
+            Set-AzContext -SubscriptionId $sourceSubscriptions[0].Id -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
         }
-    } catch {
-        Write-Log "  Azure CLI method failed: $($_.Exception.Message)" -Level Warning
     }
-} else {
-    Write-Log "  Azure CLI not available, skipping this method" -Level Warning
+    
+    Write-Log "  Current context: Tenant=$($ctx.Tenant.Id), Account=$($ctx.Account.Id)" -Level Info
+    
+    if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
+        $createResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
+        
+        if($createResponse.StatusCode -in @(200, 201)) {
+            Write-Log "Diagnostic setting created successfully!" -Level Success
+            Write-Log "  Name: $DiagnosticSettingName" -Level Info
+            Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+            Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+            $deploymentSucceeded = $true
+        } else {
+            $responseContent = $createResponse.Content
+            Write-Log "  Method 1 returned HTTP $($createResponse.StatusCode)" -Level Warning
+            
+            # Check for specific error types
+            if($responseContent -like "*LinkedAuthorizationFailed*") {
+                Write-Log "  LinkedAuthorizationFailed: Cannot access workspace in different tenant" -Level Warning
+            } elseif($responseContent -like "*AuthorizationFailed*") {
+                Write-Log "  AuthorizationFailed: Check permissions on the workspace" -Level Warning
+            }
+            
+            # Parse and show the error message
+            try {
+                $errorObj = $responseContent | ConvertFrom-Json
+                if($errorObj.error.message) {
+                    Write-Log "  Error: $($errorObj.error.message)" -Level Warning
+                }
+            } catch {}
+        }
+    }
+} catch {
+    Write-Log "  Method 1 failed: $($_.Exception.Message)" -Level Warning
 }
 
-# Method 2: Try Invoke-AzRestMethod (standard PowerShell method)
+# Method 2: Try with direct REST call using explicit token for both tenants
 if(-not $deploymentSucceeded) {
     Write-Log "" -Level Info
     Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
-    Write-Log "Method 2: PowerShell Invoke-AzRestMethod" -Level Info
+    Write-Log "Method 2: Direct REST with multi-tenant token" -Level Info
     Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
-    Write-Log "  Strategy: Use current SOURCE tenant context to call Entra ID API" -Level Info
-    Write-Log "  Note: May fail with LinkedAuthorizationFailed for cross-tenant workspace" -Level Info
+    Write-Log "  Strategy: Get token from SOURCE tenant, call ARM API directly" -Level Info
+    Write-Log "  This bypasses some PowerShell module limitations" -Level Info
     Write-Log "" -Level Info
     
     try {
-        if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
-            $createResponse = Invoke-AzRestMethod -Path $createPath -Method PUT -Payload $body -ErrorAction Stop
-            
-            if($createResponse.StatusCode -in @(200, 201)) {
-                Write-Log "Diagnostic setting created successfully via PowerShell" -Level Success
-                Write-Log "  Name: $DiagnosticSettingName" -Level Info
-                Write-Log "  Destination: $WorkspaceResourceId" -Level Info
-                Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
-                $deploymentSucceeded = $true
-            } else {
-                $responseContent = $createResponse.Content
-                Write-Log "  PowerShell method returned HTTP $($createResponse.StatusCode)" -Level Warning
-                
-                # Check for specific error types
-                if($responseContent -like "*LinkedAuthorizationFailed*" -or $responseContent -like "*not authorized to access linked subscription*") {
-                    Write-Log "  Cross-tenant authorization error detected" -Level Warning
-                }
+        # Ensure we're in source tenant
+        $ctx = Get-AzContext
+        if($ctx.Tenant.Id -ne $SourceTenantId) {
+            Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+            $sourceSubscriptions = Get-AzSubscription -TenantId $SourceTenantId -ErrorAction SilentlyContinue
+            if($sourceSubscriptions -and $sourceSubscriptions.Count -gt 0) {
+                Set-AzContext -SubscriptionId $sourceSubscriptions[0].Id -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
             }
         }
+        
+        # Get token for ARM API
+        $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+        
+        $headers = @{
+            "Authorization" = "Bearer $token"
+            "Content-Type" = "application/json"
+        }
+        
+        $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+        
+        Write-Log "  Calling ARM API directly with source tenant token..." -Level Info
+        $response = Invoke-RestMethod -Uri $uri -Method PUT -Headers $headers -Body $body -ErrorAction Stop
+        
+        Write-Log "Diagnostic setting created successfully!" -Level Success
+        Write-Log "  Name: $DiagnosticSettingName" -Level Info
+        Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+        Write-Log "  Categories: $($validCategories -join ', ')" -Level Info
+        $deploymentSucceeded = $true
+        
     } catch {
         $errorMessage = $_.Exception.Message
-        Write-Log "  PowerShell method failed: $errorMessage" -Level Warning
+        Write-Log "  Method 2 failed: $errorMessage" -Level Warning
+        
+        # Check for specific error types
+        if($errorMessage -like "*LinkedAuthorizationFailed*" -or $errorMessage -like "*403*") {
+            Write-Log "  Cross-tenant authorization error - workspace in different tenant" -Level Warning
+        }
     }
 }
 
