@@ -72,8 +72,8 @@
 
 .NOTES
     Author: Azure Cross-Tenant Log Collection Guide
-    Version: 2.2
-    Requires: Az.Accounts, Az.KeyVault PowerShell modules
+    Version: 2.3
+    Requires: Az.Accounts, Az.KeyVault, Az.Resources PowerShell modules
     
     Key difference from Step 7 (M365):
     - Entra ID logs are PUSHED directly via diagnostic settings
@@ -87,6 +87,22 @@
     - If -KeyVaultName is specified, that Key Vault is used directly
     - If not specified, auto-discovers Key Vaults in the resource group
     - If multiple Key Vaults exist, lists them and exits (re-run with -KeyVaultName to select)
+    
+    Deployment Methods Attempted (in order):
+    1. Direct REST API from SOURCE tenant using Invoke-AzRestMethod
+    2. Direct REST with explicit token using Invoke-RestMethod
+    3. Cross-tenant auxiliary token (x-ms-authorization-auxiliary header)
+    4. Lighthouse delegation from MANAGING tenant with x-ms-tenant-id header
+    5. ARM Template deployment at tenant scope using New-AzTenantDeployment
+    6. Microsoft Graph API check (not supported - diagnostic settings are ARM only)
+    
+    IMPORTANT: Cross-tenant diagnostic settings (workspace in different tenant)
+    WILL FAIL with LinkedAuthorizationFailed error. This is a known Azure API
+    limitation - the microsoft.aadiam API does not support cross-tenant workspace
+    references via any programmatic method (REST API, ARM templates, or auxiliary tokens).
+    
+    The Azure Portal UI is the ONLY method that works for cross-tenant scenarios
+    because it uses interactive session tokens that can authenticate to both tenants.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -677,11 +693,69 @@ if(-not $deploymentSucceeded) {
     }
 }
 
-# Method 3: Try with token from managing tenant context (Lighthouse scenario)
+# Method 3: Try with auxiliary token header for cross-tenant authorization
 if(-not $deploymentSucceeded) {
     Write-Log "" -Level Info
     Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
-    Write-Log "Method 3: Lighthouse delegation from MANAGING tenant" -Level Info
+    Write-Log "Method 3: Cross-tenant auxiliary token (x-ms-authorization-auxiliary)" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "  Strategy: Cache managing tenant token, use as auxiliary header" -Level Info
+    Write-Log "  This allows Azure to verify permissions in both tenants" -Level Info
+    Write-Log "" -Level Info
+    
+    try {
+        # First, connect to managing tenant to get a token for the workspace
+        Write-Log "  → Connecting to MANAGING tenant to cache token..." -Level Info
+        Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
+        Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
+        
+        # Cache the managing tenant token
+        $managingToken = (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token
+        Write-Log "  ✓ Managing tenant token cached" -Level Success
+        
+        # Now switch back to source tenant
+        Write-Log "  → Switching to SOURCE tenant..." -Level Info
+        Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        $sourceSubscriptions = Get-AzSubscription -TenantId $SourceTenantId -ErrorAction SilentlyContinue
+        if($sourceSubscriptions -and $sourceSubscriptions.Count -gt 0) {
+            Set-AzContext -SubscriptionId $sourceSubscriptions[0].Id -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        }
+        
+        # Get source tenant token
+        $sourceToken = (Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop).Token
+        
+        # Make REST call with auxiliary token header
+        $headers = @{
+            "Authorization" = "Bearer $sourceToken"
+            "Content-Type" = "application/json"
+            "x-ms-authorization-auxiliary" = "Bearer $managingToken"
+        }
+        
+        $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSettingName`?api-version=2017-04-01"
+        
+        Write-Log "  Creating diagnostic setting with auxiliary token..." -Level Info
+        $response = Invoke-RestMethod -Uri $uri -Method PUT -Headers $headers -Body $body -ErrorAction Stop
+        
+        Write-Log "Diagnostic setting created successfully via auxiliary token!" -Level Success
+        Write-Log "  Name: $DiagnosticSettingName" -Level Info
+        Write-Log "  Destination: $WorkspaceResourceId" -Level Info
+        $deploymentSucceeded = $true
+        
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Log "  Method 3 failed: $errorMessage" -Level Warning
+        
+        if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*") {
+            Write-Log "  Note: The microsoft.aadiam API does not support auxiliary tokens" -Level Warning
+        }
+    }
+}
+
+# Method 4: Try with token from managing tenant context (Lighthouse scenario)
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "Method 4: Lighthouse delegation from MANAGING tenant" -Level Info
     Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
     Write-Log "  Strategy: Connect to MANAGING tenant, use x-ms-tenant-id header for SOURCE" -Level Info
     Write-Log "  Note: Requires Lighthouse delegation to be configured" -Level Info
@@ -716,6 +790,116 @@ if(-not $deploymentSucceeded) {
     } catch {
         Write-Log "  Lighthouse method failed: $($_.Exception.Message)" -Level Warning
     }
+}
+
+# Method 5: ARM Template deployment at tenant scope
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "Method 5: ARM Template deployment at tenant scope" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "  Strategy: Deploy ARM template at tenant scope using New-AzTenantDeployment" -Level Info
+    Write-Log "  This uses the ARM deployment engine which may handle cross-tenant differently" -Level Info
+    Write-Log "" -Level Info
+    
+    try {
+        # Ensure we're in the source tenant
+        Write-Log "  → Connecting to SOURCE tenant ($SourceTenantId)..." -Level Info
+        Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        
+        # Create ARM template for tenant-scope deployment
+        $tenantScopeTemplate = @{
+            '$schema' = "https://schema.management.azure.com/schemas/2019-08-01/tenantDeploymentTemplate.json#"
+            contentVersion = "1.0.0.0"
+            parameters = @{
+                diagnosticSettingName = @{
+                    type = "string"
+                    defaultValue = $DiagnosticSettingName
+                }
+                workspaceResourceId = @{
+                    type = "string"
+                    defaultValue = $WorkspaceResourceId
+                }
+            }
+            resources = @(
+                @{
+                    type = "microsoft.aadiam/diagnosticSettings"
+                    apiVersion = "2017-04-01"
+                    name = "[parameters('diagnosticSettingName')]"
+                    properties = @{
+                        workspaceId = "[parameters('workspaceResourceId')]"
+                        logs = $logsArray
+                    }
+                }
+            )
+        }
+        
+        # Save template to temp file
+        $tempTemplateFile = [IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+        $tenantScopeTemplate | ConvertTo-Json -Depth 20 | Out-File $tempTemplateFile -Encoding UTF8
+        
+        Write-Log "  Template saved to: $tempTemplateFile" -Level Info
+        Write-Log "  Deploying ARM template at tenant scope..." -Level Info
+        
+        $deploymentName = "EntraIDDiagnostics-$(Get-Date -Format 'yyyyMMddHHmmss')"
+        
+        # Use New-AzTenantDeployment for tenant-scope deployment
+        $deployment = New-AzTenantDeployment `
+            -Name $deploymentName `
+            -Location "uksouth" `
+            -TemplateFile $tempTemplateFile `
+            -ErrorAction Stop
+        
+        if($deployment.ProvisioningState -eq "Succeeded") {
+            Write-Log "ARM template deployment succeeded!" -Level Success
+            Write-Log "  Deployment Name: $deploymentName" -Level Info
+            Write-Log "  Provisioning State: $($deployment.ProvisioningState)" -Level Info
+            $deploymentSucceeded = $true
+        } else {
+            Write-Log "  Deployment state: $($deployment.ProvisioningState)" -Level Warning
+        }
+        
+        # Cleanup temp file
+        Remove-Item $tempTemplateFile -Force -ErrorAction SilentlyContinue
+        
+    } catch {
+        $errorMessage = $_.Exception.Message
+        Write-Log "  ARM template deployment failed: $errorMessage" -Level Warning
+        
+        # Check for specific error types
+        if($errorMessage -like "*LinkedAuthorizationFailed*") {
+            Write-Log "  LinkedAuthorizationFailed: ARM deployment also cannot authorize cross-tenant workspace" -Level Warning
+        } elseif($errorMessage -like "*InvalidTemplateDeployment*") {
+            Write-Log "  InvalidTemplateDeployment: Template may not be valid for tenant scope" -Level Warning
+        }
+        
+        # Cleanup temp file on error
+        if($tempTemplateFile -and (Test-Path $tempTemplateFile)) {
+            Remove-Item $tempTemplateFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# Method 6: Microsoft Graph API (for completeness - diagnostic settings not supported)
+if(-not $deploymentSucceeded) {
+    Write-Log "" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "Method 6: Microsoft Graph API check" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "  Note: Microsoft Graph API does NOT support diagnostic settings" -Level Warning
+    Write-Log "  Diagnostic settings are an ARM concept (microsoft.aadiam provider)" -Level Info
+    Write-Log "  Graph API provides access to Entra ID data but not configuration" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "  Graph API capabilities:" -Level Info
+    Write-Log "    ✓ Read audit logs: GET /auditLogs/directoryAudits" -Level Info
+    Write-Log "    ✓ Read sign-in logs: GET /auditLogs/signIns" -Level Info
+    Write-Log "    ✗ Configure diagnostic settings: NOT AVAILABLE" -Level Warning
+    Write-Log "" -Level Info
+    Write-Log "  For diagnostic settings, you must use:" -Level Info
+    Write-Log "    - Azure Resource Manager API (microsoft.aadiam/diagnosticSettings)" -Level Info
+    Write-Log "    - Azure Portal UI" -Level Info
+    Write-Log "    - Azure CLI: az monitor diagnostic-settings create" -Level Info
+    Write-Log "" -Level Info
 }
 
 # If all automated methods failed, provide guidance

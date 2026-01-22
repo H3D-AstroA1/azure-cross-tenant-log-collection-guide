@@ -6037,15 +6037,42 @@ This script automates the entire setup process:
 
 ### Cross-Tenant Automation Methods
 
-The script attempts **three automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios:
+The script attempts **five automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios:
 
 | Method | Description | When It Works |
 |--------|-------------|---------------|
-| **Method 1: Azure CLI with Auxiliary Tenants** | Uses `az rest` with `--auxiliary-tenants` parameter | When Azure CLI is installed and supports cross-tenant resource access |
-| **Method 2: Invoke-AzRestMethod** | Standard PowerShell REST API call | When authenticated context has direct access to both tenants |
-| **Method 3: Lighthouse Delegation** | Runs from managing tenant with Lighthouse permissions | When Lighthouse delegation includes Entra ID permissions |
+| **Method 1: Direct REST API from SOURCE tenant** | Uses `Invoke-AzRestMethod` from source tenant context | When authenticated context has direct access to both tenants |
+| **Method 2: Direct REST with explicit token** | Uses `Invoke-RestMethod` with explicit ARM token | When token-based authentication can bypass module limitations |
+| **Method 3: Lighthouse Delegation** | Runs from managing tenant with `x-ms-tenant-id` header | When Lighthouse delegation includes Entra ID permissions |
+| **Method 4: ARM Template at tenant scope** | Uses `New-AzTenantDeployment` for tenant-level deployment | When ARM deployment engine handles cross-tenant differently |
+| **Method 5: Microsoft Graph API check** | Informational - confirms Graph API doesn't support diagnostic settings | N/A - diagnostic settings are ARM-only |
 
 > **Note:** If all automated methods fail due to the `LinkedAuthorizationFailed` error (cross-tenant authorization limitation), the script provides detailed Azure Portal instructions as a fallback.
+
+### Why Microsoft Graph API Cannot Be Used
+
+Microsoft Graph API does **not** support Entra ID diagnostic settings configuration. The diagnostic settings for Entra ID are managed through the Azure Resource Manager (ARM) API at the `microsoft.aadiam` provider level:
+
+- **Graph API capabilities:**
+  - ✓ Read audit logs: `GET /auditLogs/directoryAudits`
+  - ✓ Read sign-in logs: `GET /auditLogs/signIns`
+  - ✗ Configure diagnostic settings: **NOT AVAILABLE**
+
+- **For diagnostic settings, you must use:**
+  - Azure Resource Manager API (`microsoft.aadiam/diagnosticSettings`)
+  - Azure Portal UI
+  - Azure CLI: `az monitor diagnostic-settings create`
+
+### Why ARM Templates at Tenant Scope May Not Work
+
+ARM templates deployed at tenant scope using `New-AzTenantDeployment` still face the same cross-tenant authorization limitation. The ARM deployment engine validates linked resources (like the Log Analytics workspace) and fails with `LinkedAuthorizationFailed` when the workspace is in a different tenant.
+
+### Terraform Considerations
+
+Terraform's `azurerm` provider has the same limitation. The `azurerm_monitor_aad_diagnostic_setting` resource cannot reference a workspace in a different tenant because:
+1. Terraform authenticates to a single tenant at a time
+2. The underlying ARM API still requires cross-tenant authorization
+3. No Terraform provider currently supports multi-tenant diagnostic settings
 
 ### Understanding the LinkedAuthorizationFailed Error
 
