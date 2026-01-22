@@ -48,6 +48,11 @@
 .PARAMETER SkipKeyVaultUpdate
     If specified, skips updating the Key Vault tenant tracking.
 
+.PARAMETER SkipDiagnosticSettings
+    If specified, skips the diagnostic settings configuration and only updates Key Vault tracking.
+    Use this after manually configuring diagnostic settings via Azure Portal.
+    This is the RECOMMENDED approach for cross-tenant scenarios since all automated methods fail.
+
 .PARAMETER VerifyOnly
     If specified, only verifies existing configuration without making changes.
 
@@ -130,6 +135,7 @@ param(
         "NetworkAccessTrafficLogs"
     ),
     [switch]$SkipKeyVaultUpdate,
+    [switch]$SkipDiagnosticSettings,
     [switch]$VerifyOnly
 )
 
@@ -394,6 +400,36 @@ if(-not $SkipKeyVaultUpdate -and -not $VerifyOnly) {
     } else {
         Write-Log "$SourceTenantName already in configured tenants list" -Level Info
     }
+}
+
+# Check if we should skip diagnostic settings configuration
+if($SkipDiagnosticSettings) {
+    Write-Log "" -Level Info
+    Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+    Write-Log "SKIP DIAGNOSTIC SETTINGS MODE" -Level Warning
+    Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "  -SkipDiagnosticSettings was specified." -Level Info
+    Write-Log "  Key Vault tracking has been updated (if not skipped)." -Level Info
+    Write-Log "" -Level Info
+    Write-Log "  For cross-tenant scenarios, configure diagnostic settings via Azure Portal:" -Level Warning
+    Write-Log "    1. Open: https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/DiagnosticSettings" -Level Info
+    Write-Log "    2. Sign in as Global Admin of SOURCE tenant ($SourceTenantName)" -Level Info
+    Write-Log "    3. Click '+ Add diagnostic setting'" -Level Info
+    Write-Log "    4. Name: $DiagnosticSettingName" -Level Info
+    Write-Log "    5. Select log categories" -Level Info
+    Write-Log "    6. Check 'Send to Log Analytics workspace'" -Level Info
+    Write-Log "    7. Click 'Change directory' to select MANAGING tenant" -Level Info
+    Write-Log "    8. Select workspace: $workspaceName" -Level Info
+    Write-Log "    9. Click 'Save'" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "Target workspace details:" -Level Info
+    Write-Log "  Workspace Resource ID: $WorkspaceResourceId" -Level Info
+    Write-Log "  Workspace Name: $workspaceName" -Level Info
+    Write-Log "  Managing Tenant: $ManagingTenantId" -Level Info
+    Write-Log "" -Level Success
+    Write-Log "Key Vault tracking updated. Configure diagnostic settings via Portal." -Level Success
+    exit 0
 }
 
 # Step 2: Connect to Source Tenant

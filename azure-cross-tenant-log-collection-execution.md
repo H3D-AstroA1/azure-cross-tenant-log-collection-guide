@@ -5983,7 +5983,18 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 
 ## Step 6: Configure Microsoft Entra ID (Azure AD) Logs
 
-> ⚠️ **IMPORTANT**: This script is run from the **MANAGING TENANT** (Atevet12) but requires **Global Administrator** credentials for the source tenant. The script will prompt you to authenticate to the source tenant to configure diagnostic settings. Unlike M365 logs (Step 7), Entra ID logs are **pushed directly** via diagnostic settings - no runbook needed.
+> 🚨 **CRITICAL: PORTAL-ONLY CONFIGURATION REQUIRED**
+>
+> After extensive testing of multiple automated approaches, we have confirmed that **cross-tenant Entra ID diagnostic settings can ONLY be configured via the Azure Portal**. All programmatic methods (REST API, ARM templates, PowerShell, Terraform, Microsoft Sentinel data connectors) fail due to a fundamental Azure API limitation.
+>
+> **The `microsoft.aadiam/diagnosticSettings` API does not support:**
+> - Cross-tenant workspace references
+> - Auxiliary authorization tokens (`x-ms-authorization-auxiliary` header)
+> - Azure Lighthouse delegated permissions for Entra ID resources
+>
+> **Skip directly to the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) section below.**
+
+> ⚠️ **IMPORTANT**: Unlike Azure resource logs (Steps 3-5), Entra ID logs are **tenant-level logs** that require manual Portal configuration for cross-tenant scenarios. The script provided below will guide you through the Portal steps and update Key Vault tracking.
 
 Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
 
@@ -6028,26 +6039,36 @@ Before running this script, you need:
 
 The complete PowerShell script is located at: [`scripts/Configure-EntraIDDiagnosticSettings.ps1`](scripts/Configure-EntraIDDiagnosticSettings.ps1)
 
-This script automates the entire setup process:
-1. Connects to managing tenant and updates Key Vault tracking
-2. Prompts for source tenant authentication
-3. Deploys Entra ID diagnostic settings via multiple methods (see below)
-4. Verifies configuration
-5. Logs flow automatically (no runbook needed - Entra ID pushes directly)
+> ⚠️ **Note:** Due to Azure API limitations, this script **cannot automatically configure cross-tenant diagnostic settings**. Instead, it:
+> 1. Updates Key Vault tracking for configured tenants
+> 2. Attempts multiple automated methods (all will fail for cross-tenant scenarios)
+> 3. **Provides detailed Portal instructions** when automated methods fail
+> 4. Optionally verifies existing configuration
 
-### Cross-Tenant Automation Methods
+**For cross-tenant scenarios, use the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) above.**
 
-The script attempts **five automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios:
+The script is still useful for:
+- **Key Vault tracking**: Records which tenants have been configured
+- **Same-tenant scenarios**: Works when workspace is in the same tenant as Entra ID
+- **Verification**: Checks existing diagnostic settings configuration
+- **Documentation**: Provides step-by-step Portal instructions when automation fails
 
-| Method | Description | When It Works |
-|--------|-------------|---------------|
-| **Method 1: Direct REST API from SOURCE tenant** | Uses `Invoke-AzRestMethod` from source tenant context | When authenticated context has direct access to both tenants |
-| **Method 2: Direct REST with explicit token** | Uses `Invoke-RestMethod` with explicit ARM token | When token-based authentication can bypass module limitations |
-| **Method 3: Lighthouse Delegation** | Runs from managing tenant with `x-ms-tenant-id` header | When Lighthouse delegation includes Entra ID permissions |
-| **Method 4: ARM Template at tenant scope** | Uses `New-AzTenantDeployment` for tenant-level deployment | When ARM deployment engine handles cross-tenant differently |
-| **Method 5: Microsoft Graph API check** | Informational - confirms Graph API doesn't support diagnostic settings | N/A - diagnostic settings are ARM-only |
+### Cross-Tenant Automation Methods (All Fail - Use Portal Instead)
 
-> **Note:** If all automated methods fail due to the `LinkedAuthorizationFailed` error (cross-tenant authorization limitation), the script provides detailed Azure Portal instructions as a fallback.
+> ⚠️ **CONFIRMED: All automated methods fail for cross-tenant Entra ID diagnostic settings.** The table below documents the methods tested and why they fail. **Use the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) instead.**
+
+The script attempts **six automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios. All methods fail due to Azure API limitations:
+
+| Method | Description | Result | Error |
+|--------|-------------|--------|-------|
+| **Method 1: Direct REST API** | Uses `Invoke-AzRestMethod` from source tenant context | ❌ **FAILS** | `LinkedAuthorizationFailed` |
+| **Method 2: Explicit Token** | Uses `Invoke-RestMethod` with explicit ARM token | ❌ **FAILS** | `LinkedAuthorizationFailed` |
+| **Method 3: Lighthouse Delegation** | Runs from managing tenant with `x-ms-tenant-id` header | ❌ **FAILS** | Lighthouse doesn't cover Entra ID |
+| **Method 4: ARM Template** | Uses `New-AzTenantDeployment` for tenant-level deployment | ❌ **FAILS** | `LinkedAuthorizationFailed` |
+| **Method 5: Auxiliary Token** | Uses `x-ms-authorization-auxiliary` header for cross-tenant auth | ❌ **FAILS** | `401 Unauthorized` - API doesn't support auxiliary tokens |
+| **Method 6: Sentinel Data Connector** | Uses Microsoft Sentinel Entra ID data connector API | ❌ **FAILS** | Connectors only work within the same tenant |
+
+> 🚨 **IMPORTANT:** The `microsoft.aadiam/diagnosticSettings` API has a fundamental limitation - it cannot validate or access resources (like Log Analytics workspaces) in a different tenant. This is not a permissions issue; it's an architectural limitation of the API itself.
 
 ### Why Microsoft Graph API Cannot Be Used
 
@@ -6076,7 +6097,7 @@ Terraform's `azurerm` provider has the same limitation. The `azurerm_monitor_aad
 
 ### Understanding the LinkedAuthorizationFailed Error
 
-When configuring Entra ID diagnostic settings to send logs to a Log Analytics workspace in a **different tenant**, you may encounter:
+When configuring Entra ID diagnostic settings to send logs to a Log Analytics workspace in a **different tenant**, you will encounter:
 
 ```
 LinkedAuthorizationFailed: The client has permission to perform action
@@ -6086,11 +6107,100 @@ tenant '<source-tenant-id>' is not authorized to access linked subscription
 '<managing-tenant-subscription-id>'.
 ```
 
-**Root Cause:** The Entra ID diagnostic settings API (`microsoft.aadiam/diagnosticSettings`) cannot access resources in a different tenant when called from PowerShell while authenticated to the source tenant.
+**Root Cause:** The Entra ID diagnostic settings API (`microsoft.aadiam/diagnosticSettings`) cannot access resources in a different tenant. This is a fundamental API limitation, not a permissions issue.
 
-**Why Azure Portal Works:** The Azure Portal handles cross-tenant authorization correctly through its UI, allowing you to select workspaces from other tenants via the "Change directory" option.
+**Why Azure Portal Works:** The Azure Portal handles cross-tenant authorization through its internal session management, allowing you to select workspaces from other tenants via the "Change directory" option. This capability is not exposed through any public API.
 
-**Automated Solutions:** The script tries multiple methods to work around this limitation. If all fail, follow the Portal instructions provided by the script.
+**Why Auxiliary Tokens Don't Work:** The `x-ms-authorization-auxiliary` header (used for cross-tenant authorization in other Azure APIs) returns `401 Unauthorized` when used with the `microsoft.aadiam` API - the API simply doesn't support this authentication method.
+
+**Why Sentinel Data Connectors Don't Work:** Microsoft Sentinel's Entra ID data connectors are designed to connect to the Entra ID tenant where Sentinel is deployed, not to external tenants.
+
+---
+
+### Portal Configuration Instructions (RECOMMENDED)
+
+> ✅ **This is the ONLY working method for cross-tenant Entra ID diagnostic settings.**
+
+Since all automated methods fail due to Azure API limitations, you must configure Entra ID diagnostic settings manually through the Azure Portal. Follow these steps:
+
+#### Prerequisites
+
+Before starting, ensure you have:
+- **Global Administrator** role in the **source tenant** (where Entra ID logs originate)
+- **Reader** access to the **managing tenant** subscription (to select the Log Analytics workspace)
+- The **Log Analytics Workspace Resource ID** from Step 1
+
+#### Step-by-Step Portal Configuration
+
+1. **Sign in to Azure Portal as Global Administrator of the SOURCE tenant**
+   - Go to [https://portal.azure.com](https://portal.azure.com)
+   - Ensure you're signed in with an account that has Global Administrator role in the source tenant
+
+2. **Navigate to Microsoft Entra ID**
+   - In the Azure Portal, search for "Microsoft Entra ID" or "Azure Active Directory"
+   - Click on "Microsoft Entra ID" in the search results
+
+3. **Open Diagnostic Settings**
+   - In the left menu, scroll down to the "Monitoring" section
+   - Click on "Diagnostic settings"
+
+4. **Add a New Diagnostic Setting**
+   - Click "+ Add diagnostic setting"
+   - Enter a name for the diagnostic setting (e.g., `SendToManagingTenantWorkspace`)
+
+5. **Select Log Categories**
+   - Check the log categories you want to collect based on your license:
+   
+   | License | Available Categories |
+   |---------|---------------------|
+   | **Free** | AuditLogs |
+   | **P1** | AuditLogs, SignInLogs, NonInteractiveUserSignInLogs, ServicePrincipalSignInLogs, ManagedIdentitySignInLogs, ProvisioningLogs, ADFSSignInLogs, MicrosoftGraphActivityLogs, NetworkAccessTrafficLogs |
+   | **P2** | All P1 categories + RiskyUsers, UserRiskEvents, RiskyServicePrincipals, ServicePrincipalRiskEvents |
+   | **E5** | All P2 categories + EnrichedOffice365AuditLogs |
+
+6. **Configure Destination - CRITICAL STEP**
+   - Check "Send to Log Analytics workspace"
+   - **IMPORTANT:** Click "Change directory" in the top-right corner of the Portal
+   - Switch to the **MANAGING TENANT** directory (where your Log Analytics workspace is located)
+   - Select the subscription containing your Log Analytics workspace
+   - Select the Log Analytics workspace (e.g., `law-central-logging-for-atevet17-TD`)
+
+7. **Save the Configuration**
+   - Click "Save" to create the diagnostic setting
+   - Wait for the confirmation message
+
+8. **Verify the Configuration**
+   - The diagnostic setting should now appear in the list
+   - Note: It may take 5-15 minutes for logs to start flowing
+
+#### Verification
+
+After configuring, verify logs are flowing by running this KQL query in your Log Analytics workspace:
+
+```kusto
+// Check for Entra ID logs (wait 5-15 minutes after configuration)
+union SigninLogs, AuditLogs, AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(1h)
+| summarize Count=count() by Type
+| order by Count desc
+```
+
+#### Update Key Vault Tracking (Optional)
+
+After manual Portal configuration, you can update the Key Vault tenant tracking by running the script with `-SkipDiagnosticSettings`:
+
+```powershell
+# Update Key Vault tracking only (skip diagnostic settings configuration)
+.\Configure-EntraIDDiagnosticSettings.ps1 `
+    -ManagingTenantId "<MANAGING-TENANT-ID>" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -SourceTenantName "SourceTenantName" `
+    -KeyVaultName "kv-central-logging" `
+    -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-logging" `
+    -SkipDiagnosticSettings
+```
+
+---
 
 ### Usage Examples
 
