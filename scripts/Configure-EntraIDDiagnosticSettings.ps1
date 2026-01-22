@@ -361,6 +361,18 @@ Write-Log "Step 2: Connecting to source tenant ($SourceTenantName)..." -Level In
 try {
     Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop
     Write-Log "Connected to source tenant" -Level Success
+    
+    # Get a subscription in the source tenant to set context
+    # This is required for the Azure Management API to work properly
+    $sourceSubscriptions = Get-AzSubscription -TenantId $SourceTenantId -ErrorAction SilentlyContinue
+    if($sourceSubscriptions -and $sourceSubscriptions.Count -gt 0) {
+        $sourceSub = $sourceSubscriptions | Select-Object -First 1
+        Set-AzContext -SubscriptionId $sourceSub.Id -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        Write-Log "  Set context to subscription: $($sourceSub.Name)" -Level Info
+    } else {
+        Write-Log "No subscriptions found in source tenant. This may cause issues with API calls." -Level Warning
+        Write-Log "Entra ID diagnostic settings require at least one subscription in the tenant." -Level Warning
+    }
 } catch {
     Write-Log "Failed to connect to source tenant: $($_.Exception.Message)" -Level Error
     Write-Log "Ensure you have Global Administrator access to $SourceTenantName" -Level Error
@@ -371,11 +383,30 @@ try {
 Write-Log "" -Level Info
 Write-Log "Step 3: Checking existing Entra ID diagnostic settings..." -Level Info
 
+# Get a fresh access token for the source tenant
+# This is critical - the token must be obtained AFTER setting the subscription context
+Write-Log "  Acquiring access token for Azure Management API..." -Level Info
 $existingSettings = $null
+$headers = $null
 try {
-    $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
-    $token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+    $tokenResponse = Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop
+    $token = $tokenResponse.Token
+    
+    # Verify the token is for the correct tenant
+    $currentContext = Get-AzContext
+    Write-Log "  Current context tenant: $($currentContext.Tenant.Id)" -Level Info
+    Write-Log "  Current context subscription: $($currentContext.Subscription.Name)" -Level Info
+    
+    if($currentContext.Tenant.Id -ne $SourceTenantId) {
+        Write-Log "Token is for wrong tenant! Expected: $SourceTenantId, Got: $($currentContext.Tenant.Id)" -Level Error
+        Write-Log "Please ensure you are authenticated to the source tenant." -Level Error
+        exit 1
+    }
+    
     $headers = @{ "Authorization" = "Bearer $token"; "Content-Type" = "application/json" }
+    Write-Log "  Access token acquired successfully" -Level Success
+    
+    $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01"
     $response = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction Stop
     $existingSettings = $response.value
     
@@ -392,7 +423,36 @@ try {
         Write-Log "No existing diagnostic settings found" -Level Info
     }
 } catch {
-    Write-Log "Could not check existing settings: $($_.Exception.Message)" -Level Warning
+    $errorMessage = $_.Exception.Message
+    Write-Log "Could not check existing settings: $errorMessage" -Level Warning
+    
+    # Provide more detailed troubleshooting for 401 errors
+    if($errorMessage -like "*401*" -or $errorMessage -like "*Unauthorized*") {
+        Write-Log "" -Level Warning
+        Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Warning
+        Write-Log "║  TROUBLESHOOTING: 401 Unauthorized Error                             ║" -Level Warning
+        Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Warning
+        Write-Log "" -Level Warning
+        Write-Log "This error typically occurs when:" -Level Warning
+        Write-Log "  1. You don't have Global Administrator role in the source tenant" -Level Warning
+        Write-Log "  2. The access token is for the wrong tenant" -Level Warning
+        Write-Log "  3. The account doesn't have permission to configure Entra ID diagnostic settings" -Level Warning
+        Write-Log "" -Level Warning
+        Write-Log "Current authentication context:" -Level Info
+        $ctx = Get-AzContext
+        Write-Log "  Account: $($ctx.Account.Id)" -Level Info
+        Write-Log "  Tenant: $($ctx.Tenant.Id)" -Level Info
+        Write-Log "  Subscription: $($ctx.Subscription.Name) ($($ctx.Subscription.Id))" -Level Info
+        Write-Log "" -Level Warning
+        Write-Log "To fix this issue:" -Level Warning
+        Write-Log "  1. Ensure you have Global Administrator role in tenant: $SourceTenantId" -Level Warning
+        Write-Log "  2. Try disconnecting and reconnecting:" -Level Warning
+        Write-Log "     Disconnect-AzAccount" -Level Warning
+        Write-Log "     Connect-AzAccount -TenantId '$SourceTenantId'" -Level Warning
+        Write-Log "  3. Verify your role in Azure Portal:" -Level Warning
+        Write-Log "     https://portal.azure.com/#view/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/~/RolesAndAdministrators" -Level Warning
+        Write-Log "" -Level Warning
+    }
 }
 
 if($VerifyOnly) {
@@ -404,6 +464,23 @@ if($VerifyOnly) {
 # Step 4: Deploy Entra ID Diagnostic Settings via ARM Template
 Write-Log "" -Level Info
 Write-Log "Step 4: Deploying Entra ID diagnostic settings via ARM template..." -Level Info
+
+# Ensure we have valid headers (refresh token if needed)
+if(-not $headers) {
+    Write-Log "  Refreshing access token..." -Level Info
+    try {
+        $tokenResponse = Get-AzAccessToken -ResourceUrl "https://management.azure.com" -ErrorAction Stop
+        $token = $tokenResponse.Token
+        $headers = @{ "Authorization" = "Bearer $token"; "Content-Type" = "application/json" }
+        Write-Log "  Access token refreshed successfully" -Level Success
+    } catch {
+        Write-Log "Failed to acquire access token: $($_.Exception.Message)" -Level Error
+        Write-Log "" -Level Error
+        Write-Log "This is required to configure Entra ID diagnostic settings." -Level Error
+        Write-Log "Please ensure you have Global Administrator role in the source tenant." -Level Error
+        exit 1
+    }
+}
 
 # Check if setting with same name exists
 $existingWithSameName = $existingSettings | Where-Object { $_.name -eq $DiagnosticSettingName }
