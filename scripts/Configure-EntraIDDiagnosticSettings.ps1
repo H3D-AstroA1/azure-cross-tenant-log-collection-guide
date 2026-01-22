@@ -224,6 +224,23 @@ Write-Log "" -Level Info
 Write-Log "This script runs from the MANAGING TENANT but configures" -Level Info
 Write-Log "diagnostic settings in the SOURCE TENANT." -Level Info
 Write-Log "" -Level Info
+Write-Log "╔══════════════════════════════════════════════════════════════════════╗" -Level Info
+Write-Log "║  TENANT AND SUBSCRIPTION CONTEXT OVERVIEW                            ║" -Level Info
+Write-Log "╚══════════════════════════════════════════════════════════════════════╝" -Level Info
+Write-Log "" -Level Info
+Write-Log "  MANAGING TENANT: $ManagingTenantId" -Level Info
+Write-Log "    - Contains: Key Vault, Log Analytics Workspace" -Level Info
+Write-Log "    - Subscription: (parsed from WorkspaceResourceId)" -Level Info
+Write-Log "" -Level Info
+Write-Log "  SOURCE TENANT: $SourceTenantId ($SourceTenantName)" -Level Info
+Write-Log "    - Contains: Entra ID logs to be collected" -Level Info
+Write-Log "    - Diagnostic settings will be created HERE" -Level Info
+Write-Log "" -Level Info
+Write-Log "  The script will:" -Level Info
+Write-Log "    1. Connect to MANAGING tenant to update Key Vault tracking" -Level Info
+Write-Log "    2. Connect to SOURCE tenant to create diagnostic settings" -Level Info
+Write-Log "    3. Attempt cross-tenant deployment (workspace in managing tenant)" -Level Info
+Write-Log "" -Level Info
 
 # Parse workspace resource ID
 $subscriptionId = $null
@@ -322,14 +339,23 @@ Write-Log "    URI: $($keyVault.VaultUri)" -Level Info
 # Step 1: Connect to Managing Tenant and update Key Vault
 if(-not $SkipKeyVaultUpdate -and -not $VerifyOnly) {
     Write-Log "" -Level Info
-    Write-Log "Step 1: Updating tenant tracking in Key Vault..." -Level Info
+    Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+    Write-Log "Step 1: Updating tenant tracking in Key Vault" -Level Info
+    Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+    Write-Log "" -Level Info
+    Write-Log "  ACTION: Connect to MANAGING TENANT" -Level Warning
+    Write-Log "  Tenant ID: $ManagingTenantId" -Level Info
+    Write-Log "  Subscription: $subscriptionId" -Level Info
+    Write-Log "  Purpose: Update Key Vault with source tenant tracking info" -Level Info
+    Write-Log "" -Level Info
     
     $ctx = Get-AzContext
     if(-not $ctx -or $ctx.Tenant.Id -ne $ManagingTenantId) {
-        Write-Log "Connecting to managing tenant ($ManagingTenantId)..." -Level Info
+        Write-Log "  → Connecting to managing tenant..." -Level Info
         Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop
     }
     Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
+    Write-Log "  ✓ Connected to managing tenant, subscription: $subscriptionId" -Level Success
     
     # Update tenants list in Key Vault
     $tenantsSecretName = "EntraID-ConfiguredTenants"
@@ -356,11 +382,22 @@ if(-not $SkipKeyVaultUpdate -and -not $VerifyOnly) {
 
 # Step 2: Connect to Source Tenant
 Write-Log "" -Level Info
-Write-Log "Step 2: Connecting to source tenant ($SourceTenantName)..." -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "Step 2: Connecting to SOURCE TENANT" -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "" -Level Info
+Write-Log "  ACTION: Connect to SOURCE TENANT" -Level Warning
+Write-Log "  Tenant ID: $SourceTenantId" -Level Info
+Write-Log "  Tenant Name: $SourceTenantName" -Level Info
+Write-Log "  Purpose: Create Entra ID diagnostic settings in this tenant" -Level Info
+Write-Log "" -Level Info
+Write-Log "  NOTE: You need Global Administrator role in the SOURCE tenant" -Level Warning
+Write-Log "" -Level Info
 
 try {
+    Write-Log "  → Connecting to source tenant..." -Level Info
     Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop
-    Write-Log "Connected to source tenant" -Level Success
+    Write-Log "  ✓ Connected to source tenant" -Level Success
     
     # Get a subscription in the source tenant to set context
     # This is required for the Azure Management API to work properly
@@ -368,25 +405,32 @@ try {
     if($sourceSubscriptions -and $sourceSubscriptions.Count -gt 0) {
         $sourceSub = $sourceSubscriptions | Select-Object -First 1
         Set-AzContext -SubscriptionId $sourceSub.Id -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
-        Write-Log "  Set context to subscription: $($sourceSub.Name)" -Level Info
+        Write-Log "  ✓ Set context to subscription: $($sourceSub.Name) ($($sourceSub.Id))" -Level Success
     } else {
-        Write-Log "No subscriptions found in source tenant. This may cause issues with API calls." -Level Warning
-        Write-Log "Entra ID diagnostic settings require at least one subscription in the tenant." -Level Warning
+        Write-Log "  ⚠ No subscriptions found in source tenant. This may cause issues with API calls." -Level Warning
+        Write-Log "    Entra ID diagnostic settings require at least one subscription in the tenant." -Level Warning
     }
 } catch {
-    Write-Log "Failed to connect to source tenant: $($_.Exception.Message)" -Level Error
-    Write-Log "Ensure you have Global Administrator access to $SourceTenantName" -Level Error
+    Write-Log "  ✗ Failed to connect to source tenant: $($_.Exception.Message)" -Level Error
+    Write-Log "    Ensure you have Global Administrator access to $SourceTenantName" -Level Error
     exit 1
 }
 
 # Step 3: Check existing diagnostic settings
 Write-Log "" -Level Info
-Write-Log "Step 3: Checking existing Entra ID diagnostic settings..." -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "Step 3: Checking existing Entra ID diagnostic settings" -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "" -Level Info
+Write-Log "  CURRENT CONTEXT: SOURCE TENANT" -Level Warning
+Write-Log "  Purpose: Query existing diagnostic settings in source tenant's Entra ID" -Level Info
+Write-Log "" -Level Info
 
 # Verify the current context is for the correct tenant
 $currentContext = Get-AzContext
-Write-Log "  Current context tenant: $($currentContext.Tenant.Id)" -Level Info
-Write-Log "  Current context subscription: $($currentContext.Subscription.Name)" -Level Info
+Write-Log "  Current context:" -Level Info
+Write-Log "    Tenant: $($currentContext.Tenant.Id)" -Level Info
+Write-Log "    Subscription: $($currentContext.Subscription.Name) ($($currentContext.Subscription.Id))" -Level Info
 
 if($currentContext.Tenant.Id -ne $SourceTenantId) {
     Write-Log "Context is for wrong tenant! Expected: $SourceTenantId, Got: $($currentContext.Tenant.Id)" -Level Error
@@ -468,7 +512,18 @@ if($VerifyOnly) {
 
 # Step 4: Deploy Entra ID Diagnostic Settings via REST API
 Write-Log "" -Level Info
-Write-Log "Step 4: Deploying Entra ID diagnostic settings via REST API..." -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "Step 4: Deploying Entra ID diagnostic settings" -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "" -Level Info
+Write-Log "  CURRENT CONTEXT: SOURCE TENANT ($SourceTenantName)" -Level Warning
+Write-Log "  Purpose: Create diagnostic setting to send logs to MANAGING tenant workspace" -Level Info
+Write-Log "" -Level Info
+Write-Log "  CROSS-TENANT CHALLENGE:" -Level Warning
+Write-Log "    - Diagnostic setting is created in SOURCE tenant's Entra ID" -Level Info
+Write-Log "    - But the destination workspace is in MANAGING tenant" -Level Info
+Write-Log "    - This requires special cross-tenant authorization" -Level Info
+Write-Log "" -Level Info
 
 # Check if setting with same name exists
 $existingWithSameName = $existingSettings | Where-Object { $_.name -eq $DiagnosticSettingName }
@@ -514,13 +569,19 @@ $createPath = "/providers/microsoft.aadiam/diagnosticSettings/$DiagnosticSetting
 $deploymentSucceeded = $false
 
 # Method 1: Try Azure CLI with auxiliary tenants (best for cross-tenant)
-Write-Log "Method 1: Attempting deployment using Azure CLI with auxiliary tenants..." -Level Info
+Write-Log "" -Level Info
+Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+Write-Log "Method 1: Azure CLI with --auxiliary-tenants" -Level Info
+Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+Write-Log "  Strategy: Login to SOURCE tenant, use --auxiliary-tenants for MANAGING tenant" -Level Info
+Write-Log "  This allows the API to access the workspace in the managing tenant" -Level Info
+Write-Log "" -Level Info
 
 $azCliAvailable = $null -ne (Get-Command az -ErrorAction SilentlyContinue)
 if($azCliAvailable) {
     try {
         # First, ensure we're logged in to the source tenant with Azure CLI
-        Write-Log "  Logging into source tenant with Azure CLI..." -Level Info
+        Write-Log "  → Logging into SOURCE tenant ($SourceTenantName) with Azure CLI..." -Level Info
         $azLoginResult = az login --tenant $SourceTenantId --allow-no-subscriptions 2>&1
         
         if($LASTEXITCODE -eq 0) {
@@ -565,7 +626,12 @@ if($azCliAvailable) {
 # Method 2: Try Invoke-AzRestMethod (standard PowerShell method)
 if(-not $deploymentSucceeded) {
     Write-Log "" -Level Info
-    Write-Log "Method 2: Attempting deployment using Invoke-AzRestMethod..." -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "Method 2: PowerShell Invoke-AzRestMethod" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "  Strategy: Use current SOURCE tenant context to call Entra ID API" -Level Info
+    Write-Log "  Note: May fail with LinkedAuthorizationFailed for cross-tenant workspace" -Level Info
+    Write-Log "" -Level Info
     
     try {
         if($PSCmdlet.ShouldProcess($DiagnosticSettingName, "Create Diagnostic Setting")) {
@@ -596,11 +662,16 @@ if(-not $deploymentSucceeded) {
 # Method 3: Try with token from managing tenant context (Lighthouse scenario)
 if(-not $deploymentSucceeded) {
     Write-Log "" -Level Info
-    Write-Log "Method 3: Attempting deployment from managing tenant context via Lighthouse..." -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "Method 3: Lighthouse delegation from MANAGING tenant" -Level Info
+    Write-Log "────────────────────────────────────────────────────────────────────────" -Level Info
+    Write-Log "  Strategy: Connect to MANAGING tenant, use x-ms-tenant-id header for SOURCE" -Level Info
+    Write-Log "  Note: Requires Lighthouse delegation to be configured" -Level Info
+    Write-Log "" -Level Info
     
     try {
         # Switch to managing tenant but target the source tenant's Entra ID
-        Write-Log "  Connecting to managing tenant..." -Level Info
+        Write-Log "  → Connecting to MANAGING tenant ($ManagingTenantId)..." -Level Info
         Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
         Set-AzContext -SubscriptionId $subscriptionId -ErrorAction Stop | Out-Null
         
@@ -688,7 +759,13 @@ if(-not $deploymentSucceeded) {
 
 # Step 5: Verify Configuration
 Write-Log "" -Level Info
-Write-Log "Step 5: Verifying configuration..." -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "Step 5: Verifying configuration" -Level Info
+Write-Log "════════════════════════════════════════════════════════════════════════" -Level Info
+Write-Log "" -Level Info
+Write-Log "  CURRENT CONTEXT: SOURCE TENANT ($SourceTenantName)" -Level Warning
+Write-Log "  Purpose: Verify the diagnostic setting was created successfully" -Level Info
+Write-Log "" -Level Info
 
 Start-Sleep -Seconds 5  # Wait for setting to propagate
 
