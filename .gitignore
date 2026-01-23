@@ -22,3 +22,7 @@ Thumbs.db
 ~$*
 *.docx
 *.pdf
+
+# Claude and GitHub
+.claude
+.github
