@@ -3,28 +3,129 @@
     Configures Microsoft 365 audit log collection using embedded ARM templates.
 
 .DESCRIPTION
-    Step 7 of the Azure Cross-Tenant Log Collection Guide. Uses ARM templates for:
-    - Azure Automation Account with Managed Identity
-    - Key Vault access policies
+    Step 7 of the Azure Cross-Tenant Log Collection Guide. This script runs from the MANAGING TENANT
+    and configures M365 audit log collection from source tenants using the Office 365 Management API.
+    
+    Uses embedded ARM templates for:
+    - Azure Automation Account with System-Assigned Managed Identity
+    - Key Vault access policies for the Automation Account
     - Runbook deployment and scheduling
+    
+    The script performs:
+    1. Creates a multi-tenant app registration in the managing tenant
+    2. Stores credentials securely in Key Vault
+    3. Grants admin consent for the app in the source tenant
+    4. Creates M365 audit log subscriptions for specified content types
+    5. Deploys Azure Automation Account with runbook for log collection
+    6. Configures scheduled execution for continuous log ingestion
+    
+    IMPORTANT: Unlike Entra ID logs (Step 6), M365 logs are PULLED via the Office 365 Management API.
+    This requires a runbook that periodically polls for new audit events and sends them to Log Analytics.
+    
+    Key difference from Step 6 (Entra ID):
+    - M365 logs are PULLED via API polling (runbook required)
+    - Entra ID logs are PUSHED directly via diagnostic settings (no runbook needed)
 
 .PARAMETER ManagingTenantId
-    The Tenant ID of the managing tenant.
+    The Tenant ID of the managing tenant (where Log Analytics workspace and Automation Account exist).
 
 .PARAMETER SourceTenantId
-    The Tenant ID of the source tenant.
+    The Tenant ID of the source tenant (where M365 audit logs originate).
 
 .PARAMETER SourceTenantName
-    A friendly name for the source tenant.
+    A friendly name for the source tenant (e.g., "Atevet17").
+    Used for identification in logs and Key Vault secrets.
 
 .PARAMETER KeyVaultName
-    The name of the Key Vault in the managing tenant.
+    The name of the Key Vault in the managing tenant to store credentials.
+    This Key Vault should have been created in Step 1 (Prepare-ManagingTenant.ps1).
+    The script stores: App ID, App Secret, Workspace Key, and Tenant configuration.
 
 .PARAMETER WorkspaceResourceId
-    The full resource ID of the Log Analytics workspace.
+    The full resource ID of the Log Analytics workspace in the managing tenant.
+    Format: /subscriptions/{sub-id}/resourceGroups/{rg-name}/providers/Microsoft.OperationalInsights/workspaces/{workspace-name}
+
+.PARAMETER ResourceGroupName
+    The resource group name for the Automation Account. If not specified, uses the resource group
+    from the WorkspaceResourceId.
+
+.PARAMETER Location
+    Azure region for the Automation Account. Default: "uksouth"
+
+.PARAMETER AppDisplayName
+    Display name for the multi-tenant app registration created in the MANAGING TENANT.
+    This app is used to authenticate to the Office 365 Management API across all source tenants.
+    Default: "M365-AuditLogs-Collector"
+
+.PARAMETER AutomationAccountName
+    Name for the Azure Automation Account deployed in the MANAGING TENANT.
+    The Automation Account hosts the runbook that collects logs from all configured source tenants.
+    Default: "aa-m365-audit-collector"
+
+.PARAMETER ContentTypes
+    Array of M365 content types to collect. Default: All available types.
+    Available types: Audit.AzureActiveDirectory, Audit.Exchange, Audit.SharePoint, Audit.General, DLP.All
+
+.PARAMETER SecretValidityYears
+    Number of years the app secret remains valid. Default: 1
+
+.PARAMETER ScheduleIntervalMinutes
+    How often the runbook executes to collect logs. Default: 30 minutes
+
+.PARAMETER SkipAppCreation
+    If specified, skips app registration creation and uses existing credentials from Key Vault.
+    Use this when adding additional source tenants to an existing setup.
+
+.PARAMETER VerifyOnly
+    If specified, only verifies existing configuration without making changes.
 
 .EXAMPLE
-    .\Configure-M365AuditLogCollection.ps1 -ManagingTenantId "<ID>" -SourceTenantId "<ID>" -SourceTenantName "Atevet17" -KeyVaultName "kv-central" -WorkspaceResourceId "/subscriptions/.../workspaces/law-central"
+    # Full setup: Configure M365 audit log collection for a new source tenant
+    .\Configure-M365AuditLogCollection.ps1 `
+        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+        -SourceTenantId "<ATEVET17-TENANT-ID>" `
+        -SourceTenantName "Atevet17" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+.EXAMPLE
+    # Add another source tenant (skip app creation, reuse existing app)
+    .\Configure-M365AuditLogCollection.ps1 `
+        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+        -SourceTenantId "<ATEVET18-TENANT-ID>" `
+        -SourceTenantName "Atevet18" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+        -SkipAppCreation
+
+.EXAMPLE
+    # Configure with specific content types only
+    .\Configure-M365AuditLogCollection.ps1 `
+        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+        -SourceTenantId "<ATEVET17-TENANT-ID>" `
+        -SourceTenantName "Atevet17" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+        -ContentTypes @("Audit.Exchange", "Audit.SharePoint")
+
+.NOTES
+    Author: Azure Cross-Tenant Log Collection Guide
+    Version: 2.0
+    Requires: Az.Accounts, Az.KeyVault, Az.Automation, Az.Resources, Microsoft.Graph PowerShell modules
+    
+    Prerequisites:
+    - Key Vault must exist in the managing tenant (created in Step 1)
+    - Global Administrator access to both managing and source tenants
+    - Az.Automation module must be installed
+    - Microsoft.Graph module must be installed
+    
+    Office 365 Management API Permissions Required:
+    - ActivityFeed.Read (Application) - Read activity data for your organization
+    - ActivityFeed.ReadDlp (Application) - Read DLP policy events
+    - ServiceHealth.Read (Application) - Read service health information
+    
+    Log Analytics Table:
+    - M365AuditLogs_CL (custom log table created automatically)
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
