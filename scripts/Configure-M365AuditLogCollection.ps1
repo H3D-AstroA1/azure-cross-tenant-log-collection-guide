@@ -76,6 +76,11 @@
     If specified, skips app registration creation and uses existing credentials from Key Vault.
     Use this when adding additional source tenants to an existing setup.
 
+.PARAMETER UseDeviceCode
+    If specified, uses device code authentication instead of interactive browser authentication.
+    This is useful when browser popups are blocked or when running in terminal environments.
+    You will be prompted to visit https://microsoft.com/devicelogin and enter a code.
+
 .PARAMETER VerifyOnly
     If specified, only verifies existing configuration without making changes.
 
@@ -143,6 +148,7 @@ param(
     [int]$SecretValidityYears = 1,
     [int]$ScheduleIntervalMinutes = 30,
     [switch]$SkipAppCreation,
+    [switch]$UseDeviceCode,
     [switch]$VerifyOnly
 )
 
@@ -298,7 +304,12 @@ $appId = $null; $appSecret = $null; $endDate = (Get-Date).AddYears($SecretValidi
 # Step 1: Create App Registration
 if(-not $SkipAppCreation -and -not $VerifyOnly) {
     Write-Log "Step 1: Creating multi-tenant app in managing tenant..." -Level Info
-    Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
+    if ($UseDeviceCode) {
+        Write-Log "  Using device code authentication - please follow the prompts..." -Level Info
+        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
+    } else {
+        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
+    }
     
     $app = Get-MgApplication -Filter "displayName eq '$AppDisplayName'" -ErrorAction SilentlyContinue
     if(-not $app) {
@@ -363,7 +374,12 @@ if(-not $VerifyOnly) {
 # Step 3: Grant Admin Consent in Source Tenant
 if(-not $VerifyOnly) {
     Write-Log "Step 3: Granting admin consent in source tenant..." -Level Info
-    Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
+    if ($UseDeviceCode) {
+        Write-Log "  Using device code authentication for source tenant - please follow the prompts..." -Level Info
+        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
+    } else {
+        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
+    }
     
     $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" -ErrorAction SilentlyContinue
     if(-not $sp) { $sp = New-MgServicePrincipal -AppId $appId -ErrorAction Stop }
