@@ -305,13 +305,18 @@ $appId = $null; $appSecret = $null; $endDate = (Get-Date).AddYears($SecretValidi
 if(-not $SkipAppCreation -and -not $VerifyOnly) {
     Write-Log "Step 1: Creating multi-tenant app in managing tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
-    Write-Log "  Opening browser for authentication..." -Level Info
-    # Open browser automatically for device login
-    Start-Process "https://microsoft.com/devicelogin"
+    Write-Log "  A browser window will open for authentication..." -Level Info
+    
+    # Disable WAM to force full browser authentication
+    $env:AZURE_IDENTITY_DISABLE_BROKER = "true"
+    
     if ($UseDeviceCode) {
+        Write-Log "  Opening browser for device code authentication..." -Level Info
+        Start-Process "https://microsoft.com/devicelogin"
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
+        # Use standard interactive browser (WAM disabled)
+        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
     }
     
     $app = Get-MgApplication -Filter "displayName eq '$AppDisplayName'" -ErrorAction SilentlyContinue
@@ -378,13 +383,18 @@ if(-not $VerifyOnly) {
 if(-not $VerifyOnly) {
     Write-Log "Step 3: Granting admin consent in source tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
-    Write-Log "  Opening browser for authentication..." -Level Info
-    # Open browser automatically for device login
-    Start-Process "https://microsoft.com/devicelogin"
+    Write-Log "  A browser window will open for authentication..." -Level Info
+    
+    # Ensure WAM is disabled for full browser authentication
+    $env:AZURE_IDENTITY_DISABLE_BROKER = "true"
+    
     if ($UseDeviceCode) {
+        Write-Log "  Opening browser for device code authentication..." -Level Info
+        Start-Process "https://microsoft.com/devicelogin"
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
+        # Use standard interactive browser (WAM disabled)
+        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
     }
     
     $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" -ErrorAction SilentlyContinue
