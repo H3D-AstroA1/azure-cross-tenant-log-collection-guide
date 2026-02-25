@@ -407,8 +407,18 @@ if(-not $VerifyOnly) {
         $permId = $permIds[$permName]
         $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue | Where-Object {$_.AppRoleId -eq $permId}
         if(-not $existing) {
-            New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
-            Write-Log "  Granted: $permName" -Level Success
+            try {
+                New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
+                Write-Log "  Granted: $permName" -Level Success
+            } catch {
+                if ($_.Exception.Message -like "*already*" -or $_.Exception.Message -like "*Permission being assigned was not found*") {
+                    Write-Log "  Skipped: $permName (already granted or not available)" -Level Info
+                } else {
+                    Write-Log "  Warning: $permName - $($_.Exception.Message)" -Level Warning
+                }
+            }
+        } else {
+            Write-Log "  Already granted: $permName" -Level Info
         }
     }
     Disconnect-MgGraph -ErrorAction SilentlyContinue
