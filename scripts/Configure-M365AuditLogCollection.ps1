@@ -304,17 +304,18 @@ $appId = $null; $appSecret = $null; $endDate = (Get-Date).AddYears($SecretValidi
 # Step 1: Create App Registration
 if(-not $SkipAppCreation -and -not $VerifyOnly) {
     Write-Log "Step 1: Creating multi-tenant app in managing tenant..." -Level Info
+    Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
     if ($UseDeviceCode) {
         Write-Log "  Using device code authentication - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
         # Try browser authentication first, fall back to device code if it fails
         try {
-            Write-Log "  Attempting browser authentication..." -Level Info
+            Write-Log "  Attempting browser authentication to MANAGING tenant..." -Level Info
             Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
         } catch {
             Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
-            Write-Log "  Please follow the prompts below to authenticate:" -Level Info
+            Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
             Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
         }
     }
@@ -382,17 +383,18 @@ if(-not $VerifyOnly) {
 # Step 3: Grant Admin Consent in Source Tenant
 if(-not $VerifyOnly) {
     Write-Log "Step 3: Granting admin consent in source tenant..." -Level Info
+    Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
     if ($UseDeviceCode) {
-        Write-Log "  Using device code authentication for source tenant - please follow the prompts..." -Level Info
+        Write-Log "  Using device code authentication for SOURCE tenant - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
         # Try browser authentication first, fall back to device code if it fails
         try {
-            Write-Log "  Attempting browser authentication for source tenant..." -Level Info
+            Write-Log "  Attempting browser authentication to SOURCE tenant..." -Level Info
             Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
         } catch {
             Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
-            Write-Log "  Please follow the prompts below to authenticate:" -Level Info
+            Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
             Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
         }
     }
