@@ -305,19 +305,13 @@ $appId = $null; $appSecret = $null; $endDate = (Get-Date).AddYears($SecretValidi
 if(-not $SkipAppCreation -and -not $VerifyOnly) {
     Write-Log "Step 1: Creating multi-tenant app in managing tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
+    Write-Log "  A browser window will open for authentication..." -Level Info
     if ($UseDeviceCode) {
         Write-Log "  Using device code authentication - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        # Try browser authentication first, fall back to device code if it fails
-        try {
-            Write-Log "  Attempting browser authentication to MANAGING tenant..." -Level Info
-            Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
-        } catch {
-            Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
-            Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
-            Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
-        }
+        # Use -UseDeviceAuthentication to force full browser window instead of WAM popup
+        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
     }
     
     $app = Get-MgApplication -Filter "displayName eq '$AppDisplayName'" -ErrorAction SilentlyContinue
@@ -384,19 +378,13 @@ if(-not $VerifyOnly) {
 if(-not $VerifyOnly) {
     Write-Log "Step 3: Granting admin consent in source tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
+    Write-Log "  A browser window will open for authentication..." -Level Info
     if ($UseDeviceCode) {
         Write-Log "  Using device code authentication for SOURCE tenant - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        # Try browser authentication first, fall back to device code if it fails
-        try {
-            Write-Log "  Attempting browser authentication to SOURCE tenant..." -Level Info
-            Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
-        } catch {
-            Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
-            Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
-            Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
-        }
+        # Use -UseDeviceAuthentication to force full browser window instead of WAM popup
+        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
     }
     
     $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" -ErrorAction SilentlyContinue
