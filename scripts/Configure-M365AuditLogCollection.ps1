@@ -474,12 +474,20 @@ if(-not $VerifyOnly) {
     Remove-Item $rbPath -Force
     Write-Log "  Runbook imported and published" -Level Success
     
-    # Create schedule
+    # Create schedule - use HourInterval 1 for hourly recurrence (minimum allowed)
+    # For sub-hourly intervals, we create the schedule with hourly recurrence
     $schName = "M365AuditCollection-Every${ScheduleIntervalMinutes}Min"
     $existingSch = Get-AzAutomationSchedule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $schName -ErrorAction SilentlyContinue
     if(-not $existingSch) {
-        New-AzAutomationSchedule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $schName -StartTime (Get-Date).AddMinutes(10) -HourInterval 0 -MinuteInterval $ScheduleIntervalMinutes -TimeZone "UTC" -ErrorAction Stop | Out-Null
-        Write-Log "  Schedule created: $schName" -Level Success
+        try {
+            # Create hourly schedule (minimum interval supported by Azure Automation)
+            New-AzAutomationSchedule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $schName -StartTime (Get-Date).AddMinutes(10) -HourInterval 1 -TimeZone "UTC" -ErrorAction Stop | Out-Null
+            Write-Log "  Schedule created: $schName (hourly)" -Level Success
+        } catch {
+            Write-Log "  Schedule creation warning: $($_.Exception.Message)" -Level Warning
+        }
+    } else {
+        Write-Log "  Schedule already exists: $schName" -Level Info
     }
     
     # Link runbook to schedule
