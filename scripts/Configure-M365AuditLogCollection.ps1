@@ -308,7 +308,15 @@ if(-not $SkipAppCreation -and -not $VerifyOnly) {
         Write-Log "  Using device code authentication - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
+        # Try browser authentication first, fall back to device code if it fails
+        try {
+            Write-Log "  Attempting browser authentication..." -Level Info
+            Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -NoWelcome -ErrorAction Stop
+        } catch {
+            Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
+            Write-Log "  Please follow the prompts below to authenticate:" -Level Info
+            Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
+        }
     }
     
     $app = Get-MgApplication -Filter "displayName eq '$AppDisplayName'" -ErrorAction SilentlyContinue
@@ -378,7 +386,15 @@ if(-not $VerifyOnly) {
         Write-Log "  Using device code authentication for source tenant - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
+        # Try browser authentication first, fall back to device code if it fails
+        try {
+            Write-Log "  Attempting browser authentication for source tenant..." -Level Info
+            Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
+        } catch {
+            Write-Log "  Browser authentication failed. Falling back to device code authentication..." -Level Warning
+            Write-Log "  Please follow the prompts below to authenticate:" -Level Info
+            Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
+        }
     }
     
     $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" -ErrorAction SilentlyContinue
