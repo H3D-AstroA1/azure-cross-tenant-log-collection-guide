@@ -305,12 +305,12 @@ $appId = $null; $appSecret = $null; $endDate = (Get-Date).AddYears($SecretValidi
 if(-not $SkipAppCreation -and -not $VerifyOnly) {
     Write-Log "Step 1: Creating multi-tenant app in managing tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO MANAGING TENANT: $ManagingTenantId ***" -Level Warning
-    Write-Log "  A browser window will open for authentication..." -Level Info
+    Write-Log "  Opening browser for authentication..." -Level Info
+    # Open browser automatically for device login
+    Start-Process "https://microsoft.com/devicelogin"
     if ($UseDeviceCode) {
-        Write-Log "  Using device code authentication - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        # Use -UseDeviceAuthentication to force full browser window instead of WAM popup
         Connect-MgGraph -TenantId $ManagingTenantId -Scopes "Application.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
     }
     
@@ -378,12 +378,12 @@ if(-not $VerifyOnly) {
 if(-not $VerifyOnly) {
     Write-Log "Step 3: Granting admin consent in source tenant..." -Level Info
     Write-Log "  *** AUTHENTICATE TO SOURCE TENANT: $SourceTenantId ($SourceTenantName) ***" -Level Warning
-    Write-Log "  A browser window will open for authentication..." -Level Info
+    Write-Log "  Opening browser for authentication..." -Level Info
+    # Open browser automatically for device login
+    Start-Process "https://microsoft.com/devicelogin"
     if ($UseDeviceCode) {
-        Write-Log "  Using device code authentication for SOURCE tenant - please follow the prompts..." -Level Info
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceCode -NoWelcome -ErrorAction Stop
     } else {
-        # Use -UseDeviceAuthentication to force full browser window instead of WAM popup
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -UseDeviceAuthentication -NoWelcome -ErrorAction Stop
     }
     
