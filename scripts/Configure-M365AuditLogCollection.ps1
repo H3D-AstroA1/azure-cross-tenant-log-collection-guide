@@ -141,7 +141,7 @@ param(
     [Parameter(Mandatory)][string]$KeyVaultName,
     [Parameter(Mandatory)][string]$WorkspaceResourceId,
     [string]$ResourceGroupName,
-    [string]$Location = "uksouth",
+    [string]$Location = "westus2",
     [string]$AppDisplayName = "M365-AuditLogs-Collector",
     [string]$AutomationAccountName = "aa-m365-audit-collector",
     [string[]]$ContentTypes = @("Audit.AzureActiveDirectory","Audit.Exchange","Audit.SharePoint","Audit.General","DLP.All"),
