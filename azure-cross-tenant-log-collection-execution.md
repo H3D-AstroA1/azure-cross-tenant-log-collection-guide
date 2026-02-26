@@ -6612,7 +6612,7 @@ Office activities are captured when files are stored in SharePoint/OneDrive:
 | **Teams** | Messages, meetings, file sharing |
 | **OneDrive** | Sync, upload, download, share |
 
-#### Common Operations
+#### Common File Operations (SharePoint/OneDrive)
 
 | Operation | Description |
 |-----------|-------------|
@@ -6621,8 +6621,31 @@ Office activities are captured when files are stored in SharePoint/OneDrive:
 | `FileDownloaded` | User downloaded a file |
 | `FileUploaded` | User uploaded a file |
 | `FileShared` | User shared a file |
-| `MailItemsAccessed` | User accessed email |
+| `FileSyncDownloadedFull` | User synced files via OneDrive |
+
+#### Email Operations (Exchange)
+
+| Operation | Description |
+|-----------|-------------|
+| `MailItemsAccessed` | User accessed/read email |
+| `Send` | User sent an email |
+| `SendAs` | Sent email as another user |
+| `SendOnBehalf` | Sent on behalf of another user |
+| `Create` | Email/calendar item created |
+| `SoftDelete` | Email moved to Deleted Items |
+| `HardDelete` | Email permanently deleted |
+| `MailboxLogin` | User logged into mailbox |
+| `SearchQueryInitiated` | User searched mailbox |
+
+#### Teams Operations (General)
+
+| Operation | Description |
+|-----------|-------------|
 | `MessageSent` | User sent a Teams message |
+| `MessageUpdated` | User edited a Teams message |
+| `MessageDeleted` | User deleted a Teams message |
+| `MeetingStarted` | User started a meeting |
+| `MeetingJoined` | User joined a meeting |
 
 #### KQL Queries
 
@@ -6633,11 +6656,27 @@ M365AuditLogs_CL
 | summarize count() by SourceTenantName_s, ContentType_s
 | order by count_ desc
 
-// View recent Exchange audit events (email, calendar)
+// View all Exchange audit events (email, calendar)
 M365AuditLogs_CL
 | where ContentType_s == "Audit.Exchange"
-| where TimeGenerated > ago(1h)
+| where TimeGenerated > ago(24h)
 | project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s, ClientIP_s
+| order by TimeGenerated desc
+
+// View email send activities
+M365AuditLogs_CL
+| where ContentType_s == "Audit.Exchange"
+| where Operation_s in ("Send", "SendAs", "SendOnBehalf")
+| where TimeGenerated > ago(24h)
+| project TimeGenerated, UserId_s, Operation_s, SourceTenantName_s
+| order by TimeGenerated desc
+
+// View mailbox access activities
+M365AuditLogs_CL
+| where ContentType_s == "Audit.Exchange"
+| where Operation_s == "MailItemsAccessed"
+| where TimeGenerated > ago(24h)
+| project TimeGenerated, UserId_s, ClientIP_s, SourceTenantName_s
 | order by TimeGenerated desc
 
 // View Office file activities (Word, Excel, PowerPoint, etc.)
