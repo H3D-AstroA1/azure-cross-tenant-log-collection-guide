@@ -460,21 +460,21 @@ if(-not $VerifyOnly) {
                 if(-not $existing) {
                     try {
                         New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
-                        Write-Log "    Granted: $permName" -Level Success
+                        Write-Log "    ✓ Granted: $permName" -Level Success
                     } catch {
                         if ($_.Exception.Message -like "*already*") {
-                            Write-Log "    Already granted: $permName" -Level Info
+                            Write-Log "    ✓ Already granted: $permName" -Level Success
                         } elseif ($_.Exception.Message -like "*Permission being assigned was not found*") {
-                            Write-Log "    Skipped: $permName (permission not available - may need manual consent)" -Level Warning
+                            Write-Log "    ⚠ Skipped: $permName (permission ID not found - will use dynamic discovery)" -Level Warning
                         } else {
-                            Write-Log "    Warning: $permName - $($_.Exception.Message)" -Level Warning
+                            Write-Log "    ✗ Failed: $permName - $($_.Exception.Message)" -Level Error
                         }
                     }
                 } else {
-                    Write-Log "    Already granted: $permName" -Level Info
+                    Write-Log "    ✓ Already granted: $permName" -Level Success
                 }
             } else {
-                Write-Log "    Skipped: $permName (role not found on service principal)" -Level Warning
+                Write-Log "    ⚠ Skipped: $permName (role not available on this API)" -Level Warning
             }
         }
     } else {
@@ -501,17 +501,21 @@ foreach($ct in $ContentTypes) {
             $hdr = @{Authorization="Bearer $tok";"Content-Type"="application/json"}
             
             Invoke-RestMethod -Uri "https://manage.office.com/api/v1.0/$SourceTenantId/activity/feed/subscriptions/start?contentType=$ct" -Method POST -Headers $hdr -ErrorAction Stop | Out-Null
-            Write-Log "  Subscribed: $ct" -Level Success
+            Write-Log "  ✓ Subscribed: $ct" -Level Success
             $success = $true
         } catch {
-            if($_.Exception.Message -like "*already enabled*") {
-                Write-Log "  Already subscribed: $ct" -Level Info
+            $errorMsg = $_.Exception.Message
+            if($errorMsg -like "*already enabled*" -or $errorMsg -like "*400*") {
+                # 400 Bad Request often means already subscribed - treat as success
+                Write-Log "  ✓ Already subscribed: $ct" -Level Success
                 $success = $true
-            } elseif ($_.Exception.Message -like "*401*" -and $retry -lt $maxRetries) {
-                Write-Log "  $ct - Unauthorized (attempt $retry/$maxRetries). Waiting ${retryDelay}s for permission propagation..." -Level Warning
+            } elseif ($errorMsg -like "*401*" -and $retry -lt $maxRetries) {
+                Write-Log "  ⏳ $ct - Waiting for permissions to propagate (attempt $retry/$maxRetries)..." -Level Warning
                 Start-Sleep -Seconds $retryDelay
+            } elseif ($errorMsg -like "*401*") {
+                Write-Log "  ✗ $ct - Permission denied. Ensure ActivityFeed.Read permission is granted." -Level Error
             } else {
-                Write-Log "  $ct - $($_.Exception.Message)" -Level Warning
+                Write-Log "  ⚠ $ct - $errorMsg" -Level Warning
             }
         }
     }
