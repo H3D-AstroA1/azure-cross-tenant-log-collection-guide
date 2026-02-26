@@ -6414,16 +6414,6 @@ You will see clear prompts like:
 
 > **Tip**: If you encounter authentication issues, use the `-UseDeviceCode` parameter to force device code authentication, which opens a browser to https://microsoft.com/devicelogin where you enter a code.
 
-### Available M365 Audit Log Content Types
-
-| Content Type | Description | Included Events |
-|--------------|-------------|-----------------|
-| **Audit.AzureActiveDirectory** | Entra ID events | User/group changes, app registrations |
-| **Audit.Exchange** | Exchange Online | Mailbox access, mail flow, admin actions |
-| **Audit.SharePoint** | SharePoint & OneDrive | File access, sharing, site changes |
-| **Audit.General** | General audit | Teams, Power Platform, Dynamics 365 |
-| **DLP.All** | Data Loss Prevention | DLP policy matches and actions |
-
 ### Script: `Configure-M365AuditLogCollection.ps1`
 
 The complete PowerShell script is located at: [`scripts/Configure-M365AuditLogCollection.ps1`](scripts/Configure-M365AuditLogCollection.ps1)
@@ -6742,7 +6732,6 @@ M365AuditLogs_CL
 | **DLP-Specific Issues** | |
 | DLP.All subscription enabled but no DLP events | Verify DLP policies exist in the source tenant: `Get-DlpCompliancePolicy` in Exchange Online PowerShell |
 | Need to check DLP license status | Connect to Exchange Online: `Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com` then run `Get-DlpCompliancePolicy` |
-| Admin consent error in source tenant | Ensure you have Global Administrator role in the source tenant |
 
 ---
 
