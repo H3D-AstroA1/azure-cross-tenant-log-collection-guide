@@ -577,13 +577,15 @@ if(-not $VerifyOnly) {
         }
     }
     
-    # Import runbook
-    Write-Log "  Importing runbook..." -Level Info
+    # Import runbook with PowerShell 7.2 runtime (required for Az.Accounts compatibility)
+    Write-Log "  Importing runbook (PowerShell 7.2 runtime)..." -Level Info
     $rbPath = [IO.Path]::GetTempFileName() + ".ps1"
     $runbookScript | Out-File $rbPath -Encoding UTF8
-    Import-AzAutomationRunbook -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name "Collect-M365AuditLogs" -Path $rbPath -Type PowerShell -Published -Force -ErrorAction Stop | Out-Null
+    
+    # Use PowerShell72 type for PowerShell 7.2 runtime to avoid Azure.Identity compatibility issues
+    Import-AzAutomationRunbook -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name "Collect-M365AuditLogs" -Path $rbPath -Type PowerShell72 -Published -Force -ErrorAction Stop | Out-Null
     Remove-Item $rbPath -Force
-    Write-Log "  Runbook imported and published" -Level Success
+    Write-Log "  ✓ Runbook imported and published (PowerShell 7.2)" -Level Success
     
     # Create schedule - use HourInterval 1 for hourly recurrence (minimum allowed)
     # For sub-hourly intervals, we create the schedule with hourly recurrence
