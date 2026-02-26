@@ -294,6 +294,7 @@ if($WorkspaceResourceId -match "/subscriptions/([^/]+)/resourceGroups/([^/]+)/.*
 }
 
 $o365ApiId = "c5393580-f805-4401-95e8-94b7a6ef2fc2"
+# Default permission IDs - these will be verified against the actual service principal
 $permIds = @{
     "ActivityFeed.Read" = "594c1fb6-4f81-4f82-b6fd-d5b5a0e7e4a6"
     "ActivityFeed.ReadDlp" = "4807a72c-ad38-4250-94c9-4eabfe26cd55"
@@ -429,24 +430,50 @@ if(-not $VerifyOnly) {
     # Grant permissions if we have the O365 service principal
     if ($o365Sp) {
         Write-Log "  Granting API permissions..." -Level Info
-        foreach($permName in $permIds.Keys) {
-            $permId = $permIds[$permName]
-            $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue | Where-Object {$_.AppRoleId -eq $permId}
-            if(-not $existing) {
-                try {
-                    New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
-                    Write-Log "    Granted: $permName" -Level Success
-                } catch {
-                    if ($_.Exception.Message -like "*already*") {
-                        Write-Log "    Already granted: $permName" -Level Info
-                    } elseif ($_.Exception.Message -like "*Permission being assigned was not found*") {
-                        Write-Log "    Skipped: $permName (permission not available on this API)" -Level Warning
-                    } else {
-                        Write-Log "    Warning: $permName - $($_.Exception.Message)" -Level Warning
+        
+        # Get available app roles from the Office 365 Management API service principal
+        $availableRoles = $o365Sp.AppRoles | Where-Object { $_.IsEnabled -eq $true }
+        Write-Log "    Available roles on Office 365 Management API: $($availableRoles.Count)" -Level Info
+        
+        # Map permission names to actual role IDs from the service principal
+        $roleMapping = @{}
+        foreach ($role in $availableRoles) {
+            $roleMapping[$role.Value] = $role.Id
+            Write-Log "      Found role: $($role.Value) ($($role.Id))" -Level Info
+        }
+        
+        # Required permissions for M365 audit log collection
+        $requiredPermissions = @("ActivityFeed.Read", "ActivityFeed.ReadDlp", "ServiceHealth.Read")
+        
+        foreach($permName in $requiredPermissions) {
+            # Try to find the permission in the available roles
+            $permId = $roleMapping[$permName]
+            if (-not $permId) {
+                # Fall back to hardcoded ID if not found in service principal
+                $permId = $permIds[$permName]
+                Write-Log "    Using fallback ID for $permName" -Level Info
+            }
+            
+            if ($permId) {
+                $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue | Where-Object {$_.AppRoleId -eq $permId}
+                if(-not $existing) {
+                    try {
+                        New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
+                        Write-Log "    Granted: $permName" -Level Success
+                    } catch {
+                        if ($_.Exception.Message -like "*already*") {
+                            Write-Log "    Already granted: $permName" -Level Info
+                        } elseif ($_.Exception.Message -like "*Permission being assigned was not found*") {
+                            Write-Log "    Skipped: $permName (permission not available - may need manual consent)" -Level Warning
+                        } else {
+                            Write-Log "    Warning: $permName - $($_.Exception.Message)" -Level Warning
+                        }
                     }
+                } else {
+                    Write-Log "    Already granted: $permName" -Level Info
                 }
             } else {
-                Write-Log "    Already granted: $permName" -Level Info
+                Write-Log "    Skipped: $permName (role not found on service principal)" -Level Warning
             }
         }
     } else {
