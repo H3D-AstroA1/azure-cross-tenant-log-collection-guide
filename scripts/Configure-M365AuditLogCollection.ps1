@@ -540,12 +540,37 @@ if(-not $VerifyOnly) {
     
     # Always ensure Key Vault access is granted (idempotent operation)
     Write-Log "  Ensuring Key Vault access for Automation Account..." -Level Info
-    $kvRg = (Get-AzKeyVault -VaultName $KeyVaultName).ResourceGroupName
-    try {
-        Deploy-ArmTemplate -ResourceGroup $kvRg -Template $armTemplateKeyVaultAccess -Parameters @{keyVaultName=$KeyVaultName;objectId=$principalId;tenantId=$ManagingTenantId} -DeploymentName "M365Audit-KV-$(Get-Date -Format 'yyyyMMddHHmmss')" | Out-Null
-        Write-Log "  ✓ Key Vault access policy configured" -Level Success
-    } catch {
-        Write-Log "  ⚠ Key Vault access policy may already exist: $($_.Exception.Message)" -Level Warning
+    $kv = Get-AzKeyVault -VaultName $KeyVaultName
+    $kvRg = $kv.ResourceGroupName
+    
+    if($kv.EnableRbacAuthorization) {
+        # Key Vault uses Azure RBAC - assign Key Vault Secrets User role
+        Write-Log "    Key Vault uses RBAC authorization - assigning role..." -Level Info
+        $kvResourceId = $kv.ResourceId
+        $existingAssignment = Get-AzRoleAssignment -ObjectId $principalId -Scope $kvResourceId -RoleDefinitionName "Key Vault Secrets User" -ErrorAction SilentlyContinue
+        if(-not $existingAssignment) {
+            try {
+                New-AzRoleAssignment -ObjectId $principalId -Scope $kvResourceId -RoleDefinitionName "Key Vault Secrets User" -ErrorAction Stop | Out-Null
+                Write-Log "  ✓ Key Vault Secrets User role assigned" -Level Success
+            } catch {
+                if($_.Exception.Message -like "*already exists*") {
+                    Write-Log "  ✓ Key Vault Secrets User role already assigned" -Level Success
+                } else {
+                    Write-Log "  ⚠ Role assignment warning: $($_.Exception.Message)" -Level Warning
+                }
+            }
+        } else {
+            Write-Log "  ✓ Key Vault Secrets User role already assigned" -Level Success
+        }
+    } else {
+        # Key Vault uses access policies
+        Write-Log "    Key Vault uses access policies - deploying policy..." -Level Info
+        try {
+            Deploy-ArmTemplate -ResourceGroup $kvRg -Template $armTemplateKeyVaultAccess -Parameters @{keyVaultName=$KeyVaultName;objectId=$principalId;tenantId=$ManagingTenantId} -DeploymentName "M365Audit-KV-$(Get-Date -Format 'yyyyMMddHHmmss')" | Out-Null
+            Write-Log "  ✓ Key Vault access policy configured" -Level Success
+        } catch {
+            Write-Log "  ⚠ Key Vault access policy may already exist: $($_.Exception.Message)" -Level Warning
+        }
     }
     
     # Import required modules with proper versioning
