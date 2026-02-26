@@ -541,12 +541,40 @@ if(-not $VerifyOnly) {
         Write-Log "  Automation Account already exists" -Level Info
     }
     
-    # Import required modules
-    Write-Log "  Importing PowerShell modules..." -Level Info
-    @("Az.Accounts","Az.KeyVault") | ForEach-Object {
+    # Import required modules with proper versioning
+    Write-Log "  Importing PowerShell modules (this may take a few minutes)..." -Level Info
+    $modulesToImport = @(
+        @{Name="Az.Accounts"; Version="3.0.0"},
+        @{Name="Az.KeyVault"; Version="6.0.0"}
+    )
+    
+    foreach($mod in $modulesToImport) {
         try {
-            Import-AzAutomationModule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $_ -ContentLinkUri "https://www.powershellgallery.com/api/v2/package/$_" -ErrorAction SilentlyContinue | Out-Null
-        } catch {}
+            $existingMod = Get-AzAutomationModule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $mod.Name -ErrorAction SilentlyContinue
+            if(-not $existingMod -or $existingMod.ProvisioningState -eq "Failed") {
+                Write-Log "    Importing $($mod.Name)..." -Level Info
+                Import-AzAutomationModule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $mod.Name -ContentLinkUri "https://www.powershellgallery.com/api/v2/package/$($mod.Name)/$($mod.Version)" -ErrorAction Stop | Out-Null
+                
+                # Wait for module to be available (up to 5 minutes)
+                $timeout = 300
+                $elapsed = 0
+                do {
+                    Start-Sleep -Seconds 10
+                    $elapsed += 10
+                    $modStatus = Get-AzAutomationModule -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name $mod.Name -ErrorAction SilentlyContinue
+                } while($modStatus.ProvisioningState -eq "Creating" -and $elapsed -lt $timeout)
+                
+                if($modStatus.ProvisioningState -eq "Succeeded") {
+                    Write-Log "    ✓ $($mod.Name) imported successfully" -Level Success
+                } else {
+                    Write-Log "    ⚠ $($mod.Name) import status: $($modStatus.ProvisioningState)" -Level Warning
+                }
+            } else {
+                Write-Log "    ✓ $($mod.Name) already exists (status: $($existingMod.ProvisioningState))" -Level Success
+            }
+        } catch {
+            Write-Log "    ⚠ Failed to import $($mod.Name): $($_.Exception.Message)" -Level Warning
+        }
     }
     
     # Import runbook
