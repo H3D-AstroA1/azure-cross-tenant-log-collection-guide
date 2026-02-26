@@ -531,14 +531,21 @@ if(-not $VerifyOnly) {
         $deployment = Deploy-ArmTemplate -ResourceGroup $ResourceGroupName -Template $armTemplateAutomationAccount -Parameters @{automationAccountName=$AutomationAccountName;location=$Location} -DeploymentName "M365Audit-AA-$(Get-Date -Format 'yyyyMMddHHmmss')"
         $principalId = $deployment.Outputs.principalId.Value
         Write-Log "  Automation Account deployed (Principal: $principalId)" -Level Success
-        
-        # Grant Key Vault access using ARM template
-        Write-Log "  Deploying Key Vault access policy ARM template..." -Level Info
-        $kvRg = (Get-AzKeyVault -VaultName $KeyVaultName).ResourceGroupName
-        Deploy-ArmTemplate -ResourceGroup $kvRg -Template $armTemplateKeyVaultAccess -Parameters @{keyVaultName=$KeyVaultName;objectId=$principalId;tenantId=$ManagingTenantId} -DeploymentName "M365Audit-KV-$(Get-Date -Format 'yyyyMMddHHmmss')" | Out-Null
-        Write-Log "  Key Vault access granted via ARM template" -Level Success
     } else {
         Write-Log "  Automation Account already exists" -Level Info
+        # Get the managed identity principal ID from existing Automation Account
+        $principalId = $existingAA.Identity.PrincipalId
+        Write-Log "    Managed Identity Principal: $principalId" -Level Info
+    }
+    
+    # Always ensure Key Vault access is granted (idempotent operation)
+    Write-Log "  Ensuring Key Vault access for Automation Account..." -Level Info
+    $kvRg = (Get-AzKeyVault -VaultName $KeyVaultName).ResourceGroupName
+    try {
+        Deploy-ArmTemplate -ResourceGroup $kvRg -Template $armTemplateKeyVaultAccess -Parameters @{keyVaultName=$KeyVaultName;objectId=$principalId;tenantId=$ManagingTenantId} -DeploymentName "M365Audit-KV-$(Get-Date -Format 'yyyyMMddHHmmss')" | Out-Null
+        Write-Log "  ✓ Key Vault access policy configured" -Level Success
+    } catch {
+        Write-Log "  ⚠ Key Vault access policy may already exist: $($_.Exception.Message)" -Level Warning
     }
     
     # Import required modules with proper versioning
