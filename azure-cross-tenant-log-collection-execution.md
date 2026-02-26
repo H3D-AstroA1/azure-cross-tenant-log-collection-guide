@@ -6520,39 +6520,7 @@ This script automates the entire setup process:
     -ScheduleIntervalMinutes 60
 ```
 
-### Verify M365 Audit Logs
-
-After configuration, use the verification script to check that subscriptions are active and logs are being collected:
-
-#### Script: `Verify-M365AuditLogCollection.ps1`
-
-The complete verification script is located at: [`scripts/Verify-M365AuditLogCollection.ps1`](scripts/Verify-M365AuditLogCollection.ps1)
-
-#### Basic Usage
-
-```powershell
-# Verify all configured tenants
-.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12"
-```
-
-#### Verify Specific Tenant
-
-```powershell
-# Verify a specific source tenant
-.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -SourceTenantId "<TENANT-ID>"
-```
-
-#### Test Log Retrieval
-
-```powershell
-# Verify subscriptions AND test actual log retrieval
-.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -TestLogRetrieval
-
-# Check logs from the last 24 hours
-.\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -TestLogRetrieval -HoursToCheck 24
-```
-
-#### Expected Output (Configuration Script)
+### Expected Output (Configuration Script)
 
 When running `Configure-M365AuditLogCollection.ps1`, you will see output with clear status indicators:
 
@@ -6606,54 +6574,8 @@ CONFIGURATION COMPLETE
 ✓ Credentials stored in Key Vault: kv-central-atevet12
 
 Next steps:
-1. Run Verify-M365AuditLogCollection.ps1 to confirm subscriptions
-2. Check Log Analytics for M365 audit logs (may take 15-30 minutes)
-```
-
-#### Expected Output (Verification Script)
-
-```
-========================================
-Verify M365 Audit Log Collection
-========================================
-
-Connected as: admin@atevet12.onmicrosoft.com
-
-Retrieving credentials from Key Vault: kv-central-atevet12
-  App ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-  App Secret: ********
-  Configured tenants: 2
-
-========================================
-Verifying tenant: Atevet17 (yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy)
-  Added: 2024-01-15
-
-  OAuth token acquired
-
-  Checking subscriptions:
-    ✓ Audit.AzureActiveDirectory: enabled
-    ✓ Audit.Exchange: enabled
-    ✓ Audit.SharePoint: enabled
-    ✓ Audit.General: enabled
-    ✓ DLP.All: enabled
-
-========================================
-VERIFICATION SUMMARY
-========================================
-
-Tenants Checked:      2
-Tenants Successful:   2
-Tenants Failed:       0
-Active Subscriptions: 10
-
-✓ All configured tenants verified successfully!
-
-To check logs in Log Analytics, run this KQL query:
-
-M365AuditLogs_CL
-| where TimeGenerated > ago(1h)
-| summarize count() by SourceTenantName_s, ContentType_s
-| order by count_ desc
+1. Wait 5-10 minutes for the first scheduled runbook execution (or run manually)
+2. Check Log Analytics for M365 audit logs using the KQL queries below
 ```
 
 ### Key Vault Secrets Created
@@ -6667,34 +6589,91 @@ M365AuditLogs_CL
 
 ### Verify Logs in Log Analytics
 
-After the runbook runs, verify logs appear in Log Analytics:
+After the runbook runs, verify logs appear in Log Analytics. The `M365AuditLogs_CL` table will be created automatically when the first logs are ingested.
+
+#### M365 Audit Log Content Types
+
+| Content Type | What It Logs |
+|--------------|--------------|
+| **Audit.AzureActiveDirectory** | Entra ID - user/group changes, app registrations, directory changes |
+| **Audit.Exchange** | Exchange Online - mailbox access, mail flow, admin actions, email events |
+| **Audit.SharePoint** | SharePoint & OneDrive - file access, sharing, site changes, downloads |
+| **Audit.General** | Teams, Power Platform, Dynamics 365, Yammer, Forms |
+| **DLP.All** | Data Loss Prevention - policy matches and actions |
+
+#### Office Application Activities
+
+Office activities are captured when files are stored in SharePoint/OneDrive:
+
+| App | Activities Logged |
+|-----|-------------------|
+| **Word, Excel, PowerPoint, OneNote** | File open, edit, download, share, delete |
+| **Outlook** | Email send/receive, calendar, mailbox access |
+| **Teams** | Messages, meetings, file sharing |
+| **OneDrive** | Sync, upload, download, share |
+
+#### Common Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `FileAccessed` | User opened a file |
+| `FileModified` | User edited a file |
+| `FileDownloaded` | User downloaded a file |
+| `FileUploaded` | User uploaded a file |
+| `FileShared` | User shared a file |
+| `MailItemsAccessed` | User accessed email |
+| `MessageSent` | User sent a Teams message |
+
+#### KQL Queries
 
 ```kusto
-// Check M365 audit logs
+// Check M365 audit logs by content type
 M365AuditLogs_CL
 | where TimeGenerated > ago(1h)
 | summarize count() by SourceTenantName_s, ContentType_s
 | order by count_ desc
 
-// View recent Exchange audit events
+// View recent Exchange audit events (email, calendar)
 M365AuditLogs_CL
 | where ContentType_s == "Audit.Exchange"
 | where TimeGenerated > ago(1h)
 | project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s, ClientIP_s
 | order by TimeGenerated desc
 
-// View SharePoint file access events
+// View Office file activities (Word, Excel, PowerPoint, etc.)
+M365AuditLogs_CL
+| where ContentType_s == "Audit.SharePoint"
+| where Operation_s in ("FileAccessed", "FileModified", "FileDownloaded", "FileUploaded", "FileShared")
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, UserId_s, Operation_s, ObjectId_s, SourceTenantName_s
+| order by TimeGenerated desc
+
+// View SharePoint/OneDrive file access events
 M365AuditLogs_CL
 | where ContentType_s == "Audit.SharePoint"
 | where TimeGenerated > ago(1h)
 | project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s, ObjectId_s
 | order by TimeGenerated desc
 
-// View Teams events
+// View Teams events (messages, meetings)
 M365AuditLogs_CL
 | where ContentType_s == "Audit.General"
 | where Workload_s == "MicrosoftTeams"
 | where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s
+| order by TimeGenerated desc
+
+// View Entra ID (Azure AD) events
+M365AuditLogs_CL
+| where ContentType_s == "Audit.AzureActiveDirectory"
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s
+| order by TimeGenerated desc
+
+// View DLP policy events
+M365AuditLogs_CL
+| where ContentType_s == "DLP.All"
+| where TimeGenerated > ago(24h)
 | project TimeGenerated, SourceTenantName_s, Operation_s, UserId_s
 | order by TimeGenerated desc
 ```
@@ -6714,8 +6693,8 @@ M365AuditLogs_CL
 | 401 Unauthorized when creating subscriptions | The script includes a 10-second delay and retry mechanism (3 attempts) for permission propagation. Wait and retry if needed |
 | **Subscription Issues** | |
 | Subscription start fails with "already enabled" | This is informational (shown as ✓) - the subscription is already active |
-| DLP.All returns 400 Bad Request | This is treated as "already subscribed" if the subscription is actually enabled. Verify with `Verify-M365AuditLogCollection.ps1` |
-| No logs collected | Run `Verify-M365AuditLogCollection.ps1` to check subscriptions are active |
+| DLP.All returns 400 Bad Request | This is treated as "already subscribed" if the subscription is actually enabled. Run the KQL query above to verify logs are being collected |
+| No logs collected | Wait 5-10 minutes after runbook execution, then run the KQL queries above to check if logs appear in Log Analytics |
 | **Key Vault & Automation Issues** | |
 | Runbook fails with "Key Vault access denied" | Verify Managed Identity has Key Vault access policy with `get` and `list` permissions for secrets (the script configures this via ARM template) |
 | OAuth token error | Verify app credentials in Key Vault are correct (`M365Collector-AppId` and `M365Collector-Secret`) |
