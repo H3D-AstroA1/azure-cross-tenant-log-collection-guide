@@ -295,8 +295,9 @@ if($WorkspaceResourceId -match "/subscriptions/([^/]+)/resourceGroups/([^/]+)/.*
 
 $o365ApiId = "c5393580-f805-4401-95e8-94b7a6ef2fc2"
 # Default permission IDs - these will be verified against the actual service principal
+# Note: ActivityFeed.Read ID varies by tenant, the script will discover the correct one
 $permIds = @{
-    "ActivityFeed.Read" = "594c1fb6-4f81-4f82-b6fd-d5b5a0e7e4a6"
+    "ActivityFeed.Read" = "594c1fb6-4f81-4475-ae41-0c394909246c"  # Updated to common variant
     "ActivityFeed.ReadDlp" = "4807a72c-ad38-4250-94c9-4eabfe26cd55"
     "ServiceHealth.Read" = "e2cea78f-e743-4d8f-a16a-75b629a038ae"
 }
@@ -484,17 +485,35 @@ if(-not $VerifyOnly) {
 
 # Step 4: Create M365 Subscriptions
 Write-Log "Step 4: Creating M365 audit log subscriptions..." -Level Info
+Write-Log "  Waiting 10 seconds for permission propagation..." -Level Info
+Start-Sleep -Seconds 10
+
 $tokenBody = @{grant_type="client_credentials";client_id=$appId;client_secret=$appSecret;resource="https://manage.office.com"}
-$tok = (Invoke-RestMethod -Uri "https://login.microsoftonline.com/$SourceTenantId/oauth2/token" -Method POST -Body $tokenBody -ErrorAction Stop).access_token
-$hdr = @{Authorization="Bearer $tok";"Content-Type"="application/json"}
+$maxRetries = 3
+$retryDelay = 15
 
 foreach($ct in $ContentTypes) {
-    try {
-        Invoke-RestMethod -Uri "https://manage.office.com/api/v1.0/$SourceTenantId/activity/feed/subscriptions/start?contentType=$ct" -Method POST -Headers $hdr -ErrorAction Stop | Out-Null
-        Write-Log "  Subscribed: $ct" -Level Success
-    } catch {
-        if($_.Exception.Message -like "*already enabled*") { Write-Log "  Already subscribed: $ct" -Level Info }
-        else { Write-Log "  $ct - $($_.Exception.Message)" -Level Warning }
+    $success = $false
+    for ($retry = 1; $retry -le $maxRetries -and -not $success; $retry++) {
+        try {
+            # Get a fresh token for each content type to ensure we have latest permissions
+            $tok = (Invoke-RestMethod -Uri "https://login.microsoftonline.com/$SourceTenantId/oauth2/token" -Method POST -Body $tokenBody -ErrorAction Stop).access_token
+            $hdr = @{Authorization="Bearer $tok";"Content-Type"="application/json"}
+            
+            Invoke-RestMethod -Uri "https://manage.office.com/api/v1.0/$SourceTenantId/activity/feed/subscriptions/start?contentType=$ct" -Method POST -Headers $hdr -ErrorAction Stop | Out-Null
+            Write-Log "  Subscribed: $ct" -Level Success
+            $success = $true
+        } catch {
+            if($_.Exception.Message -like "*already enabled*") {
+                Write-Log "  Already subscribed: $ct" -Level Info
+                $success = $true
+            } elseif ($_.Exception.Message -like "*401*" -and $retry -lt $maxRetries) {
+                Write-Log "  $ct - Unauthorized (attempt $retry/$maxRetries). Waiting ${retryDelay}s for permission propagation..." -Level Warning
+                Start-Sleep -Seconds $retryDelay
+            } else {
+                Write-Log "  $ct - $($_.Exception.Message)" -Level Warning
+            }
+        }
     }
 }
 
