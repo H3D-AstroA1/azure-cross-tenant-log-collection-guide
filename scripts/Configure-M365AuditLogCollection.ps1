@@ -397,27 +397,60 @@ if(-not $VerifyOnly) {
         Connect-MgGraph -TenantId $SourceTenantId -Scopes "Application.ReadWrite.All","AppRoleAssignment.ReadWrite.All" -NoWelcome -ErrorAction Stop
     }
     
+    # Create/get our app's service principal in the source tenant
+    Write-Log "  Creating service principal for collector app in source tenant..." -Level Info
     $sp = Get-MgServicePrincipal -Filter "appId eq '$appId'" -ErrorAction SilentlyContinue
-    if(-not $sp) { $sp = New-MgServicePrincipal -AppId $appId -ErrorAction Stop }
+    if(-not $sp) {
+        $sp = New-MgServicePrincipal -AppId $appId -ErrorAction Stop
+        Write-Log "  Service principal created for collector app" -Level Success
+    } else {
+        Write-Log "  Service principal already exists for collector app" -Level Info
+    }
     
-    $o365Sp = Get-MgServicePrincipal -Filter "appId eq '$o365ApiId'" -ErrorAction Stop
-    foreach($permName in $permIds.Keys) {
-        $permId = $permIds[$permName]
-        $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue | Where-Object {$_.AppRoleId -eq $permId}
-        if(-not $existing) {
-            try {
-                New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
-                Write-Log "  Granted: $permName" -Level Success
-            } catch {
-                if ($_.Exception.Message -like "*already*" -or $_.Exception.Message -like "*Permission being assigned was not found*") {
-                    Write-Log "  Skipped: $permName (already granted or not available)" -Level Info
-                } else {
-                    Write-Log "  Warning: $permName - $($_.Exception.Message)" -Level Warning
-                }
-            }
-        } else {
-            Write-Log "  Already granted: $permName" -Level Info
+    # Create/get the Office 365 Management API service principal in the source tenant
+    # This is required before we can grant permissions to it
+    Write-Log "  Ensuring Office 365 Management API service principal exists..." -Level Info
+    $o365Sp = Get-MgServicePrincipal -Filter "appId eq '$o365ApiId'" -ErrorAction SilentlyContinue
+    if(-not $o365Sp) {
+        Write-Log "  Creating Office 365 Management API service principal in source tenant..." -Level Info
+        try {
+            $o365Sp = New-MgServicePrincipal -AppId $o365ApiId -ErrorAction Stop
+            Write-Log "  Office 365 Management API service principal created" -Level Success
+            # Wait a moment for the service principal to propagate
+            Start-Sleep -Seconds 5
+        } catch {
+            Write-Log "  Warning: Could not create Office 365 Management API service principal: $($_.Exception.Message)" -Level Warning
+            Write-Log "  You may need to manually consent to the Office 365 Management API in the Azure Portal" -Level Warning
         }
+    } else {
+        Write-Log "  Office 365 Management API service principal already exists" -Level Info
+    }
+    
+    # Grant permissions if we have the O365 service principal
+    if ($o365Sp) {
+        Write-Log "  Granting API permissions..." -Level Info
+        foreach($permName in $permIds.Keys) {
+            $permId = $permIds[$permName]
+            $existing = Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -ErrorAction SilentlyContinue | Where-Object {$_.AppRoleId -eq $permId}
+            if(-not $existing) {
+                try {
+                    New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -BodyParameter @{PrincipalId=$sp.Id;ResourceId=$o365Sp.Id;AppRoleId=$permId} -ErrorAction Stop | Out-Null
+                    Write-Log "    Granted: $permName" -Level Success
+                } catch {
+                    if ($_.Exception.Message -like "*already*") {
+                        Write-Log "    Already granted: $permName" -Level Info
+                    } elseif ($_.Exception.Message -like "*Permission being assigned was not found*") {
+                        Write-Log "    Skipped: $permName (permission not available on this API)" -Level Warning
+                    } else {
+                        Write-Log "    Warning: $permName - $($_.Exception.Message)" -Level Warning
+                    }
+                }
+            } else {
+                Write-Log "    Already granted: $permName" -Level Info
+            }
+        }
+    } else {
+        Write-Log "  Skipping permission grants - Office 365 Management API service principal not available" -Level Warning
     }
     Disconnect-MgGraph -ErrorAction SilentlyContinue
 }
