@@ -6398,6 +6398,22 @@ Before running this script, you need:
 - **Key Vault** in the managing tenant (created in Step 1)
 - **Log Analytics Workspace** in the managing tenant (created in Step 1)
 
+### Authentication Flow
+
+The script uses an improved authentication flow that:
+1. **Automatically opens a full browser window** for authentication (not a small popup)
+2. **Disables Windows Account Manager (WAM)** to avoid authentication issues
+3. **Clearly identifies which tenant** you need to authenticate to at each step
+4. **Falls back to device code authentication** if browser authentication fails
+
+You will see clear prompts like:
+```
+*** AUTHENTICATE TO MANAGING TENANT: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx ***
+*** AUTHENTICATE TO SOURCE TENANT: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy ***
+```
+
+> **Tip**: If you encounter authentication issues, use the `-UseDeviceCode` parameter to force device code authentication, which opens a browser to https://microsoft.com/devicelogin where you enter a code.
+
 ### Available M365 Audit Log Content Types
 
 | Content Type | Description | Included Events |
@@ -6426,6 +6442,7 @@ This script automates the entire setup process:
 ```powershell
 # Run from MANAGING TENANT (Atevet12) as Global Administrator
 # This creates the app and configures the first source tenant
+# The script will prompt for authentication to both tenants with clear instructions
 
 .\Configure-M365AuditLogCollection.ps1 `
     -ManagingTenantId "<ATEVET12-TENANT-ID>" `
@@ -6433,6 +6450,20 @@ This script automates the entire setup process:
     -SourceTenantName "Atevet17" `
     -KeyVaultName "kv-central-atevet12" `
     -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```
+
+#### Using Device Code Authentication
+
+```powershell
+# Use device code authentication if browser authentication fails
+# This opens https://microsoft.com/devicelogin where you enter a code
+.\Configure-M365AuditLogCollection.ps1 `
+    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -SourceTenantId "<ATEVET17-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -UseDeviceCode
 ```
 
 #### Add Another Source Tenant (App Already Exists)
@@ -6485,7 +6516,7 @@ This script automates the entire setup process:
     -KeyVaultName "kv-central-atevet12" `
     -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
     -AutomationAccountName "aa-m365-collector-custom" `
-    -Location "eastus" `
+    -Location "westus2" `
     -ScheduleIntervalMinutes 60
 ```
 
@@ -6521,7 +6552,65 @@ The complete verification script is located at: [`scripts/Verify-M365AuditLogCol
 .\Verify-M365AuditLogCollection.ps1 -KeyVaultName "kv-central-atevet12" -TestLogRetrieval -HoursToCheck 24
 ```
 
-#### Expected Output
+#### Expected Output (Configuration Script)
+
+When running `Configure-M365AuditLogCollection.ps1`, you will see output with clear status indicators:
+
+```
+========================================
+Configure M365 Audit Log Collection
+========================================
+
+*** AUTHENTICATE TO MANAGING TENANT: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx ***
+Opening browser for authentication...
+✓ Connected to Microsoft Graph (Managing Tenant)
+
+Step 1: Creating multi-tenant app registration...
+  ✓ App registration created: M365-AuditLog-Collector
+  ✓ Client secret created (expires: 2027-02-26)
+
+Step 2: Configuring Office 365 Management API permissions...
+  ✓ O365 Management API service principal found
+  ✓ Permission granted: ActivityFeed.Read
+  ✓ Permission granted: ActivityFeed.ReadDlp
+  ✓ Permission granted: ServiceHealth.Read
+
+*** AUTHENTICATE TO SOURCE TENANT: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy ***
+Opening browser for authentication...
+✓ Connected to Microsoft Graph (Source Tenant)
+
+Step 3: Granting admin consent in source tenant...
+  ✓ Service principal created in source tenant
+  ✓ Admin consent granted for all permissions
+
+Step 4: Storing credentials in Key Vault...
+  ✓ App ID stored in Key Vault
+  ✓ Client secret stored in Key Vault
+  ✓ Tenant configuration updated
+
+Step 5: Creating audit log subscriptions...
+  Waiting 10 seconds for permission propagation...
+  ✓ Subscribed: Audit.AzureActiveDirectory
+  ✓ Subscribed: Audit.Exchange
+  ✓ Subscribed: Audit.SharePoint
+  ✓ Subscribed: Audit.General
+  ✓ Already subscribed: DLP.All
+
+========================================
+CONFIGURATION COMPLETE
+========================================
+
+✓ App Registration: M365-AuditLog-Collector
+✓ Permissions: ActivityFeed.Read, ActivityFeed.ReadDlp, ServiceHealth.Read
+✓ Subscriptions: 5/5 enabled
+✓ Credentials stored in Key Vault: kv-central-atevet12
+
+Next steps:
+1. Run Verify-M365AuditLogCollection.ps1 to confirm subscriptions
+2. Check Log Analytics for M365 audit logs (may take 15-30 minutes)
+```
+
+#### Expected Output (Verification Script)
 
 ```
 ========================================
@@ -6542,11 +6631,11 @@ Verifying tenant: Atevet17 (yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy)
   OAuth token acquired
 
   Checking subscriptions:
-    Audit.AzureActiveDirectory: enabled
-    Audit.Exchange: enabled
-    Audit.SharePoint: enabled
-    Audit.General: enabled
-    DLP.All: enabled
+    ✓ Audit.AzureActiveDirectory: enabled
+    ✓ Audit.Exchange: enabled
+    ✓ Audit.SharePoint: enabled
+    ✓ Audit.General: enabled
+    ✓ DLP.All: enabled
 
 ========================================
 VERIFICATION SUMMARY
@@ -6557,7 +6646,7 @@ Tenants Successful:   2
 Tenants Failed:       0
 Active Subscriptions: 10
 
-All configured tenants verified successfully!
+✓ All configured tenants verified successfully!
 
 To check logs in Log Analytics, run this KQL query:
 
@@ -6614,12 +6703,27 @@ M365AuditLogs_CL
 
 | Issue | Solution |
 |-------|----------|
-| Runbook fails with "Key Vault access denied" | Verify Managed Identity has Key Vault access policy with `get` and `list` permissions for secrets (the script configures this via ARM template) |
+| **Authentication Issues** | |
+| Browser authentication fails or shows small popup | The script automatically disables WAM and opens a full browser window. If issues persist, use `-UseDeviceCode` parameter |
+| "InteractiveBrowserCredential authentication failed" | Use `-UseDeviceCode` parameter to force device code authentication flow |
+| Confused about which tenant to authenticate to | The script shows clear prompts: `*** AUTHENTICATE TO MANAGING TENANT ***` or `*** AUTHENTICATE TO SOURCE TENANT ***` |
+| Device code authentication not working | Ensure you're entering the code at https://microsoft.com/devicelogin and signing in with the correct account |
+| **Permission Issues** | |
+| "Permission being assigned was not found" | The script dynamically discovers app roles from the O365 Management API service principal. If this fails, the O365 Management API may not be available in your tenant |
+| Admin consent error in source tenant | Ensure you have Global Administrator role in the source tenant |
+| 401 Unauthorized when creating subscriptions | The script includes a 10-second delay and retry mechanism (3 attempts) for permission propagation. Wait and retry if needed |
+| **Subscription Issues** | |
+| Subscription start fails with "already enabled" | This is informational (shown as ✓) - the subscription is already active |
+| DLP.All returns 400 Bad Request | This is treated as "already subscribed" if the subscription is actually enabled. Verify with `Verify-M365AuditLogCollection.ps1` |
 | No logs collected | Run `Verify-M365AuditLogCollection.ps1` to check subscriptions are active |
+| **Key Vault & Automation Issues** | |
+| Runbook fails with "Key Vault access denied" | Verify Managed Identity has Key Vault access policy with `get` and `list` permissions for secrets (the script configures this via ARM template) |
 | OAuth token error | Verify app credentials in Key Vault are correct (`M365Collector-AppId` and `M365Collector-Secret`) |
 | Logs not appearing in Log Analytics | Check `LogAnalytics-WorkspaceKey` secret is correct; verify Workspace ID in runbook parameters |
 | Module import fails | Wait for previous module import to complete; check Automation Account > Modules for status |
-| Subscription start fails with "already enabled" | This is informational - the subscription is already active |
+| **DLP-Specific Issues** | |
+| DLP.All subscription enabled but no DLP events | Verify DLP policies exist in the source tenant: `Get-DlpCompliancePolicy` in Exchange Online PowerShell |
+| Need to check DLP license status | Connect to Exchange Online: `Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com` then run `Get-DlpCompliancePolicy` |
 | Admin consent error in source tenant | Ensure you have Global Administrator role in the source tenant |
 
 ---
