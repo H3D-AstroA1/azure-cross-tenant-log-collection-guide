@@ -670,7 +670,4 @@ Write-Log "     M365AuditLogs_CL" -Level Info
 Write-Log "     | where TimeGenerated > ago(1h)" -Level Info
 Write-Log "     | summarize count() by SourceTenantName_s, ContentType_s" -Level Info
 Write-Log "     | order by count_ desc" -Level Info
-Write-Log "" -Level Info
-Write-Log "To add another source tenant, run:" -Level Info
-Write-Log "  .\Configure-M365AuditLogCollection.ps1 -ManagingTenantId '$ManagingTenantId' -SourceTenantId '<NEW-TENANT-ID>' -SourceTenantName '<NAME>' -KeyVaultName '$KeyVaultName' -WorkspaceResourceId '$WorkspaceResourceId' -SkipAppCreation" -Level Info
 #endregion
