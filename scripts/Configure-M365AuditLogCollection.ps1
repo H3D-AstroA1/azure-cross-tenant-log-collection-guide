@@ -50,7 +50,7 @@
     from the WorkspaceResourceId.
 
 .PARAMETER Location
-    Azure region for the Automation Account. Default: "uksouth"
+    Azure region for the Automation Account. Default: "westus2"
 
 .PARAMETER AppDisplayName
     Display name for the multi-tenant app registration created in the MANAGING TENANT.
