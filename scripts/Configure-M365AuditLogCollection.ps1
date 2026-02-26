@@ -661,6 +661,16 @@ Write-Log "  Automation Account: $AutomationAccountName" -Level Info
 Write-Log "  Schedule: Every $ScheduleIntervalMinutes minutes" -Level Info
 Write-Log "  Log Analytics Table: M365AuditLogs_CL" -Level Info
 Write-Log "" -Level Info
+Write-Log "Next Steps:" -Level Info
+Write-Log "  1. Wait 5-10 minutes for the first scheduled runbook execution" -Level Info
+Write-Log "  2. Or manually run the runbook: Azure Portal > Automation Accounts > $AutomationAccountName > Runbooks > Collect-M365AuditLogs > Start" -Level Info
+Write-Log "  3. Verify logs in Log Analytics with this KQL query:" -Level Info
+Write-Log "" -Level Info
+Write-Log "     M365AuditLogs_CL" -Level Info
+Write-Log "     | where TimeGenerated > ago(1h)" -Level Info
+Write-Log "     | summarize count() by SourceTenantName_s, ContentType_s" -Level Info
+Write-Log "     | order by count_ desc" -Level Info
+Write-Log "" -Level Info
 Write-Log "To add another source tenant, run:" -Level Info
 Write-Log "  .\Configure-M365AuditLogCollection.ps1 -ManagingTenantId '$ManagingTenantId' -SourceTenantId '<NEW-TENANT-ID>' -SourceTenantName '<NAME>' -KeyVaultName '$KeyVaultName' -WorkspaceResourceId '$WorkspaceResourceId' -SkipAppCreation" -Level Info
 #endregion
