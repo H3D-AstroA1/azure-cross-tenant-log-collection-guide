@@ -582,6 +582,13 @@ if(-not $VerifyOnly) {
     $rbPath = [IO.Path]::GetTempFileName() + ".ps1"
     $runbookScript | Out-File $rbPath -Encoding UTF8
     
+    # Check if existing runbook needs to be deleted (can't change runbook type)
+    $existingRb = Get-AzAutomationRunbook -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name "Collect-M365AuditLogs" -ErrorAction SilentlyContinue
+    if($existingRb -and $existingRb.RunbookType -ne "PowerShell72") {
+        Write-Log "    Removing existing runbook (wrong runtime type: $($existingRb.RunbookType))..." -Level Info
+        Remove-AzAutomationRunbook -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name "Collect-M365AuditLogs" -Force -ErrorAction SilentlyContinue
+    }
+    
     # Use PowerShell72 type for PowerShell 7.2 runtime to avoid Azure.Identity compatibility issues
     Import-AzAutomationRunbook -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName -Name "Collect-M365AuditLogs" -Path $rbPath -Type PowerShell72 -Published -Force -ErrorAction Stop | Out-Null
     Remove-Item $rbPath -Force
