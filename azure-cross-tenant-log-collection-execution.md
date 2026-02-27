@@ -131,9 +131,27 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 ## Step 0: Register Resource Providers
 
-> ✅ **RECOMMENDED for Azure Cloud Shell** - No additional setup required!
+> ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
 
-This PowerShell script checks and registers the `Microsoft.ManagedServices` resource provider across all subscriptions in a tenant. This is required before deploying Azure Lighthouse.
+> ✅ **RECOMMENDED for Azure Cloud Shell** - The Az PowerShell module is pre-installed, no additional setup required!
+
+This PowerShell script checks and registers the `Microsoft.ManagedServices` resource provider across all subscriptions in a tenant. This registration is a **prerequisite for Azure Lighthouse** - without it, the Lighthouse delegation deployment will fail.
+
+### Prerequisites
+
+Before running this script, you need:
+- **Azure account** with access to the source tenant
+- **Owner** or **Contributor** role on the subscriptions you want to register
+- **PowerShell** with the Az module installed (or use Azure Cloud Shell)
+
+### What This Script Does
+
+The `Microsoft.ManagedServices` resource provider enables Azure Lighthouse functionality on a subscription. This script:
+1. Discovers all accessible subscriptions in the specified tenant
+2. Checks the current registration status of the `Microsoft.ManagedServices` provider
+3. Registers the provider on subscriptions where it's not already registered
+4. Waits for registration to complete (can take 1-2 minutes per subscription)
+5. Provides a summary showing which subscriptions were processed
 
 ### Script: `Register-ManagedServices.ps1`
 
@@ -141,16 +159,31 @@ The complete PowerShell script is located at: [`scripts/Register-ManagedServices
 
 ### Usage Examples
 
-#### In Azure Cloud Shell (PowerShell)
+#### Basic Usage (Azure Cloud Shell)
 
 ```powershell
-# 1. You're already authenticated! Verify your tenant:
+# 1. Open Azure Cloud Shell (PowerShell) from the Azure Portal
+# 2. You're already authenticated! Verify your tenant:
 (Get-AzContext).Tenant.Id
 
-# 2. If you need to switch tenants:
+# 3. If you need to switch tenants:
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
-# 3. Download or upload the script to Cloud Shell, then run it:
+# 4. Download the script from the repository or upload it to Cloud Shell
+# 5. Run the script:
+.\Register-ManagedServices.ps1 -TenantId "<SOURCE-TENANT-ID>"
+```
+
+#### Basic Usage (Local PowerShell)
+
+```powershell
+# 1. Install Az module if not already installed
+Install-Module -Name Az -Repository PSGallery -Force
+
+# 2. Connect to Azure
+Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+
+# 3. Run the script
 .\Register-ManagedServices.ps1 -TenantId "<SOURCE-TENANT-ID>"
 ```
 
@@ -248,18 +281,57 @@ Disconnect-AzAccount
 Connect-AzAccount -TenantId "<CORRECT-TENANT-ID>"
 ```
 
+### Verification
+
+After running the script, verify that the resource provider is registered:
+
+```powershell
+# Check registration status for all subscriptions
+Get-AzSubscription | ForEach-Object {
+    Set-AzContext -SubscriptionId $_.Id | Out-Null
+    $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
+    [PSCustomObject]@{
+        Subscription = $_.Name
+        Status = $provider.RegistrationState
+    }
+} | Format-Table -AutoSize
+```
+
+**Expected result:** All subscriptions should show `Registered` status.
+
+### Next Steps
+
+Once all subscriptions show `Registered` status, proceed to:
+- **Step 1**: Create Security Group and Log Analytics Workspace (in the managing tenant)
+
 ---
 
 ## Step 1: Create Security Group and Log Analytics Workspace
 
 > ⚠️ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Atevet12), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
 
-This PowerShell script automates the preparation of the managing tenant by:
-1. Creating a security group for delegated access
-2. Creating a resource group for centralized logging
-3. Creating a Log Analytics workspace
-4. Creating a Key Vault for tracking configured tenants
-5. Outputting all required IDs for the Azure Lighthouse deployment
+> **Note:** This step creates the foundational resources in your managing tenant that will be used throughout the rest of the setup process.
+
+This PowerShell script automates the preparation of the managing tenant, creating all the resources needed to receive and store logs from source tenants via Azure Lighthouse.
+
+### Prerequisites
+
+Before running this script, you need:
+- **Azure account** with access to the managing tenant (Atevet12)
+- **Global Administrator** or **Groups Administrator** role in Microsoft Entra ID (to create security groups)
+- **Owner** or **Contributor** role on the subscription where resources will be created
+- **PowerShell** with the following modules installed:
+  - `Az.Accounts`, `Az.Resources`, `Az.OperationalInsights`, `Az.KeyVault`
+  - `Microsoft.Graph.Groups` (for security group creation)
+
+### What This Script Creates
+
+| Resource | Purpose |
+|----------|---------|
+| **Security Group** | Contains users who will have delegated access to source tenant resources via Lighthouse |
+| **Resource Group** | Container for the Log Analytics workspace and Key Vault |
+| **Log Analytics Workspace** | Central repository for all collected logs from source tenants |
+| **Key Vault** | Stores configuration secrets (e.g., Event Hub connection strings for Entra ID logs) |
 
 ### Script: `Prepare-ManagingTenant.ps1`
 
@@ -567,6 +639,54 @@ Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
    ```
 
 **Note:** The script cannot detect Key Vaults in other tenants because Azure only allows querying resources within your current tenant context. If you're unsure whether the name is used elsewhere, the safest option is to choose a different, more unique name.
+
+### Verification
+
+After running the script, verify that all resources were created successfully:
+
+#### 1. Verify Security Group
+
+```powershell
+# Check the security group exists and has the correct members
+Connect-MgGraph -Scopes "Group.Read.All"
+$group = Get-MgGroup -Filter "displayName eq 'Lighthouse-CrossTenant-Admins'"
+$group | Select-Object DisplayName, Id, Description
+
+# List group members
+Get-MgGroupMember -GroupId $group.Id | ForEach-Object {
+    Get-MgUser -UserId $_.Id | Select-Object DisplayName, UserPrincipalName
+}
+```
+
+#### 2. Verify Log Analytics Workspace
+
+```powershell
+# Check the workspace exists
+Get-AzOperationalInsightsWorkspace -ResourceGroupName "rg-central-logging" -Name "law-central-logging"
+```
+
+#### 3. Verify Key Vault
+
+```powershell
+# Check the Key Vault exists
+Get-AzKeyVault -VaultName "kv-central-logging" -ResourceGroupName "rg-central-logging"
+```
+
+### Important Values to Save
+
+After running the script, **save these values** - you'll need them for subsequent steps:
+
+| Value | Used In | Example |
+|-------|---------|---------|
+| **Managing Tenant ID** | Step 2 (Lighthouse deployment) | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| **Security Group Object ID** | Step 2 (Lighthouse deployment) | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
+| **Workspace Resource ID** | Steps 3, 4, 5, 6, 7 (all log collection) | `/subscriptions/.../workspaces/law-central-logging` |
+| **Key Vault URI** | Step 6 (Entra ID logs) | `https://kv-central-logging.vault.azure.net/` |
+
+### Next Steps
+
+Once all resources are created successfully, proceed to:
+- **Step 2**: Deploy Azure Lighthouse (in the source tenant)
 
 ---
 
