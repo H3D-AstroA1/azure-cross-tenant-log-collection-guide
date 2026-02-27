@@ -139,12 +139,6 @@ This PowerShell script checks and registers the `Microsoft.ManagedServices` reso
 
 The complete PowerShell script is located at: [`scripts/Register-ManagedServices.ps1`](scripts/Register-ManagedServices.ps1)
 
-This script automates the registration of the Microsoft.ManagedServices resource provider:
-1. Discovers all accessible subscriptions in the tenant
-2. Checks the current registration status of the resource provider
-3. Registers the provider where needed and waits for completion
-4. Provides a summary of all processed subscriptions
-
 ### Usage Examples
 
 #### In Azure Cloud Shell (PowerShell)
@@ -156,10 +150,7 @@ This script automates the registration of the Microsoft.ManagedServices resource
 # 2. If you need to switch tenants:
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
-# 3. Create the script file (copy-paste the script above)
-code Register-ManagedServices.ps1
-
-# 4. Run the script
+# 3. Download or upload the script to Cloud Shell, then run it:
 .\Register-ManagedServices.ps1 -TenantId "<SOURCE-TENANT-ID>"
 ```
 
