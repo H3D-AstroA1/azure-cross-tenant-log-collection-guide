@@ -384,11 +384,26 @@ if (-not $SkipEventHubCreation) {
             Write-Info "  Event Hub Namespace not found - skipping"
         }
         
-        # Remove Function App if it exists
+        # Remove Function App if it exists (and capture its storage account first)
+        $funcAppStorageAccount = $null
         if (-not [string]::IsNullOrWhiteSpace($FunctionAppName)) {
             Write-Info "Checking for existing Function App: $FunctionAppName"
             $existingFuncApp = Get-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
             if ($existingFuncApp) {
+                # Get the storage account name from the Function App settings before deleting
+                try {
+                    $funcAppSettings = Get-AzFunctionAppSetting -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
+                    if ($funcAppSettings -and $funcAppSettings.AzureWebJobsStorage) {
+                        # Parse storage account name from connection string
+                        if ($funcAppSettings.AzureWebJobsStorage -match "AccountName=([^;]+)") {
+                            $funcAppStorageAccount = $matches[1]
+                            Write-Info "  Found associated Storage Account: $funcAppStorageAccount"
+                        }
+                    }
+                } catch {
+                    Write-WarningMsg "  Could not retrieve Function App settings: $_"
+                }
+                
                 Write-WarningMsg "  Removing Function App: $FunctionAppName"
                 Remove-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -Force -ErrorAction Stop | Out-Null
                 Write-Success "  ✓ Function App removed"
@@ -398,17 +413,80 @@ if (-not $SkipEventHubCreation) {
             }
         }
         
-        # Remove Storage Account for Function App (naming convention: stfunc + first 20 chars of function name)
-        $storageAccountName = "stfunc" + ($FunctionAppName -replace '[^a-z0-9]', '').ToLower().Substring(0, [Math]::Min(18, ($FunctionAppName -replace '[^a-z0-9]', '').Length))
-        Write-Info "Checking for existing Storage Account: $storageAccountName"
-        $existingStorage = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -ErrorAction SilentlyContinue
-        if ($existingStorage) {
-            Write-WarningMsg "  Removing Storage Account: $storageAccountName"
-            Remove-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -Force -ErrorAction Stop | Out-Null
-            Write-Success "  ✓ Storage Account removed"
+        # Remove Storage Account for Function App
+        # First try the storage account we found from Function App settings
+        $storageAccountsToCheck = @()
+        if ($funcAppStorageAccount) {
+            $storageAccountsToCheck += $funcAppStorageAccount
+        }
+        # Also check the naming convention pattern as fallback
+        $conventionName = "stfunc" + ($FunctionAppName -replace '[^a-z0-9]', '').ToLower().Substring(0, [Math]::Min(18, ($FunctionAppName -replace '[^a-z0-9]', '').Length))
+        if ($conventionName -ne $funcAppStorageAccount) {
+            $storageAccountsToCheck += $conventionName
+        }
+        
+        # Also search for any storage accounts in the resource group that might be associated
+        # Azure CLI sometimes creates storage accounts with different naming patterns
+        Write-Info "Searching for storage accounts in resource group: $ResourceGroupName"
+        $allStorageAccounts = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue
+        if ($allStorageAccounts) {
+            foreach ($sa in $allStorageAccounts) {
+                # Check if storage account name contains parts of the function app name
+                $funcNameClean = ($FunctionAppName -replace '[^a-z0-9]', '').ToLower()
+                if ($sa.StorageAccountName -like "*$funcNameClean*" -or $sa.StorageAccountName -like "st*$($SourceTenantName.ToLower())*") {
+                    if ($sa.StorageAccountName -notin $storageAccountsToCheck) {
+                        $storageAccountsToCheck += $sa.StorageAccountName
+                        Write-Info "  Found potentially related storage account: $($sa.StorageAccountName)"
+                    }
+                }
+            }
+        }
+        
+        $storageRemoved = $false
+        foreach ($storageAccountName in $storageAccountsToCheck) {
+            Write-Info "Checking for Storage Account: $storageAccountName"
+            $existingStorage = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -ErrorAction SilentlyContinue
+            if ($existingStorage) {
+                Write-WarningMsg "  Removing Storage Account: $storageAccountName"
+                Remove-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -Force -ErrorAction Stop | Out-Null
+                Write-Success "  ✓ Storage Account removed"
+                $cleanupPerformed = $true
+                $storageRemoved = $true
+            }
+        }
+        if (-not $storageRemoved) {
+            Write-Info "  No associated Storage Account found - skipping"
+        }
+        
+        # Remove Application Insights resource (created automatically with Function App)
+        Write-Info "Checking for Application Insights: $FunctionAppName"
+        $existingAppInsights = Get-AzApplicationInsights -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
+        if ($existingAppInsights) {
+            Write-WarningMsg "  Removing Application Insights: $FunctionAppName"
+            Remove-AzApplicationInsights -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Application Insights removed"
             $cleanupPerformed = $true
         } else {
-            Write-Info "  Storage Account not found - skipping"
+            Write-Info "  Application Insights not found - skipping"
+        }
+        
+        # Remove App Service Plan (Consumption plan created with Function App)
+        # The plan name is typically based on location: {Location}LinuxDynamicPlan or {Location}Plan
+        $planNames = @(
+            "$($Location -replace ' ', '')LinuxDynamicPlan",
+            "$($Location -replace ' ', '')Plan",
+            "ASP-$ResourceGroupName"
+        )
+        foreach ($planName in $planNames) {
+            Write-Info "Checking for App Service Plan: $planName"
+            $existingPlan = Get-AzAppServicePlan -ResourceGroupName $ResourceGroupName -Name $planName -ErrorAction SilentlyContinue
+            if ($existingPlan) {
+                Write-WarningMsg "  Removing App Service Plan: $planName"
+                Remove-AzAppServicePlan -ResourceGroupName $ResourceGroupName -Name $planName -Force -ErrorAction Stop | Out-Null
+                Write-Success "  ✓ App Service Plan removed"
+                $cleanupPerformed = $true
+                break
+            }
         }
         
         if ($cleanupPerformed) {
@@ -425,7 +503,8 @@ if (-not $SkipEventHubCreation) {
     $requiredProviders = @(
         "Microsoft.EventHub",
         "Microsoft.Web",           # For Function Apps
-        "Microsoft.Storage"        # For Storage Accounts
+        "Microsoft.Storage",       # For Storage Accounts
+        "Microsoft.AlertsManagement"  # For Application Insights smart detection alerts
     )
     
     foreach ($provider in $requiredProviders) {
