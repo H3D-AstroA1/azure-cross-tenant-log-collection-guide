@@ -1,0 +1,637 @@
+<#
+.SYNOPSIS
+    Configures Microsoft Entra ID log collection via Azure Event Hub for cross-tenant scenarios.
+
+.DESCRIPTION
+    This script is used as Step 6 in the Azure Cross-Tenant Log Collection setup.
+    It configures Entra ID log collection using Azure Event Hub to bypass the
+    cross-tenant limitations of direct Log Analytics workspace configuration.
+    
+    The script:
+    - Creates an Event Hub namespace and Event Hub in the managing tenant
+    - Creates a Shared Access Policy for the source tenant to send logs
+    - Deploys an Azure Function to process events and forward to Log Analytics
+    - Configures Entra ID diagnostic settings in the source tenant
+    - Stores connection strings securely in Key Vault
+    - Updates tenant tracking in Key Vault
+
+.PARAMETER ManagingTenantId
+    The Azure tenant ID (GUID) of the managing tenant (e.g., Atevet12).
+
+.PARAMETER ManagingSubscriptionId
+    The subscription ID in the managing tenant where Event Hub and Function will be created.
+
+.PARAMETER SourceTenantId
+    The Azure tenant ID (GUID) of the source tenant (e.g., Atevet17).
+
+.PARAMETER SourceTenantName
+    A friendly name for the source tenant (used for tracking and naming).
+
+.PARAMETER ResourceGroupName
+    Resource group for Event Hub and Function App. Default: "rg-entra-logs-eventhub"
+
+.PARAMETER EventHubNamespaceName
+    Name for the Event Hub namespace. Must be globally unique.
+
+.PARAMETER EventHubName
+    Name for the Event Hub. Default: "eh-entra-id-logs"
+
+.PARAMETER FunctionAppName
+    Name for the Azure Function App. Must be globally unique.
+
+.PARAMETER KeyVaultName
+    Name of the Key Vault in the managing tenant (from Step 1).
+
+.PARAMETER WorkspaceResourceId
+    Full resource ID of the Log Analytics workspace in the managing tenant.
+
+.PARAMETER Location
+    Azure region for resources. Default: "westus2"
+
+.PARAMETER LogCategories
+    Array of Entra ID log categories to collect. Default: All available categories.
+
+.PARAMETER DiagnosticSettingName
+    Name for the diagnostic setting in the source tenant. Default: "SendToEventHub"
+
+.PARAMETER SkipEventHubCreation
+    Skip Event Hub creation if it already exists.
+
+.PARAMETER SkipFunctionDeployment
+    Skip Azure Function deployment if it already exists.
+
+.PARAMETER SkipDiagnosticSettings
+    Skip configuring diagnostic settings in the source tenant.
+
+.PARAMETER VerifyOnly
+    Only verify existing configuration without making changes.
+
+.EXAMPLE
+    .\Configure-EntraIDLogsViaEventHub.ps1 `
+        -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
+        -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
+        -SourceTenantName "Atevet17" `
+        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
+        -FunctionAppName "func-entra-logs-unique123" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12"
+
+.EXAMPLE
+    # Skip Event Hub creation (already exists)
+    .\Configure-EntraIDLogsViaEventHub.ps1 `
+        -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
+        -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
+        -SourceTenantName "Atevet17" `
+        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12" `
+        -SkipEventHubCreation
+
+.EXAMPLE
+    # Verify existing configuration
+    .\Configure-EntraIDLogsViaEventHub.ps1 `
+        -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
+        -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
+        -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
+        -SourceTenantName "Atevet17" `
+        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
+        -KeyVaultName "kv-central-atevet12" `
+        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12" `
+        -VerifyOnly
+
+.NOTES
+    Author: Cross-Tenant Log Collection Guide
+    Requires: Az.Accounts, Az.EventHub, Az.Functions, Az.KeyVault, Az.Monitor, Az.OperationalInsights modules
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$ManagingTenantId,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ManagingSubscriptionId,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SourceTenantId,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SourceTenantName,
+
+    [Parameter(Mandatory = $false)]
+    [string]$ResourceGroupName = "rg-entra-logs-eventhub",
+
+    [Parameter(Mandatory = $true)]
+    [string]$EventHubNamespaceName,
+
+    [Parameter(Mandatory = $false)]
+    [string]$EventHubName = "eh-entra-id-logs",
+
+    [Parameter(Mandatory = $false)]
+    [string]$FunctionAppName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$KeyVaultName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$WorkspaceResourceId,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Location = "westus2",
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$LogCategories = @(
+        "AuditLogs",
+        "SignInLogs",
+        "NonInteractiveUserSignInLogs",
+        "ServicePrincipalSignInLogs",
+        "ManagedIdentitySignInLogs",
+        "ProvisioningLogs",
+        "ADFSSignInLogs",
+        "RiskyUsers",
+        "UserRiskEvents",
+        "RiskyServicePrincipals",
+        "ServicePrincipalRiskEvents",
+        "MicrosoftGraphActivityLogs",
+        "NetworkAccessTrafficLogs"
+    ),
+
+    [Parameter(Mandatory = $false)]
+    [string]$DiagnosticSettingName = "SendToEventHub",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipEventHubCreation,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipFunctionDeployment,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipDiagnosticSettings,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$VerifyOnly
+)
+
+# Color functions for output
+function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
+function Write-ErrorMsg { param($Message) Write-Host $Message -ForegroundColor Red }
+function Write-WarningMsg { param($Message) Write-Host $Message -ForegroundColor Yellow }
+function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
+function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
+
+# Results tracking
+$results = @{
+    ManagingTenantId = $ManagingTenantId
+    SourceTenantId = $SourceTenantId
+    SourceTenantName = $SourceTenantName
+    EventHubNamespace = $null
+    EventHubName = $EventHubName
+    EventHubConnectionString = $null
+    EventHubAuthRuleId = $null
+    FunctionAppName = $FunctionAppName
+    DiagnosticSettingConfigured = $false
+    LogCategoriesEnabled = @()
+    Errors = @()
+}
+
+# Main script execution
+Write-Host ""
+Write-Header "======================================================================"
+Write-Header "    Configure Entra ID Logs via Event Hub - Cross-Tenant Collection   "
+Write-Header "======================================================================"
+Write-Host ""
+
+#region Verify Only Mode
+if ($VerifyOnly) {
+    Write-Info "Running in VERIFY ONLY mode - no changes will be made"
+    Write-Host ""
+    
+    # Connect to managing tenant
+    Write-Info "Connecting to managing tenant..."
+    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
+    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    
+    # Check Event Hub
+    Write-Info "Checking Event Hub configuration..."
+    $ehNamespace = Get-AzEventHubNamespace -ResourceGroupName $ResourceGroupName -Name $EventHubNamespaceName -ErrorAction SilentlyContinue
+    if ($ehNamespace) {
+        Write-Success "  ✓ Event Hub Namespace exists: $EventHubNamespaceName"
+        $eh = Get-AzEventHub -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $EventHubName -ErrorAction SilentlyContinue
+        if ($eh) {
+            Write-Success "  ✓ Event Hub exists: $EventHubName"
+        } else {
+            Write-WarningMsg "  ⚠ Event Hub not found: $EventHubName"
+        }
+    } else {
+        Write-WarningMsg "  ⚠ Event Hub Namespace not found: $EventHubNamespaceName"
+    }
+    
+    # Check Function App
+    if ($FunctionAppName) {
+        Write-Info "Checking Function App..."
+        $funcApp = Get-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
+        if ($funcApp) {
+            Write-Success "  ✓ Function App exists: $FunctionAppName"
+        } else {
+            Write-WarningMsg "  ⚠ Function App not found: $FunctionAppName"
+        }
+    }
+    
+    # Connect to source tenant and check diagnostic settings
+    Write-Info "Connecting to source tenant to check diagnostic settings..."
+    Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+    
+    $diagSettings = Invoke-AzRestMethod -Path "/providers/microsoft.aadiam/diagnosticSettings?api-version=2017-04-01" -Method GET
+    if ($diagSettings.StatusCode -eq 200) {
+        $settings = ($diagSettings.Content | ConvertFrom-Json).value
+        $eventHubSetting = $settings | Where-Object { $_.name -eq $DiagnosticSettingName }
+        if ($eventHubSetting) {
+            Write-Success "  ✓ Diagnostic setting exists: $DiagnosticSettingName"
+            $enabledCategories = $eventHubSetting.properties.logs | Where-Object { $_.enabled -eq $true } | Select-Object -ExpandProperty category
+            Write-Success "    Enabled categories: $($enabledCategories -join ', ')"
+        } else {
+            Write-WarningMsg "  ⚠ Diagnostic setting not found: $DiagnosticSettingName"
+        }
+    }
+    
+    Write-Host ""
+    Write-Info "Verification complete."
+    return $results
+}
+#endregion
+
+#region Step 1: Connect to Managing Tenant and Create Event Hub
+Write-Info "Step 1: Setting up Event Hub in Managing Tenant"
+Write-Host ""
+
+if (-not $SkipEventHubCreation) {
+    Write-Info "Connecting to managing tenant: $ManagingTenantId"
+    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
+    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    Write-Success "  Connected to managing tenant"
+    
+    # Create Resource Group if not exists
+    Write-Info "Creating resource group: $ResourceGroupName"
+    $rg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
+    if (-not $rg) {
+        New-AzResourceGroup -Name $ResourceGroupName -Location $Location -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Resource group created"
+    } else {
+        Write-WarningMsg "  Resource group already exists"
+    }
+    
+    # Create Event Hub Namespace
+    Write-Info "Creating Event Hub Namespace: $EventHubNamespaceName"
+    $ehNamespace = Get-AzEventHubNamespace -ResourceGroupName $ResourceGroupName -Name $EventHubNamespaceName -ErrorAction SilentlyContinue
+    if (-not $ehNamespace) {
+        $ehNamespace = New-AzEventHubNamespace `
+            -ResourceGroupName $ResourceGroupName `
+            -Name $EventHubNamespaceName `
+            -Location $Location `
+            -SkuName "Standard" `
+            -SkuCapacity 1 `
+            -EnableAutoInflate $true `
+            -MaximumThroughputUnits 10 `
+            -ErrorAction Stop
+        Write-Success "  ✓ Event Hub Namespace created"
+    } else {
+        Write-WarningMsg "  Event Hub Namespace already exists"
+    }
+    $results.EventHubNamespace = $EventHubNamespaceName
+    
+    # Create Event Hub
+    Write-Info "Creating Event Hub: $EventHubName"
+    $eh = Get-AzEventHub -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $EventHubName -ErrorAction SilentlyContinue
+    if (-not $eh) {
+        New-AzEventHub `
+            -ResourceGroupName $ResourceGroupName `
+            -NamespaceName $EventHubNamespaceName `
+            -Name $EventHubName `
+            -PartitionCount 4 `
+            -MessageRetentionInDays 7 `
+            -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Event Hub created"
+    } else {
+        Write-WarningMsg "  Event Hub already exists"
+    }
+    
+    # Create Consumer Group for Log Analytics
+    Write-Info "Creating consumer group: cg-loganalytics"
+    $cg = Get-AzEventHubConsumerGroup -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -EventHubName $EventHubName -Name "cg-loganalytics" -ErrorAction SilentlyContinue
+    if (-not $cg) {
+        New-AzEventHubConsumerGroup `
+            -ResourceGroupName $ResourceGroupName `
+            -NamespaceName $EventHubNamespaceName `
+            -EventHubName $EventHubName `
+            -Name "cg-loganalytics" `
+            -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Consumer group created"
+    } else {
+        Write-WarningMsg "  Consumer group already exists"
+    }
+    
+    # Create Shared Access Policy for source tenant (Send only)
+    $policyName = "$SourceTenantName-send-policy"
+    Write-Info "Creating Shared Access Policy: $policyName"
+    $policy = Get-AzEventHubAuthorizationRule -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $policyName -ErrorAction SilentlyContinue
+    if (-not $policy) {
+        New-AzEventHubAuthorizationRule `
+            -ResourceGroupName $ResourceGroupName `
+            -NamespaceName $EventHubNamespaceName `
+            -Name $policyName `
+            -Rights @("Send") `
+            -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Shared Access Policy created (Send only)"
+    } else {
+        Write-WarningMsg "  Shared Access Policy already exists"
+    }
+    
+    # Get connection string and authorization rule ID
+    $keys = Get-AzEventHubKey -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $policyName
+    $results.EventHubConnectionString = $keys.PrimaryConnectionString
+    
+    # Get the authorization rule resource ID
+    $authRule = Get-AzEventHubAuthorizationRule -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $policyName
+    $results.EventHubAuthRuleId = $authRule.Id
+    
+    Write-Success "  ✓ Connection string retrieved"
+    Write-Info "  Authorization Rule ID: $($results.EventHubAuthRuleId)"
+    
+    # Store connection string in Key Vault
+    Write-Info "Storing connection string in Key Vault: $KeyVaultName"
+    $secretName = "EventHub-$SourceTenantName-EntraID-ConnectionString"
+    try {
+        Set-AzKeyVaultSecret -VaultName $KeyVaultName -Name $secretName -SecretValue (ConvertTo-SecureString $keys.PrimaryConnectionString -AsPlainText -Force) -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Connection string stored in Key Vault"
+    } catch {
+        Write-WarningMsg "  ⚠ Could not store in Key Vault: $($_.Exception.Message)"
+        $results.Errors += "Key Vault storage failed: $($_.Exception.Message)"
+    }
+    
+    Write-Host ""
+} else {
+    Write-Info "Skipping Event Hub creation (--SkipEventHubCreation specified)"
+    
+    # Still need to get the authorization rule ID for diagnostic settings
+    Write-Info "Retrieving existing Event Hub configuration..."
+    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
+    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    
+    $policyName = "$SourceTenantName-send-policy"
+    $authRule = Get-AzEventHubAuthorizationRule -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $policyName -ErrorAction SilentlyContinue
+    if ($authRule) {
+        $results.EventHubAuthRuleId = $authRule.Id
+        $results.EventHubNamespace = $EventHubNamespaceName
+        Write-Success "  ✓ Found existing authorization rule"
+    } else {
+        Write-ErrorMsg "  ✗ Could not find authorization rule: $policyName"
+        $results.Errors += "Authorization rule not found"
+    }
+    
+    Write-Host ""
+}
+#endregion
+
+#region Step 2: Deploy Azure Function for Log Processing
+Write-Info "Step 2: Azure Function for Log Processing"
+Write-Host ""
+
+if (-not $SkipFunctionDeployment -and $FunctionAppName) {
+    # Ensure we're in managing tenant context
+    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    
+    # Create Storage Account for Function App
+    $storageAccountName = "st" + ($FunctionAppName -replace '[^a-z0-9]', '').ToLower()
+    if ($storageAccountName.Length -gt 24) {
+        $storageAccountName = $storageAccountName.Substring(0, 24)
+    }
+    
+    Write-Info "Creating Storage Account: $storageAccountName"
+    $storage = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -ErrorAction SilentlyContinue
+    if (-not $storage) {
+        try {
+            New-AzStorageAccount `
+                -ResourceGroupName $ResourceGroupName `
+                -Name $storageAccountName `
+                -Location $Location `
+                -SkuName "Standard_LRS" `
+                -Kind "StorageV2" `
+                -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Storage Account created"
+        } catch {
+            Write-WarningMsg "  ⚠ Storage Account creation failed: $($_.Exception.Message)"
+            $results.Errors += "Storage Account creation failed: $($_.Exception.Message)"
+        }
+    } else {
+        Write-WarningMsg "  Storage Account already exists"
+    }
+    
+    # Create Function App
+    Write-Info "Creating Function App: $FunctionAppName"
+    $funcApp = Get-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
+    if (-not $funcApp) {
+        try {
+            New-AzFunctionApp `
+                -ResourceGroupName $ResourceGroupName `
+                -Name $FunctionAppName `
+                -StorageAccountName $storageAccountName `
+                -Location $Location `
+                -Runtime "Python" `
+                -RuntimeVersion "3.9" `
+                -FunctionsVersion "4" `
+                -OSType "Linux" `
+                -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Function App created"
+            
+            # Enable System-Assigned Managed Identity
+            Update-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -IdentityType SystemAssigned -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Managed Identity enabled"
+        } catch {
+            Write-WarningMsg "  ⚠ Function App creation failed: $($_.Exception.Message)"
+            $results.Errors += "Function App creation failed: $($_.Exception.Message)"
+        }
+    } else {
+        Write-WarningMsg "  Function App already exists"
+    }
+    
+    # Get Log Analytics Workspace details
+    $workspaceIdParts = $WorkspaceResourceId -split "/"
+    $workspaceSubscriptionId = $workspaceIdParts[2]
+    $workspaceResourceGroup = $workspaceIdParts[4]
+    $workspaceName = $workspaceIdParts[8]
+    
+    try {
+        $workspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName $workspaceResourceGroup -Name $workspaceName -ErrorAction Stop
+        $workspaceKeys = Get-AzOperationalInsightsWorkspaceSharedKey -ResourceGroupName $workspaceResourceGroup -Name $workspaceName -ErrorAction Stop
+        
+        # Get Event Hub connection string for listening
+        $listenKeys = Get-AzEventHubKey -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name "RootManageSharedAccessKey"
+        
+        # Configure Function App settings
+        Write-Info "Configuring Function App settings..."
+        $appSettings = @{
+            "EventHubConnection" = $listenKeys.PrimaryConnectionString
+            "EventHubName" = $EventHubName
+            "LOG_ANALYTICS_WORKSPACE_ID" = $workspace.CustomerId.ToString()
+            "LOG_ANALYTICS_WORKSPACE_KEY" = $workspaceKeys.PrimarySharedKey
+            "SOURCE_TENANT_NAME" = $SourceTenantName
+            "SOURCE_TENANT_ID" = $SourceTenantId
+        }
+        
+        Update-AzFunctionAppSetting -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -AppSetting $appSettings -ErrorAction Stop | Out-Null
+        Write-Success "  ✓ Function App settings configured"
+    } catch {
+        Write-WarningMsg "  ⚠ Could not configure Function App settings: $($_.Exception.Message)"
+        $results.Errors += "Function App settings failed: $($_.Exception.Message)"
+    }
+    
+    # Output Function code deployment instructions
+    Write-Host ""
+    Write-Info "=== Function Code Deployment Required ==="
+    Write-Host ""
+    Write-Host "Deploy the Azure Function code from the 'EntraIDLogsProcessor' folder:"
+    Write-Host ""
+    Write-Host "  cd EntraIDLogsProcessor"
+    Write-Host "  func azure functionapp publish $FunctionAppName --python"
+    Write-Host ""
+    Write-Host "Or use zip deployment:"
+    Write-Host ""
+    Write-Host "  zip -r function.zip ."
+    Write-Host "  az functionapp deployment source config-zip \"
+    Write-Host "      --name `"$FunctionAppName`" \"
+    Write-Host "      --resource-group `"$ResourceGroupName`" \"
+    Write-Host "      --src `"function.zip`""
+    Write-Host ""
+    
+} elseif (-not $FunctionAppName) {
+    Write-WarningMsg "Function App name not provided - skipping Function deployment"
+    Write-Info "You will need to manually deploy an Azure Function to process Event Hub events"
+    Write-Host ""
+} else {
+    Write-Info "Skipping Function deployment (--SkipFunctionDeployment specified)"
+    Write-Host ""
+}
+#endregion
+
+#region Step 3: Configure Entra ID Diagnostic Settings in Source Tenant
+Write-Info "Step 3: Configuring Entra ID Diagnostic Settings in Source Tenant"
+Write-Host ""
+
+if (-not $SkipDiagnosticSettings -and $results.EventHubAuthRuleId) {
+    Write-Info "Connecting to source tenant: $SourceTenantId"
+    Write-WarningMsg "  You will be prompted to authenticate as Global Administrator"
+    
+    try {
+        Connect-AzAccount -TenantId $SourceTenantId -ErrorAction Stop | Out-Null
+        Write-Success "  Connected to source tenant"
+        
+        # Build the logs array for the API call
+        $logsArray = $LogCategories | ForEach-Object {
+            @{
+                category = $_
+                enabled = $true
+            }
+        }
+        
+        # Create the diagnostic setting using REST API
+        $body = @{
+            properties = @{
+                eventHubAuthorizationRuleId = $results.EventHubAuthRuleId
+                eventHubName = $EventHubName
+                logs = $logsArray
+            }
+        } | ConvertTo-Json -Depth 10
+        
+        $uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${DiagnosticSettingName}?api-version=2017-04-01"
+        
+        Write-Info "Creating diagnostic setting: $DiagnosticSettingName"
+        $response = Invoke-AzRestMethod -Uri $uri -Method PUT -Payload $body
+        
+        if ($response.StatusCode -in @(200, 201)) {
+            Write-Success "  ✓ Diagnostic setting created successfully"
+            $results.DiagnosticSettingConfigured = $true
+            $results.LogCategoriesEnabled = $LogCategories
+        } else {
+            $errorContent = $response.Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $errorMessage = if ($errorContent.error) { $errorContent.error.message } else { $response.Content }
+            Write-ErrorMsg "  ✗ Failed to create diagnostic setting: $errorMessage"
+            $results.Errors += "Diagnostic setting failed: $errorMessage"
+        }
+    } catch {
+        Write-ErrorMsg "  ✗ Error configuring diagnostic settings: $($_.Exception.Message)"
+        $results.Errors += "Diagnostic settings error: $($_.Exception.Message)"
+    }
+} elseif (-not $results.EventHubAuthRuleId) {
+    Write-ErrorMsg "Cannot configure diagnostic settings - Event Hub authorization rule ID not available"
+    $results.Errors += "Missing Event Hub authorization rule ID"
+} else {
+    Write-Info "Skipping diagnostic settings configuration (--SkipDiagnosticSettings specified)"
+}
+Write-Host ""
+#endregion
+
+#region Output Summary
+Write-Host ""
+Write-Header "======================================================================"
+Write-Header "                              SUMMARY                                 "
+Write-Header "======================================================================"
+Write-Host ""
+
+Write-Host "Managing Tenant ID:        $ManagingTenantId"
+Write-Host "Source Tenant ID:          $SourceTenantId"
+Write-Host "Source Tenant Name:        $SourceTenantName"
+Write-Host ""
+Write-Host "Event Hub Namespace:       $($results.EventHubNamespace)"
+Write-Host "Event Hub Name:            $($results.EventHubName)"
+Write-Host "Event Hub Auth Rule ID:    $($results.EventHubAuthRuleId)"
+Write-Host ""
+
+if ($results.DiagnosticSettingConfigured) {
+    Write-Success "Diagnostic Setting:        ✓ Configured"
+    Write-Success "Log Categories Enabled:    $($results.LogCategoriesEnabled -join ', ')"
+} else {
+    Write-WarningMsg "Diagnostic Setting:        Not configured"
+}
+Write-Host ""
+
+if ($results.Errors.Count -gt 0) {
+    Write-WarningMsg "Errors encountered:"
+    foreach ($err in $results.Errors) {
+        Write-ErrorMsg "  - $err"
+    }
+    Write-Host ""
+}
+
+Write-Info "=== Next Steps ==="
+Write-Host ""
+if (-not $SkipFunctionDeployment -and $FunctionAppName) {
+    Write-Host "1. Deploy the Azure Function code to process Event Hub events"
+}
+Write-Host "2. Wait 5-15 minutes for logs to start flowing"
+Write-Host "3. Verify logs in Log Analytics using the KQL queries in the documentation"
+Write-Host "4. Proceed to Step 7 to configure Microsoft 365 Audit Logs"
+Write-Host ""
+
+# Output as JSON for automation
+Write-Info "=== JSON Output (for automation) ==="
+Write-Host ""
+$jsonOutput = @{
+    managingTenantId = $results.ManagingTenantId
+    sourceTenantId = $results.SourceTenantId
+    sourceTenantName = $results.SourceTenantName
+    eventHubNamespace = $results.EventHubNamespace
+    eventHubName = $results.EventHubName
+    eventHubAuthRuleId = $results.EventHubAuthRuleId
+    diagnosticSettingConfigured = $results.DiagnosticSettingConfigured
+    logCategoriesEnabled = $results.LogCategoriesEnabled
+    errors = $results.Errors
+} | ConvertTo-Json -Depth 3
+
+Write-Host $jsonOutput
+Write-Host ""
+#endregion
+
+# Return results
+return $results

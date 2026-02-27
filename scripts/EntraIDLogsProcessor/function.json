@@ -1,0 +1,17 @@
+{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    {
+      "type": "eventHubTrigger",
+      "name": "events",
+      "direction": "in",
+      "eventHubName": "entraid-logs",
+      "connection": "EventHubConnectionString",
+      "cardinality": "many",
+      "consumerGroup": "$Default",
+      "dataType": "string"
+    }
+  ],
+  "disabled": false,
+  "description": "Processes Entra ID diagnostic logs from Event Hub and forwards them to Log Analytics workspace in the managing tenant."
+}

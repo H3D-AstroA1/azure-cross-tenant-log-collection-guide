@@ -5981,39 +5981,115 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 ---
 
 
-## Step 6: Configure Microsoft Entra ID (Azure AD) Logs
 
-> 🚨 **CRITICAL: PORTAL-ONLY CONFIGURATION REQUIRED**
->
-> After extensive testing of multiple automated approaches, we have confirmed that **cross-tenant Entra ID diagnostic settings can ONLY be configured via the Azure Portal**. All programmatic methods (REST API, ARM templates, PowerShell, Terraform, Microsoft Sentinel data connectors) fail due to a fundamental Azure API limitation.
->
-> **The `microsoft.aadiam/diagnosticSettings` API does not support:**
-> - Cross-tenant workspace references
-> - Auxiliary authorization tokens (`x-ms-authorization-auxiliary` header)
-> - Azure Lighthouse delegated permissions for Entra ID resources
->
-> **Skip directly to the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) section below.**
+## Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub
 
-> ⚠️ **IMPORTANT**: Unlike Azure resource logs (Steps 3-5), Entra ID logs are **tenant-level logs** that require manual Portal configuration for cross-tenant scenarios. The script provided below will guide you through the Portal steps and update Key Vault tracking.
+> 🚨 **IMPORTANT: EVENT HUB METHOD FOR CROSS-TENANT ENTRA ID LOGS**
+>
+> Due to limitations with the Lighthouse method for Entra ID log ingestion to the managing tenant, this step uses **Azure Event Hub** as the transport mechanism. The Event Hub method provides:
+> - ✅ **Full automation support** - No manual Portal configuration required
+> - ✅ **Real-time streaming** - Sub-second latency for security monitoring
+> - ✅ **Cross-tenant native support** - Works with connection string authentication
+> - ✅ **No Lighthouse delegation required** - Bypasses the `LinkedAuthorizationFailed` limitation
+> - ✅ **Scalable architecture** - Handles high-volume Entra ID logs
 
-Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** and require a different configuration approach than Azure resource logs. These logs are critical for security monitoring and include sign-in activities, directory changes, and identity protection events.
+Microsoft Entra ID (formerly Azure Active Directory) logs are **tenant-level logs** that include sign-in activities, directory changes, and identity protection events. These logs are critical for security monitoring and compliance.
+
+### Why Event Hub Instead of Direct Log Analytics?
+
+The standard approach of configuring Entra ID diagnostic settings to send logs directly to a cross-tenant Log Analytics workspace fails due to Azure API limitations:
+
+| Method | Result | Error |
+|--------|--------|-------|
+| Direct REST API | ❌ FAILS | `LinkedAuthorizationFailed` |
+| ARM Templates | ❌ FAILS | `LinkedAuthorizationFailed` |
+| Lighthouse Delegation | ❌ FAILS | Lighthouse doesn't cover Entra ID |
+| Auxiliary Tokens | ❌ FAILS | `401 Unauthorized` |
+| Portal (Manual) | ✅ Works | Requires manual configuration |
+| **Event Hub** | ✅ **Works** | **Fully automated** |
+
+The Event Hub method works because:
+1. Entra ID diagnostic settings **can** send logs to an Event Hub using a connection string
+2. The connection string authentication bypasses cross-tenant authorization issues
+3. An Azure Function in the managing tenant processes and forwards logs to Log Analytics
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              SOURCE TENANT (Atevet17)                                │
+│                                                                                      │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Microsoft Entra ID                                      │ │
+│  │                                                                                  │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │ │
+│  │  │  AuditLogs   │  │ SignInLogs   │  │ RiskyUsers   │  │ Provisioning │        │ │
+│  │  │              │  │              │  │              │  │    Logs      │        │ │
+│  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘        │ │
+│  │         │                 │                 │                 │                 │ │
+│  │         └─────────────────┴────────┬────────┴─────────────────┘                 │ │
+│  │                                    │                                             │ │
+│  │                         Diagnostic Settings                                      │ │
+│  │                    (Stream to Event Hub via SAS)                                │ │
+│  └────────────────────────────────────┼─────────────────────────────────────────────┘ │
+│                                       │                                              │
+└───────────────────────────────────────┼──────────────────────────────────────────────┘
+                                        │ Event Hub Connection String
+                                        │ (SAS Token Authentication)
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              MANAGING TENANT (Atevet12)                              │
+│                                                                                      │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                        Event Hub Namespace                                      │ │
+│  │                    (eh-namespace-central-atevet12)                              │ │
+│  │                                                                                  │ │
+│  │  ┌──────────────────────────────────────────────────────────────────────────┐  │ │
+│  │  │                         eh-entra-id-logs                                  │  │ │
+│  │  │  (Receives all Entra ID log categories from source tenant)               │  │ │
+│  │  └──────────────────────────────────┬────────────────────────────────────────┘  │ │
+│  └─────────────────────────────────────┼────────────────────────────────────────────┘ │
+│                                        │                                              │
+│                                        ▼                                              │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Azure Function App                                      │ │
+│  │                    (Event Hub Trigger → Log Analytics)                          │ │
+│  │                                                                                  │ │
+│  │  • Parses incoming Entra ID events                                              │ │
+│  │  • Transforms to Log Analytics schema                                           │ │
+│  │  • Sends to Data Collection Endpoint                                            │ │
+│  │  • Preserves original table structure (SigninLogs, AuditLogs, etc.)            │ │
+│  └────────────────────────────────────────────────────────────────────────────────┘ │
+│                                        │                                              │
+│                                        ▼                                              │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                      Log Analytics Workspace                                    │ │
+│  │                    (law-central-atevet12)                                       │ │
+│  │                                                                                  │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │ │
+│  │  │EntraIDSignIn │  │EntraIDAudit  │  │EntraIDRisky  │  │EntraIDProvi- │        │ │
+│  │  │   Logs_CL    │  │  Logs_CL     │  │  Users_CL    │  │ sioning_CL   │        │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘        │ │
+│  └────────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Where to Run This Script
 
 | Tenant | Role | What Happens |
 |--------|------|--------------|
-| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Script execution starts here, updates Key Vault |
-| **Source Tenant (Atevet17)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure diagnostic settings |
+| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Creates Event Hub, Function App, stores secrets in Key Vault |
+| **Source Tenant (Atevet17)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure Entra ID diagnostic settings |
 
 ### Prerequisites
 
 Before running this script, you need:
 - **Global Administrator** role in the **source tenant** (required to configure Entra ID diagnostic settings)
-- **Contributor or Key Vault access** in the **managing tenant** (required to update Key Vault tenant tracking)
+- **Contributor** role in the **managing tenant** subscription (to create Event Hub, Function App)
 - **Microsoft Entra ID P1 or P2 license** in the **source tenant** (required for sign-in logs; AuditLogs are free)
-- **Log Analytics Workspace Resource ID** from the **managing tenant** (from Step 1 - destination for logs)
-- **Key Vault** in the **managing tenant** (for tracking configured tenants)
-- **Az PowerShell module** installed locally (Az.Accounts, Az.KeyVault modules)
+- **Log Analytics Workspace** in the **managing tenant** (from Step 1)
+- **Key Vault** in the **managing tenant** (from Step 1)
+- **Az PowerShell module** installed locally (Az.Accounts, Az.EventHub, Az.Functions, Az.KeyVault)
 - **Completed Steps 1-2** (Lighthouse delegation and workspace setup)
 
 ### Available Entra ID Log Categories
@@ -6035,343 +6111,578 @@ Before running this script, you need:
 | **MicrosoftGraphActivityLogs** | Microsoft Graph API activity | P1/P2 |
 | **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | P1/P2 |
 
-### Script: `Configure-EntraIDDiagnosticSettings.ps1`
+---
 
-The complete PowerShell script is located at: [`scripts/Configure-EntraIDDiagnosticSettings.ps1`](scripts/Configure-EntraIDDiagnosticSettings.ps1)
+### Step 6.1: Deploy Event Hub and Function App (Automated)
 
-> ⚠️ **Note:** Due to Azure API limitations, this script **cannot automatically configure cross-tenant diagnostic settings**. Instead, it:
-> 1. Updates Key Vault tracking for configured tenants
-> 2. Attempts multiple automated methods (all will fail for cross-tenant scenarios)
-> 3. **Provides detailed Portal instructions** when automated methods fail
-> 4. Optionally verifies existing configuration
+The primary method for deploying the Event Hub infrastructure and Azure Function is using the automated PowerShell script.
 
-**For cross-tenant scenarios, use the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) above.**
+#### Script Location
 
-The script is still useful for:
-- **Key Vault tracking**: Records which tenants have been configured
-- **Same-tenant scenarios**: Works when workspace is in the same tenant as Entra ID
-- **Verification**: Checks existing diagnostic settings configuration
-- **Documentation**: Provides step-by-step Portal instructions when automation fails
+The main deployment script is located at:
+- **[`scripts/Configure-EntraIDLogsViaEventHub.ps1`](scripts/Configure-EntraIDLogsViaEventHub.ps1)**
 
-### Cross-Tenant Automation Methods (All Fail - Use Portal Instead)
+The Azure Function code files are located at:
+- **[`scripts/EntraIDLogsProcessor/__init__.py`](scripts/EntraIDLogsProcessor/__init__.py)** - Main function code
+- **[`scripts/EntraIDLogsProcessor/function.json`](scripts/EntraIDLogsProcessor/function.json)** - Function binding configuration
+- **[`scripts/EntraIDLogsProcessor/requirements.txt`](scripts/EntraIDLogsProcessor/requirements.txt)** - Python dependencies
+- **[`scripts/EntraIDLogsProcessor/host.json`](scripts/EntraIDLogsProcessor/host.json)** - Function host configuration
 
-> ⚠️ **CONFIRMED: All automated methods fail for cross-tenant Entra ID diagnostic settings.** The table below documents the methods tested and why they fail. **Use the [Portal Configuration Instructions](#portal-configuration-instructions-recommended) instead.**
+#### Running the Automated Script
 
-The script attempts **six automated methods** to configure Entra ID diagnostic settings in cross-tenant scenarios. All methods fail due to Azure API limitations:
+```powershell
+# Navigate to the scripts directory
+cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 
-| Method | Description | Result | Error |
-|--------|-------------|--------|-------|
-| **Method 1: Direct REST API** | Uses `Invoke-AzRestMethod` from source tenant context | ❌ **FAILS** | `LinkedAuthorizationFailed` |
-| **Method 2: Explicit Token** | Uses `Invoke-RestMethod` with explicit ARM token | ❌ **FAILS** | `LinkedAuthorizationFailed` |
-| **Method 3: Lighthouse Delegation** | Runs from managing tenant with `x-ms-tenant-id` header | ❌ **FAILS** | Lighthouse doesn't cover Entra ID |
-| **Method 4: ARM Template** | Uses `New-AzTenantDeployment` for tenant-level deployment | ❌ **FAILS** | `LinkedAuthorizationFailed` |
-| **Method 5: Auxiliary Token** | Uses `x-ms-authorization-auxiliary` header for cross-tenant auth | ❌ **FAILS** | `401 Unauthorized` - API doesn't support auxiliary tokens |
-| **Method 6: Sentinel Data Connector** | Uses Microsoft Sentinel Entra ID data connector API | ❌ **FAILS** | Connectors only work within the same tenant |
-
-> 🚨 **IMPORTANT:** The `microsoft.aadiam/diagnosticSettings` API has a fundamental limitation - it cannot validate or access resources (like Log Analytics workspaces) in a different tenant. This is not a permissions issue; it's an architectural limitation of the API itself.
-
-### Why Microsoft Graph API Cannot Be Used
-
-Microsoft Graph API does **not** support Entra ID diagnostic settings configuration. The diagnostic settings for Entra ID are managed through the Azure Resource Manager (ARM) API at the `microsoft.aadiam` provider level:
-
-- **Graph API capabilities:**
-  - ✓ Read audit logs: `GET /auditLogs/directoryAudits`
-  - ✓ Read sign-in logs: `GET /auditLogs/signIns`
-  - ✗ Configure diagnostic settings: **NOT AVAILABLE**
-
-- **For diagnostic settings, you must use:**
-  - Azure Resource Manager API (`microsoft.aadiam/diagnosticSettings`)
-  - Azure Portal UI
-  - Azure CLI: `az monitor diagnostic-settings create`
-
-### Why ARM Templates at Tenant Scope May Not Work
-
-ARM templates deployed at tenant scope using `New-AzTenantDeployment` still face the same cross-tenant authorization limitation. The ARM deployment engine validates linked resources (like the Log Analytics workspace) and fails with `LinkedAuthorizationFailed` when the workspace is in a different tenant.
-
-### Terraform Considerations
-
-Terraform's `azurerm` provider has the same limitation. The `azurerm_monitor_aad_diagnostic_setting` resource cannot reference a workspace in a different tenant because:
-1. Terraform authenticates to a single tenant at a time
-2. The underlying ARM API still requires cross-tenant authorization
-3. No Terraform provider currently supports multi-tenant diagnostic settings
-
-### Understanding the LinkedAuthorizationFailed Error
-
-When configuring Entra ID diagnostic settings to send logs to a Log Analytics workspace in a **different tenant**, you will encounter:
-
-```
-LinkedAuthorizationFailed: The client has permission to perform action
-'microsoft.operationalinsights/workspaces/sharedKeys/action' on scope
-'/providers/microsoft.aadiam/diagnosticSettings/...', however the current
-tenant '<source-tenant-id>' is not authorized to access linked subscription
-'<managing-tenant-subscription-id>'.
+# Run the deployment script
+.\Configure-EntraIDLogsViaEventHub.ps1 `
+    -ManagingTenantId "<MANAGING-TENANT-ID>" `
+    -ManagingSubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
+    -SourceTenantId "<SOURCE-TENANT-ID>" `
+    -SourceTenantName "Atevet17" `
+    -EventHubNamespaceName "eh-ns-entra-logs-atevet17" `
+    -KeyVaultName "kv-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -Location "westus2" `
+    -Verbose
 ```
 
-**Root Cause:** The Entra ID diagnostic settings API (`microsoft.aadiam/diagnosticSettings`) cannot access resources in a different tenant. This is a fundamental API limitation, not a permissions issue.
+#### Script Parameters
 
-**Why Azure Portal Works:** The Azure Portal handles cross-tenant authorization through its internal session management, allowing you to select workspaces from other tenants via the "Change directory" option. This capability is not exposed through any public API.
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `ManagingTenantId` | Yes | Tenant ID of the managing tenant (Atevet12) |
+| `ManagingSubscriptionId` | Yes | Subscription ID in the managing tenant |
+| `SourceTenantId` | Yes | Tenant ID of the source tenant (Atevet17) |
+| `SourceTenantName` | Yes | Friendly name for the source tenant (used in table names) |
+| `EventHubNamespaceName` | Yes | Name for the Event Hub namespace |
+| `KeyVaultName` | Yes | Name of the Key Vault to store secrets |
+| `WorkspaceResourceId` | Yes | Full resource ID of the Log Analytics workspace |
+| `Location` | No | Azure region (default: westus2) |
+| `ResourceGroupName` | No | Resource group name (default: rg-entra-logs-eventhub) |
+| `EventHubName` | No | Event Hub name (default: eh-entra-id-logs) |
+| `FunctionAppName` | No | Function App name (default: func-entra-logs-processor) |
+| `LogCategories` | No | Array of log categories to enable |
 
-**Why Auxiliary Tokens Don't Work:** The `x-ms-authorization-auxiliary` header (used for cross-tenant authorization in other Azure APIs) returns `401 Unauthorized` when used with the `microsoft.aadiam` API - the API simply doesn't support this authentication method.
+#### What the Script Does
 
-**Why Sentinel Data Connectors Don't Work:** Microsoft Sentinel's Entra ID data connectors are designed to connect to the Entra ID tenant where Sentinel is deployed, not to external tenants.
+1. **Creates Event Hub Infrastructure** (Managing Tenant)
+   - Creates resource group for Event Hub resources
+   - Creates Event Hub Namespace with Standard SKU
+   - Creates Event Hub with 4 partitions and 7-day retention
+   - Creates consumer group for Log Analytics processing
+   - Creates Send-only authorization rule for source tenant
+
+2. **Deploys Azure Function App** (Managing Tenant)
+   - Creates Storage Account for Function App
+   - Creates Consumption Plan Function App (Python 3.9)
+   - Enables System-Assigned Managed Identity
+   - Configures app settings with Event Hub and Log Analytics connections
+   - Deploys the EntraIDLogsProcessor function code
+
+3. **Stores Secrets in Key Vault** (Managing Tenant)
+   - Stores Event Hub connection string
+   - Stores Log Analytics workspace key
+
+4. **Configures Diagnostic Settings** (Source Tenant)
+   - Prompts for Global Administrator authentication
+   - Creates diagnostic setting to stream logs to Event Hub
+   - Enables all available log categories based on license
 
 ---
 
-### Portal Configuration Instructions (RECOMMENDED)
+### Step 6.2: Manual Deployment (Alternative)
 
-> ✅ **This is the ONLY working method for cross-tenant Entra ID diagnostic settings.**
+If you prefer to deploy components manually or need to customize the deployment, follow these steps.
 
-Since all automated methods fail due to Azure API limitations, you must configure Entra ID diagnostic settings manually through the Azure Portal. Follow these steps:
+#### Create Event Hub Namespace (Azure CLI)
 
-#### Prerequisites
+```bash
+# Login to managing tenant (Atevet12)
+az login --tenant "<MANAGING-TENANT-ID>"
+az account set --subscription "<MANAGING-SUBSCRIPTION-ID>"
 
-Before starting, ensure you have:
-- **Global Administrator** role in the **source tenant** (where Entra ID logs originate)
-- **Reader** access to the **managing tenant** subscription (to select the Log Analytics workspace)
-- The **Log Analytics Workspace Resource ID** from Step 1
+# Create resource group for Event Hub
+az group create \
+    --name "rg-entra-logs-eventhub" \
+    --location "westus2"
 
-#### Step-by-Step Portal Configuration
+# Create Event Hub Namespace
+az eventhubs namespace create \
+    --name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --location "westus2" \
+    --sku "Standard" \
+    --capacity 1 \
+    --enable-auto-inflate true \
+    --maximum-throughput-units 10
 
-1. **Sign in to Azure Portal as Global Administrator of the SOURCE tenant**
-   - Go to [https://portal.azure.com](https://portal.azure.com)
-   - Ensure you're signed in with an account that has Global Administrator role in the source tenant
+# Create Event Hub for Entra ID logs
+az eventhubs eventhub create \
+    --name "eh-entra-id-logs" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --partition-count 4 \
+    --message-retention 7
 
-2. **Navigate to Microsoft Entra ID**
-   - In the Azure Portal, search for "Microsoft Entra ID" or "Azure Active Directory"
-   - Click on "Microsoft Entra ID" in the search results
+# Create consumer group for Log Analytics processing
+az eventhubs eventhub consumer-group create \
+    --name "cg-loganalytics" \
+    --eventhub-name "eh-entra-id-logs" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub"
 
-3. **Open Diagnostic Settings**
-   - In the left menu, scroll down to the "Monitoring" section
-   - Click on "Diagnostic settings"
+# Create Shared Access Policy for source tenant (Send only)
+az eventhubs namespace authorization-rule create \
+    --name "source-tenant-send-policy" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --rights Send
 
-4. **Add a New Diagnostic Setting**
-   - Click "+ Add diagnostic setting"
-   - Enter a name for the diagnostic setting (e.g., `SendToManagingTenantWorkspace`)
+# Get the connection string (save this for diagnostic settings)
+az eventhubs namespace authorization-rule keys list \
+    --name "source-tenant-send-policy" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --query "primaryConnectionString" \
+    --output tsv
+```
 
-5. **Select Log Categories**
-   - Check the log categories you want to collect based on your license:
-   
-   | License | Available Categories |
-   |---------|---------------------|
-   | **Free** | AuditLogs |
-   | **P1** | AuditLogs, SignInLogs, NonInteractiveUserSignInLogs, ServicePrincipalSignInLogs, ManagedIdentitySignInLogs, ProvisioningLogs, ADFSSignInLogs, MicrosoftGraphActivityLogs, NetworkAccessTrafficLogs |
-   | **P2** | All P1 categories + RiskyUsers, UserRiskEvents, RiskyServicePrincipals, ServicePrincipalRiskEvents |
-   | **E5** | All P2 categories + EnrichedOffice365AuditLogs |
+#### Create Event Hub Namespace (PowerShell)
 
-6. **Configure Destination - CRITICAL STEP**
-   - Check "Send to Log Analytics workspace"
-   - **IMPORTANT:** Click "Change directory" in the top-right corner of the Portal
-   - Switch to the **MANAGING TENANT** directory (where your Log Analytics workspace is located)
-   - Select the subscription containing your Log Analytics workspace
-   - Select the Log Analytics workspace (e.g., `law-central-logging-for-atevet17-TD`)
+```powershell
+# Login to managing tenant (Atevet12)
+Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
+Set-AzContext -SubscriptionId "<MANAGING-SUBSCRIPTION-ID>"
 
-7. **Save the Configuration**
-   - Click "Save" to create the diagnostic setting
-   - Wait for the confirmation message
+# Variables
+$resourceGroupName = "rg-entra-logs-eventhub"
+$location = "westus2"
+$eventHubNamespaceName = "eh-ns-entra-logs-<unique-suffix>"
+$eventHubName = "eh-entra-id-logs"
 
-8. **Verify the Configuration**
-   - The diagnostic setting should now appear in the list
-   - Note: It may take 5-15 minutes for logs to start flowing
+# Create resource group
+New-AzResourceGroup -Name $resourceGroupName -Location $location
 
-#### Verification
+# Create Event Hub Namespace
+New-AzEventHubNamespace `
+    -ResourceGroupName $resourceGroupName `
+    -Name $eventHubNamespaceName `
+    -Location $location `
+    -SkuName "Standard" `
+    -SkuCapacity 1 `
+    -EnableAutoInflate $true `
+    -MaximumThroughputUnits 10
 
-After configuring, verify logs are flowing by running this KQL query in your Log Analytics workspace:
+# Create Event Hub
+New-AzEventHub `
+    -ResourceGroupName $resourceGroupName `
+    -NamespaceName $eventHubNamespaceName `
+    -Name $eventHubName `
+    -PartitionCount 4 `
+    -MessageRetentionInDays 7
+
+# Create consumer group
+New-AzEventHubConsumerGroup `
+    -ResourceGroupName $resourceGroupName `
+    -NamespaceName $eventHubNamespaceName `
+    -EventHubName $eventHubName `
+    -Name "cg-loganalytics"
+
+# Create Shared Access Policy for source tenant (Send only)
+New-AzEventHubAuthorizationRule `
+    -ResourceGroupName $resourceGroupName `
+    -NamespaceName $eventHubNamespaceName `
+    -Name "source-tenant-send-policy" `
+    -Rights @("Send")
+
+# Get the connection string
+$keys = Get-AzEventHubKey `
+    -ResourceGroupName $resourceGroupName `
+    -NamespaceName $eventHubNamespaceName `
+    -Name "source-tenant-send-policy"
+
+Write-Host "Event Hub Connection String:"
+Write-Host $keys.PrimaryConnectionString
+```
+
+#### Deploy Azure Function App
+
+```bash
+# Create Storage Account for Function App
+az storage account create \
+    --name "stfuncentralogsprocessor" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --location "westus2" \
+    --sku "Standard_LRS"
+
+# Create Function App (Consumption Plan)
+az functionapp create \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --storage-account "stfuncentralogsprocessor" \
+    --consumption-plan-location "westus2" \
+    --runtime "python" \
+    --runtime-version "3.9" \
+    --functions-version "4" \
+    --os-type "Linux"
+
+# Enable System-Assigned Managed Identity
+az functionapp identity assign \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub"
+```
+
+#### Configure Function App Settings
+
+```bash
+# Get Event Hub connection string (Listen)
+EH_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
+    --name "RootManageSharedAccessKey" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --query "primaryConnectionString" --output tsv)
+
+# Get Log Analytics Workspace details
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --query "customerId" --output tsv)
+
+WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
+    --resource-group "rg-central-logging" \
+    --workspace-name "law-central-atevet12" \
+    --query "primarySharedKey" --output tsv)
+
+# Configure app settings
+az functionapp config appsettings set \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --settings \
+        "EventHubConnectionString=$EH_CONNECTION" \
+        "WORKSPACE_ID=$WORKSPACE_ID" \
+        "WORKSPACE_KEY=$WORKSPACE_KEY" \
+        "SOURCE_TENANT_NAME=Atevet17"
+```
+
+#### Deploy Function Code
+
+The Azure Function code is located in the [`scripts/EntraIDLogsProcessor/`](scripts/EntraIDLogsProcessor/) directory. Deploy it using Azure Functions Core Tools:
+
+```bash
+# Navigate to the EntraIDLogsProcessor directory
+cd scripts/EntraIDLogsProcessor
+
+# Deploy using Azure Functions Core Tools
+func azure functionapp publish func-entra-logs-processor --python
+
+# Or using Azure CLI with zip deployment
+cd ..
+zip -r EntraIDLogsProcessor.zip EntraIDLogsProcessor/
+az functionapp deployment source config-zip \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --src "EntraIDLogsProcessor.zip"
+```
+
+---
+
+### Step 6.3: Configure Entra ID Diagnostic Settings in Source Tenant
+
+Now configure the source tenant's Entra ID to send logs to the Event Hub.
+
+#### Get Event Hub Authorization Rule ID
+
+First, get the authorization rule resource ID from the managing tenant:
+
+```bash
+# In managing tenant (Atevet12)
+az eventhubs namespace authorization-rule show \
+    --name "source-tenant-send-policy" \
+    --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --query "id" \
+    --output tsv
+```
+
+**Save this ID - you'll need it for diagnostic settings:**
+```
+/subscriptions/<Managing-Sub-ID>/resourceGroups/rg-entra-logs-eventhub/providers/Microsoft.EventHub/namespaces/eh-ns-entra-logs-<unique-suffix>/authorizationRules/source-tenant-send-policy
+```
+
+#### Configure Diagnostic Settings via Azure CLI
+
+```bash
+# Login to source tenant (Atevet17) as Global Administrator
+az login --tenant "<SOURCE-TENANT-ID>"
+
+# Set the Event Hub authorization rule ID from managing tenant
+EVENT_HUB_AUTH_RULE="/subscriptions/<MANAGING-SUB-ID>/resourceGroups/rg-entra-logs-eventhub/providers/Microsoft.EventHub/namespaces/eh-ns-entra-logs-<unique-suffix>/authorizationRules/source-tenant-send-policy"
+
+# Create diagnostic setting for Entra ID
+az monitor diagnostic-settings create \
+    --name "SendToEventHub" \
+    --resource "/providers/microsoft.aadiam" \
+    --event-hub "eh-entra-id-logs" \
+    --event-hub-rule "$EVENT_HUB_AUTH_RULE" \
+    --logs '[
+        {"category": "AuditLogs", "enabled": true},
+        {"category": "SignInLogs", "enabled": true},
+        {"category": "NonInteractiveUserSignInLogs", "enabled": true},
+        {"category": "ServicePrincipalSignInLogs", "enabled": true},
+        {"category": "ManagedIdentitySignInLogs", "enabled": true},
+        {"category": "ProvisioningLogs", "enabled": true},
+        {"category": "RiskyUsers", "enabled": true},
+        {"category": "UserRiskEvents", "enabled": true},
+        {"category": "MicrosoftGraphActivityLogs", "enabled": true}
+    ]'
+```
+
+#### Configure Diagnostic Settings via PowerShell
+
+```powershell
+# Login to source tenant (Atevet17) as Global Administrator
+Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+
+# Variables
+$eventHubAuthRuleId = "/subscriptions/<MANAGING-SUB-ID>/resourceGroups/rg-entra-logs-eventhub/providers/Microsoft.EventHub/namespaces/eh-ns-entra-logs-<unique-suffix>/authorizationRules/source-tenant-send-policy"
+$eventHubName = "eh-entra-id-logs"
+$diagnosticSettingName = "SendToEventHub"
+
+# Define log categories to enable (adjust based on your license)
+$logCategories = @(
+    "AuditLogs",
+    "SignInLogs",
+    "NonInteractiveUserSignInLogs",
+    "ServicePrincipalSignInLogs",
+    "ManagedIdentitySignInLogs",
+    "ProvisioningLogs",
+    "RiskyUsers",
+    "UserRiskEvents",
+    "MicrosoftGraphActivityLogs"
+)
+
+# Build the logs array for the API call
+$logsArray = $logCategories | ForEach-Object {
+    @{
+        category = $_
+        enabled = $true
+    }
+}
+
+# Create the diagnostic setting using REST API
+$body = @{
+    properties = @{
+        eventHubAuthorizationRuleId = $eventHubAuthRuleId
+        eventHubName = $eventHubName
+        logs = $logsArray
+    }
+} | ConvertTo-Json -Depth 10
+
+$uri = "https://management.azure.com/providers/microsoft.aadiam/diagnosticSettings/${diagnosticSettingName}?api-version=2017-04-01"
+
+$token = (Get-AzAccessToken -ResourceUrl "https://management.azure.com").Token
+$headers = @{
+    "Authorization" = "Bearer $token"
+    "Content-Type" = "application/json"
+}
+
+$response = Invoke-RestMethod -Uri $uri -Method PUT -Headers $headers -Body $body
+Write-Host "Diagnostic setting created successfully"
+```
+
+#### Configure via Azure Portal (Alternative)
+
+If you prefer the Portal method:
+
+1. **Sign in to Azure Portal** as Global Administrator of the **source tenant**
+2. Navigate to **Microsoft Entra ID** → **Monitoring** → **Diagnostic settings**
+3. Click **+ Add diagnostic setting**
+4. Enter name: `SendToEventHub`
+5. Select log categories based on your license
+6. Check **Stream to an event hub**
+7. Enter the Event Hub details:
+   - Subscription: Select the **managing tenant** subscription
+   - Event hub namespace: `eh-ns-entra-logs-<unique-suffix>`
+   - Event hub name: `eh-entra-id-logs`
+   - Event hub policy name: `source-tenant-send-policy`
+8. Click **Save**
+
+---
+
+### Step 6.4: Verify Log Collection
+
+#### Check Event Hub Metrics
+
+```bash
+# In managing tenant
+az monitor metrics list \
+    --resource "/subscriptions/<MANAGING-SUB-ID>/resourceGroups/rg-entra-logs-eventhub/providers/Microsoft.EventHub/namespaces/eh-ns-entra-logs-<unique-suffix>" \
+    --metric "IncomingMessages" \
+    --interval PT1M \
+    --start-time $(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ) \
+    --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ)
+```
+
+#### Check Function App Logs
+
+```bash
+# View Function App logs
+az functionapp log tail \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub"
+```
+
+#### Query Logs in Log Analytics
+
+Wait 5-15 minutes after configuration, then run these KQL queries in your Log Analytics workspace:
 
 ```kusto
-// Check for Entra ID logs (wait 5-15 minutes after configuration)
-union SigninLogs, AuditLogs, AADNonInteractiveUserSignInLogs
+// Check for Entra ID logs from Event Hub
+union EntraIDAuditLogs_*_CL, EntraIDSignInLogs_*_CL, EntraIDNonInteractiveSignInLogs_*_CL
 | where TimeGenerated > ago(1h)
 | summarize Count=count() by Type
 | order by Count desc
-```
 
-#### Update Key Vault Tracking (Optional)
+// Check Sign-in Logs
+EntraIDSignInLogs_*_CL
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName, UserPrincipalName_s, AppDisplayName_s, ResultType_s
+| order by TimeGenerated desc
+| take 100
 
-After manual Portal configuration, you can update the Key Vault tenant tracking by running the script with `-SkipDiagnosticSettings`:
+// Check Audit Logs
+EntraIDAuditLogs_*_CL
+| where TimeGenerated > ago(1h)
+| project TimeGenerated, SourceTenantName, OperationName_s, Category_s, Result_s
+| order by TimeGenerated desc
+| take 100
 
-```powershell
-# Update Key Vault tracking only (skip diagnostic settings configuration)
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<MANAGING-TENANT-ID>" `
-    -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -SourceTenantName "SourceTenantName" `
-    -KeyVaultName "kv-central-logging" `
-    -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-logging" `
-    -SkipDiagnosticSettings
+// Check for failed sign-ins (security monitoring)
+EntraIDSignInLogs_*_CL
+| where TimeGenerated > ago(24h)
+| where ResultType_s != "0"
+| project TimeGenerated, UserPrincipalName_s, AppDisplayName_s, ResultType_s, ResultDescription_s, IPAddress_s
+| order by TimeGenerated desc
+
+// Check risky users (requires P2 license)
+EntraIDRiskyUsers_*_CL
+| where TimeGenerated > ago(7d)
+| project TimeGenerated, UserPrincipalName_s, RiskLevel_s, RiskState_s
 ```
 
 ---
 
-### Usage Examples
+### Troubleshooting
 
-#### Basic Usage (All Log Categories)
+| Issue | Symptoms | Solution |
+|-------|----------|----------|
+| **Events not arriving in Event Hub** | No incoming messages in Event Hub metrics | Verify diagnostic settings in source tenant; check Event Hub authorization rule ID is correct |
+| **Function not processing events** | Events in Event Hub but not in Log Analytics | Check Function App logs; verify connection strings in app settings |
+| **Permission denied on diagnostic settings** | Error creating diagnostic setting | Ensure you have Global Administrator role in source tenant |
+| **LinkedAuthorizationFailed** | Error when using direct Log Analytics | This is expected - use Event Hub method instead |
+| **Missing log categories** | Some categories not appearing | Verify you have the required license (P1/P2) for those categories |
+| **High latency** | Events delayed | Increase Event Hub throughput units; check Function App scaling |
 
-```powershell
-# Run from MANAGING TENANT (Atevet12)
-# Requires Global Administrator access to the SOURCE TENANT (where Entra ID logs originate)
-# The script will prompt for authentication to both tenants:
-#   1. Managing tenant (for Key Vault access)
-#   2. Source tenant (for configuring Entra ID diagnostic settings - requires Global Admin)
+#### Diagnostic Commands
 
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+```bash
+# Check Event Hub health
+az eventhubs namespace show \
+    --name "eh-ns-entra-logs-<unique-suffix>" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --query "{Status:status, ProvisioningState:provisioningState}"
+
+# List diagnostic settings in source tenant
+az monitor diagnostic-settings list \
+    --resource "/providers/microsoft.aadiam" \
+    --query "[].{Name:name, EventHub:eventHubName}"
+
+# Check Function App status
+az functionapp show \
+    --name "func-entra-logs-processor" \
+    --resource-group "rg-entra-logs-eventhub" \
+    --query "{State:state, DefaultHostName:defaultHostName}"
+
+# View recent Function invocations
+az monitor app-insights query \
+    --app "func-entra-logs-processor" \
+    --analytics-query "requests | where timestamp > ago(1h) | summarize count() by resultCode"
 ```
 
-#### Specific Log Categories Only (P1 License)
+---
 
-```powershell
-# Configure only P1-compatible log categories (avoids P2-only category errors)
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -LogCategories @("AuditLogs", "SignInLogs", "NonInteractiveUserSignInLogs", "ServicePrincipalSignInLogs", "ManagedIdentitySignInLogs", "ProvisioningLogs")
-```
+### Cost Estimation
 
-#### Free Tier Logs Only (AuditLogs)
+| Component | Unit | Estimated Monthly Cost |
+|-----------|------|------------------------|
+| **Event Hub Namespace (Standard)** | Base | ~$22/month |
+| **Event Hub Throughput Units** | Per TU | ~$22/TU/month |
+| **Azure Function (Consumption)** | Per million executions | ~$0.20 |
+| **Azure Function Execution Time** | Per GB-s | ~$0.000016 |
+| **Log Analytics Ingestion** | Per GB | ~$2.76/GB |
 
-```powershell
-# Configure only free tier logs (no premium license required)
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -LogCategories @("AuditLogs")
-```
+**Estimated Total (50GB Entra ID logs/month):** ~$180-220/month
 
-#### Verify Existing Settings (Read-Only)
+---
 
-```powershell
-# Check current diagnostic settings without making changes
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -VerifyOnly
-```
+### Security Considerations
 
-#### Custom Diagnostic Setting Name
+1. **Principle of Least Privilege**
+   - Use **Send-only** SAS policies for source tenant
+   - Use **Listen-only** SAS policies for Function App consumer
+   - Rotate SAS keys every 90 days
 
-```powershell
-# Use a custom name for the diagnostic setting
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DiagnosticSettingName "CrossTenantEntraLogs"
-```
+2. **Network Security**
+   - Consider enabling Private Endpoints for Event Hub in production
+   - Configure NSG rules to restrict access
+   - Use Service Endpoints as minimum security
 
-#### Skip Key Vault Update
+3. **Key Rotation Schedule**
 
-```powershell
-# Skip updating the Key Vault tenant tracking (useful for re-runs)
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -SkipKeyVaultUpdate
-```
+| Component | Rotation Frequency | Method |
+|-----------|-------------------|--------|
+| Event Hub SAS Keys | Every 90 days | Regenerate secondary, update configs, regenerate primary |
+| Log Analytics Key | Every 90 days | Regenerate and update Function App settings |
 
-#### Preview Changes (WhatIf Mode)
+4. **Store Secrets in Key Vault**
+   - All connection strings should be stored in Key Vault
+   - Use Managed Identity for Function App to access Key Vault
+   - Enable soft delete and purge protection on Key Vault
 
-```powershell
-# See what the script would do without making actual changes
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -WhatIf
-```
+---
 
-#### Add Another Source Tenant
+### Script Files Reference
 
-```powershell
-# Configure a second source tenant (app and Key Vault already set up)
-.\Configure-EntraIDDiagnosticSettings.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET18-TENANT-ID>" `
-    -SourceTenantName "Atevet18" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
-```
+| File | Description |
+|------|-------------|
+| [`scripts/Configure-EntraIDLogsViaEventHub.ps1`](scripts/Configure-EntraIDLogsViaEventHub.ps1) | Main PowerShell script for automated deployment |
+| [`scripts/EntraIDLogsProcessor/__init__.py`](scripts/EntraIDLogsProcessor/__init__.py) | Azure Function Python code for log processing |
+| [`scripts/EntraIDLogsProcessor/function.json`](scripts/EntraIDLogsProcessor/function.json) | Function binding configuration |
+| [`scripts/EntraIDLogsProcessor/requirements.txt`](scripts/EntraIDLogsProcessor/requirements.txt) | Python dependencies |
+| [`scripts/EntraIDLogsProcessor/host.json`](scripts/EntraIDLogsProcessor/host.json) | Function host configuration |
 
-### Verify Entra ID Logs in Log Analytics
+---
 
-Once configured, Entra ID logs will appear in the following Log Analytics tables (based on enabled categories):
+### Summary
 
-| Log Category | Log Analytics Table | License Required |
-|--------------|---------------------|------------------|
-| `AuditLogs` | `AuditLogs` | Free |
-| `SignInLogs` | `SigninLogs` | P1/P2 |
-| `NonInteractiveUserSignInLogs` | `AADNonInteractiveUserSignInLogs` | P1/P2 |
-| `ServicePrincipalSignInLogs` | `AADServicePrincipalSignInLogs` | P1/P2 |
-| `ManagedIdentitySignInLogs` | `AADManagedIdentitySignInLogs` | P1/P2 |
-| `ProvisioningLogs` | `AADProvisioningLogs` | P1/P2 |
-| `ADFSSignInLogs` | `ADFSSignInLogs` | P1/P2 |
-| `RiskyUsers` | `AADRiskyUsers` | P2 |
-| `UserRiskEvents` | `AADUserRiskEvents` | P2 |
-| `RiskyServicePrincipals` | `AADRiskyServicePrincipals` | P2 |
-| `ServicePrincipalRiskEvents` | `AADServicePrincipalRiskEvents` | P2 |
-| `MicrosoftGraphActivityLogs` | `MicrosoftGraphActivityLogs` | P1/P2 |
-| `NetworkAccessTrafficLogs` | `NetworkAccessTrafficLogs` | P1/P2 |
-| `EnrichedOffice365AuditLogs` | `EnrichedOffice365AuditLogs` | E5 |
+You have now configured cross-tenant Entra ID log collection using Azure Event Hub. This method bypasses the limitations of direct Log Analytics workspace configuration and provides:
 
-> **Note:** Tables will only contain data if the corresponding log category was enabled during configuration and you have the required license.
+| Feature | Status |
+|---------|--------|
+| **Automated deployment** | ✅ Fully scriptable |
+| **Real-time streaming** | ✅ Sub-second latency |
+| **Cross-tenant support** | ✅ Works via connection string |
+| **All log categories** | ✅ Based on license |
+| **Scalable architecture** | ✅ Auto-inflate enabled |
+| **Secure transport** | ✅ SAS token authentication |
 
-**Verification KQL Queries:**
+### Next Steps
 
-```kusto
-// Check Sign-in Logs (wait 5-15 minutes after configuration)
-SigninLogs
-| where TimeGenerated > ago(1h)
-| summarize count() by ResultType, AppDisplayName
-| order by count_ desc
-
-// Check Audit Logs
-AuditLogs
-| where TimeGenerated > ago(1h)
-| summarize count() by OperationName, Category
-| order by count_ desc
-
-// Check for failed sign-ins (security monitoring)
-SigninLogs
-| where TimeGenerated > ago(24h)
-| where ResultType != "0"
-| project TimeGenerated, UserPrincipalName, AppDisplayName, ResultType, ResultDescription, IPAddress
-| order by TimeGenerated desc
-
-// Check risky users (requires P2 license)
-AADRiskyUsers
-| where TimeGenerated > ago(7d)
-| project TimeGenerated, UserPrincipalName, RiskLevel, RiskState
-
-// Check which Entra ID tables have data
-union withsource=TableName
-    SigninLogs,
-    AADNonInteractiveUserSignInLogs,
-    AADServicePrincipalSignInLogs,
-    AADManagedIdentitySignInLogs,
-    AuditLogs
-| where TimeGenerated > ago(1h)
-| summarize Count=count() by TableName
-| order by Count desc
-```
+1. **Monitor Event Hub metrics** for incoming messages
+2. **Verify logs in Log Analytics** using the KQL queries above
+3. **Set up alerts** for critical Entra ID events
+4. **Proceed to Step 7** to configure Microsoft 365 Audit Logs
 
 ---
 

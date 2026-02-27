@@ -1,0 +1,15 @@
+# Azure Functions dependencies for EntraIDLogsProcessor
+# These packages are required for the function to process Event Hub events
+# and forward logs to Log Analytics
+
+# Azure Functions SDK
+azure-functions>=1.17.0
+
+# HTTP requests for Log Analytics Data Collector API
+requests>=2.31.0
+
+# JSON handling (included in Python stdlib, but listed for clarity)
+# json - built-in
+
+# Logging (included in Python stdlib)
+# logging - built-in
