@@ -374,10 +374,13 @@ if (-not $SkipEventHubCreation) {
             -Location $Location `
             -SkuName "Standard" `
             -SkuCapacity 1 `
-            -EnableAutoInflate $true `
-            -MaximumThroughputUnits 10 `
+            -EnableAutoInflate `
+            -MaximumThroughputUnit 10 `
             -ErrorAction Stop
         Write-Success "  ✓ Event Hub Namespace created"
+        # Wait for namespace to be fully provisioned
+        Write-Info "  Waiting for namespace to be ready..."
+        Start-Sleep -Seconds 30
     } else {
         Write-WarningMsg "  Event Hub Namespace already exists"
     }
@@ -392,9 +395,11 @@ if (-not $SkipEventHubCreation) {
             -NamespaceName $EventHubNamespaceName `
             -Name $EventHubName `
             -PartitionCount 4 `
-            -MessageRetentionInDays 7 `
+            -RetentionTimeInHour 168 `
             -ErrorAction Stop | Out-Null
         Write-Success "  ✓ Event Hub created"
+        # Wait for Event Hub to be fully provisioned
+        Start-Sleep -Seconds 10
     } else {
         Write-WarningMsg "  Event Hub already exists"
     }
