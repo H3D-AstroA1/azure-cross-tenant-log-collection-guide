@@ -14,7 +14,7 @@ This document contains PowerShell scripts for automating the Azure cross-tenant 
 6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
 7. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
 8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
-9. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs](#step-6-configure-microsoft-entra-id-azure-ad-logs)
+9. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
 10. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
 
 ---
