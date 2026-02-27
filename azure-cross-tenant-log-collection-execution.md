@@ -6219,6 +6219,18 @@ cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 | `EventHubName` | No | Event Hub name (default: eh-entra-id-logs) |
 | `FunctionAppName` | No | Function App name (default: func-entra-logs-processor) |
 | `LogCategories` | No | Array of log categories to enable |
+| `SkipFunctionDeployment` | No | Skip deploying the Azure Function code |
+| `SkipDiagnosticSettings` | No | Skip configuring diagnostic settings in source tenant |
+| `CleanUp` | No | Remove all resources created by this script (see note below) |
+
+> ⚠️ **CleanUp Note:** The `-CleanUp` parameter removes all resources (Event Hub Namespace, Function App, Storage Account, Application Insights, App Service Plan) but preserves the resource group. After running with `-CleanUp`, you must run the script again **without** `-CleanUp` to recreate the resources:
+> ```powershell
+> # Step 1: Remove existing resources
+> .\Configure-EntraIDLogsViaEventHub.ps1 -CleanUp
+>
+> # Step 2: Recreate resources
+> .\Configure-EntraIDLogsViaEventHub.ps1
+> ```
 
 #### What the Script Does
 
@@ -6231,10 +6243,10 @@ cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 
 2. **Deploys Azure Function App** (Managing Tenant)
    - Creates Storage Account for Function App
-   - Creates Consumption Plan Function App (Python 3.9)
+   - Creates Consumption Plan Function App (Python 3.11)
    - Enables System-Assigned Managed Identity
    - Configures app settings with Event Hub and Log Analytics connections
-   - Deploys the EntraIDLogsProcessor function code
+   - Deploys the EntraIDLogsProcessor function code with remote build (installs Python dependencies)
 
 3. **Stores Secrets in Key Vault** (Managing Tenant)
    - Stores Event Hub connection string
