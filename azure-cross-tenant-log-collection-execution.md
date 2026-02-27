@@ -694,544 +694,39 @@ Once all resources are created successfully, proceed to:
 
 > ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (Atevet17). Azure Lighthouse delegation is deployed FROM the customer tenant TO grant access to the managing tenant.
 
-This PowerShell script automates the Azure Lighthouse onboarding process by:
-1. Creating and deploying the Registration Definition
-2. Creating and deploying the Registration Assignment
-3. Supporting multi-subscription deployments
-4. Verifying the delegation was successful
+Azure Lighthouse enables cross-tenant management by creating a delegation from the source tenant (where resources exist) to the managing tenant (where your security team operates). This is the foundation for all subsequent log collection steps.
+
+### What is Azure Lighthouse?
+
+Azure Lighthouse is a service that enables cross-tenant management with enhanced security and governance. In the context of log collection:
+
+| Concept | Description |
+|---------|-------------|
+| **Registration Definition** | Defines WHAT permissions are granted and to WHOM (the security group in your managing tenant) |
+| **Registration Assignment** | Applies the definition to a specific subscription, creating the actual delegation |
+| **Delegated Access** | Users in the security group can now access resources in the source tenant without switching accounts |
 
 ### Prerequisites
 
 Before running this script, you need:
-- **Managing Tenant ID** (Atevet12) - from Step 1
-- **Security Group Object ID** (Atevet12) - from Step 1
-- **Owner role** on the source subscription(s) in Atevet17
-- **Microsoft.ManagedServices** resource provider registered (Step 0)
+
+| Requirement | Where to Get It | Example |
+|-------------|-----------------|---------|
+| **Managing Tenant ID** | From Step 1 output | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
+| **Security Group Object ID** | From Step 1 output | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
+| **Owner role** | On source subscription(s) in Atevet17 | Required to deploy Lighthouse |
+| **Microsoft.ManagedServices registered** | Run Step 0 first | Provider must be registered |
 
 ### Script: `Deploy-AzureLighthouse.ps1`
 
-```powershell
-<#
-.SYNOPSIS
-    Deploys Azure Lighthouse delegation from customer tenant to managing tenant.
+The complete PowerShell script is located at: [`scripts/Deploy-AzureLighthouse.ps1`](scripts/Deploy-AzureLighthouse.ps1)
 
-.DESCRIPTION
-    This script is used as Step 2 in the Azure Cross-Tenant Log Collection setup.
-    It deploys Azure Lighthouse registration definitions and assignments to delegate
-    access from the source tenant (Atevet17) to the managing tenant (Atevet12).
-    
-    The script:
-    - Creates ARM template files for registration definition and assignment
-    - Deploys the registration definition
-    - Deploys the registration assignment
-    - Supports multi-subscription deployments
-    - Verifies the delegation was successful
-
-.PARAMETER ManagingTenantId
-    The Azure tenant ID (GUID) of the managing tenant (Atevet12).
-
-.PARAMETER SecurityGroupObjectId
-    The Object ID of the security group in the managing tenant that will have delegated access.
-
-.PARAMETER SecurityGroupDisplayName
-    Display name for the security group. Default: "Lighthouse-CrossTenant-Admins"
-
-.PARAMETER SubscriptionIds
-    Array of subscription IDs in the source tenant to delegate. If not provided, uses current subscription.
-
-.PARAMETER RegistrationDefinitionName
-    Name for the Lighthouse registration definition. Default: "Cross-Tenant Log Collection Delegation"
-
-.PARAMETER Location
-    Azure region for the deployment. Default: "westus2"
-
-.PARAMETER IncludeContributorRole
-    Include Contributor role in the delegation. Default: $true
-
-.PARAMETER IncludeResourcePolicyContributorRole
-    Include Resource Policy Contributor role in the delegation. Required for Azure Policy assignments. Default: $true
-
-.PARAMETER IncludeUserAccessAdministratorRole
-    Include User Access Administrator role in the delegation. Required for assigning roles to managed identities
-    created by Azure Policy. This is added as an eligible authorization requiring PIM activation. Default: $true
-
-.PARAMETER SkipVerification
-    Skip the verification step after deployment.
-
-.EXAMPLE
-    .\Deploy-AzureLighthouse.ps1 -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SecurityGroupObjectId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
-
-.EXAMPLE
-    .\Deploy-AzureLighthouse.ps1 -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SecurityGroupObjectId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -SubscriptionIds @("sub-id-1", "sub-id-2")
-
-.NOTES
-    Author: Cross-Tenant Log Collection Guide
-    Requires: Az.Accounts, Az.Resources modules
-    Must be run in the SOURCE/CUSTOMER tenant (Atevet17)
-#>
-
-[CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)]
-    [string]$ManagingTenantId,
-
-    [Parameter(Mandatory = $true)]
-    [string]$SecurityGroupObjectId,
-
-    [Parameter(Mandatory = $false)]
-    [string]$SecurityGroupDisplayName = "Lighthouse-CrossTenant-Admins",
-
-    [Parameter(Mandatory = $false)]
-    [string[]]$SubscriptionIds,
-
-    [Parameter(Mandatory = $false)]
-    [string]$RegistrationDefinitionName = "Cross-Tenant Log Collection Delegation",
-
-    [Parameter(Mandatory = $false)]
-    [string]$Location = "westus2",
-
-    [Parameter(Mandatory = $false)]
-    [bool]$IncludeContributorRole = $true,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$IncludeResourcePolicyContributorRole = $true,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$IncludeUserAccessAdministratorRole = $true,
-
-    [Parameter(Mandatory = $false)]
-    [switch]$SkipVerification
-)
-
-# Color functions for output
-function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
-function Write-ErrorMsg { param($Message) Write-Host $Message -ForegroundColor Red }
-function Write-Warning { param($Message) Write-Host $Message -ForegroundColor Yellow }
-function Write-Info { param($Message) Write-Host $Message -ForegroundColor Cyan }
-function Write-Header { param($Message) Write-Host $Message -ForegroundColor Cyan -BackgroundColor DarkBlue }
-
-# Role Definition IDs
-$roleDefinitions = @{
-    "Reader" = "acdd72a7-3385-48ef-bd42-f606fba81ae7"
-    "Contributor" = "b24988ac-6180-42a0-ab88-20f7382dd24c"
-    "MonitoringReader" = "43d0d8ad-25c7-4714-9337-8ba259a9fe05"
-    "LogAnalyticsReader" = "73c42c96-874c-492b-b04d-ab87d138a893"
-    "MonitoringContributor" = "749f88d5-cbae-40b8-bcfc-e573ddc772fa"
-    "ResourcePolicyContributor" = "36243c78-bf99-498c-9df9-86d9f8d28608"
-    "UserAccessAdministrator" = "18d7d88d-d35e-4fb5-a5c3-7773c20a72d9"
-}
-
-# Results tracking
-$results = @{
-    ManagingTenantId = $ManagingTenantId
-    SecurityGroupObjectId = $SecurityGroupObjectId
-    SubscriptionsProcessed = @()
-    SubscriptionsSucceeded = @()
-    SubscriptionsFailed = @()
-    DefinitionIds = @{}
-    Errors = @()
-}
-
-# Main script execution
-Write-Host ""
-Write-Header "======================================================================"
-Write-Header "        Deploy Azure Lighthouse - Cross-Tenant Delegation             "
-Write-Header "======================================================================"
-Write-Host ""
-
-#region Check Azure Connection
-Write-Info "Checking Azure connection..."
-
-$context = Get-AzContext -ErrorAction SilentlyContinue
-if (-not $context) {
-    Write-ErrorMsg "Not connected to Azure. Please connect first."
-    Write-Host ""
-    Write-Info "Run: Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'"
-    exit 1
-}
-
-Write-Success "Connected as: $($context.Account.Id)"
-Write-Success "Current Tenant: $($context.Tenant.Id)"
-Write-Host ""
-
-# Verify we're NOT in the managing tenant
-if ($context.Tenant.Id -eq $ManagingTenantId) {
-    Write-ErrorMsg "ERROR: You are connected to the MANAGING tenant ($ManagingTenantId)"
-    Write-ErrorMsg "This script must be run from the SOURCE/CUSTOMER tenant!"
-    Write-Host ""
-    Write-Info "Please run: Connect-AzAccount -TenantId '<SOURCE-TENANT-ID>'"
-    exit 1
-}
-
-Write-Success "Confirmed: Running in source tenant (not managing tenant)"
-Write-Host ""
-#endregion
-
-#region Get Subscriptions
-if (-not $SubscriptionIds -or $SubscriptionIds.Count -eq 0) {
-    # Use current subscription
-    $SubscriptionIds = @($context.Subscription.Id)
-    Write-Info "No subscriptions specified. Using current subscription: $($context.Subscription.Name)"
-}
-
-Write-Info "Subscriptions to delegate: $($SubscriptionIds.Count)"
-foreach ($subId in $SubscriptionIds) {
-    Write-Host "  - $subId"
-}
-Write-Host ""
-#endregion
-
-#region Build Authorizations Array
-Write-Info "Building authorization roles..."
-
-$authorizations = @(
-    @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["Reader"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-    },
-    @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["MonitoringReader"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-    },
-    @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["LogAnalyticsReader"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-    }
-)
-
-if ($IncludeContributorRole) {
-    $authorizations += @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["Contributor"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-    }
-    Write-Success "  Including Contributor role (for configuring diagnostic settings)"
-}
-
-if ($IncludeResourcePolicyContributorRole) {
-    $authorizations += @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["ResourcePolicyContributor"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-    }
-    Write-Success "  Including Resource Policy Contributor role (for Azure Policy assignments)"
-}
-
-if ($IncludeUserAccessAdministratorRole) {
-    $authorizations += @{
-        principalId = $SecurityGroupObjectId
-        roleDefinitionId = $roleDefinitions["UserAccessAdministrator"]
-        principalIdDisplayName = $SecurityGroupDisplayName
-        # Note: For production, consider using delegatedRoleDefinitionIds to limit which roles can be assigned
-        # delegatedRoleDefinitionIds = @($roleDefinitions["Contributor"], $roleDefinitions["MonitoringContributor"])
-    }
-    Write-Success "  Including User Access Administrator role (for assigning roles to policy managed identities)"
-    Write-WarningMsg "  ⚠ User Access Administrator is a privileged role - ensure this is required for your scenario"
-}
-
-$rolesList = "Reader, Monitoring Reader, Log Analytics Reader"
-if ($IncludeContributorRole) { $rolesList += ", Contributor" }
-if ($IncludeResourcePolicyContributorRole) { $rolesList += ", Resource Policy Contributor" }
-if ($IncludeUserAccessAdministratorRole) { $rolesList += ", User Access Administrator" }
-Write-Success "  Roles configured: $rolesList"
-Write-Host ""
-#endregion
-
-#region Create ARM Templates
-Write-Info "Creating ARM templates..."
-
-# Registration Definition Template
-$definitionTemplate = @{
-    '$schema' = "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#"
-    contentVersion = "1.0.0.0"
-    parameters = @{
-        managedByTenantId = @{
-            type = "string"
-            metadata = @{
-                description = "Tenant ID of the managing tenant (Atevet12)"
-            }
-        }
-        registrationDefinitionName = @{
-            type = "string"
-            metadata = @{
-                description = "Display name of the Lighthouse registration definition"
-            }
-        }
-        authorizations = @{
-            type = "array"
-            metadata = @{
-                description = "Array of authorization objects"
-            }
-        }
-    }
-    variables = @{
-        definitionGuid = "[guid(concat(parameters('managedByTenantId'), '-', parameters('registrationDefinitionName')))]"
-    }
-    resources = @(
-        @{
-            type = "Microsoft.ManagedServices/registrationDefinitions"
-            apiVersion = "2022-10-01"
-            name = "[variables('definitionGuid')]"
-            properties = @{
-                registrationDefinitionName = "[parameters('registrationDefinitionName')]"
-                description = "Delegates access for cross-tenant log collection"
-                managedByTenantId = "[parameters('managedByTenantId')]"
-                authorizations = "[parameters('authorizations')]"
-            }
-        }
-    )
-    outputs = @{
-        registrationDefinitionId = @{
-            type = "string"
-            value = "[resourceId('Microsoft.ManagedServices/registrationDefinitions', variables('definitionGuid'))]"
-        }
-        definitionGuid = @{
-            type = "string"
-            value = "[variables('definitionGuid')]"
-        }
-    }
-}
-
-# Registration Assignment Template
-$assignmentTemplate = @{
-    '$schema' = "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#"
-    contentVersion = "1.0.0.0"
-    parameters = @{
-        registrationDefinitionId = @{
-            type = "string"
-            metadata = @{
-                description = "Full resource ID of the registration definition"
-            }
-        }
-        registrationAssignmentName = @{
-            type = "string"
-            defaultValue = "[newGuid()]"
-            metadata = @{
-                description = "Name (GUID) for the registration assignment"
-            }
-        }
-    }
-    resources = @(
-        @{
-            type = "Microsoft.ManagedServices/registrationAssignments"
-            apiVersion = "2022-10-01"
-            name = "[parameters('registrationAssignmentName')]"
-            properties = @{
-                registrationDefinitionId = "[parameters('registrationDefinitionId')]"
-            }
-        }
-    )
-    outputs = @{
-        registrationAssignmentId = @{
-            type = "string"
-            value = "[resourceId('Microsoft.ManagedServices/registrationAssignments', parameters('registrationAssignmentName'))]"
-        }
-    }
-}
-
-# Save templates to temp files
-$tempDir = [System.IO.Path]::GetTempPath()
-$definitionTemplatePath = Join-Path $tempDir "lighthouse-definition-template.json"
-$assignmentTemplatePath = Join-Path $tempDir "lighthouse-assignment-template.json"
-
-$definitionTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $definitionTemplatePath -Encoding UTF8
-$assignmentTemplate | ConvertTo-Json -Depth 20 | Set-Content -Path $assignmentTemplatePath -Encoding UTF8
-
-Write-Success "  Templates created in temp directory"
-Write-Host ""
-#endregion
-
-#region Deploy to Each Subscription
-Write-Info "Deploying Azure Lighthouse to subscriptions..."
-Write-Host ""
-
-foreach ($subId in $SubscriptionIds) {
-    $results.SubscriptionsProcessed += $subId
-    
-    Write-Info "Processing subscription: $subId"
-    
-    try {
-        # Set context to this subscription
-        Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
-        $subName = (Get-AzContext).Subscription.Name
-        Write-Host "  Subscription name: $subName"
-        
-        # Check if Microsoft.ManagedServices is registered
-        $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices" -ErrorAction SilentlyContinue
-        $providerState = ($provider | Select-Object -First 1).RegistrationState
-        
-        if ($providerState -ne "Registered") {
-            Write-Warning "  Microsoft.ManagedServices not registered. Registering..."
-            Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices" | Out-Null
-            
-            # Wait for registration
-            $timeout = 120
-            $elapsed = 0
-            do {
-                Start-Sleep -Seconds 5
-                $elapsed += 5
-                $provider = Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
-                $providerState = ($provider | Select-Object -First 1).RegistrationState
-            } while ($providerState -eq "Registering" -and $elapsed -lt $timeout)
-            
-            if ($providerState -ne "Registered") {
-                throw "Failed to register Microsoft.ManagedServices provider"
-            }
-            Write-Success "  Provider registered successfully"
-        }
-        
-        # Deploy Registration Definition
-        Write-Host "  Deploying registration definition..."
-        $defDeploymentName = "LighthouseDefinition-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        
-        $defDeployment = New-AzSubscriptionDeployment `
-            -Name $defDeploymentName `
-            -Location $Location `
-            -TemplateFile $definitionTemplatePath `
-            -managedByTenantId $ManagingTenantId `
-            -registrationDefinitionName $RegistrationDefinitionName `
-            -authorizations $authorizations `
-            -ErrorAction Stop
-        
-        $registrationDefinitionId = $defDeployment.Outputs.registrationDefinitionId.Value
-        $results.DefinitionIds[$subId] = $registrationDefinitionId
-        
-        Write-Success "  Definition deployed: $registrationDefinitionId"
-        
-        # Deploy Registration Assignment
-        Write-Host "  Deploying registration assignment..."
-        $assignDeploymentName = "LighthouseAssignment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        
-        $assignDeployment = New-AzSubscriptionDeployment `
-            -Name $assignDeploymentName `
-            -Location $Location `
-            -TemplateFile $assignmentTemplatePath `
-            -registrationDefinitionId $registrationDefinitionId `
-            -ErrorAction Stop
-        
-        Write-Success "  Assignment deployed successfully"
-        Write-Success "  ✓ Delegation complete for $subName"
-        
-        $results.SubscriptionsSucceeded += $subId
-    }
-    catch {
-        Write-ErrorMsg "  ✗ Failed: $($_.Exception.Message)"
-        $results.SubscriptionsFailed += $subId
-        $results.Errors += "Subscription $subId : $($_.Exception.Message)"
-    }
-    
-    Write-Host ""
-}
-#endregion
-
-#region Verify Delegation
-if (-not $SkipVerification -and $results.SubscriptionsSucceeded.Count -gt 0) {
-    Write-Info "Verifying delegations..."
-    Write-Host ""
-    
-    foreach ($subId in $results.SubscriptionsSucceeded) {
-        try {
-            Set-AzContext -SubscriptionId $subId -ErrorAction Stop | Out-Null
-            
-            $definitions = Get-AzManagedServicesDefinition -ErrorAction SilentlyContinue
-            $assignments = Get-AzManagedServicesAssignment -ErrorAction SilentlyContinue
-            
-            $matchingDef = $definitions | Where-Object {
-                $_.Properties.ManagedByTenantId -eq $ManagingTenantId
-            }
-            
-            if ($matchingDef) {
-                Write-Success "  ✓ Verified: $subId"
-            }
-            else {
-                Write-Warning "  ⚠ Definition found but tenant ID mismatch: $subId"
-            }
-        }
-        catch {
-            Write-Warning "  ⚠ Could not verify: $subId"
-        }
-    }
-    Write-Host ""
-}
-#endregion
-
-#region Cleanup Temp Files
-Remove-Item -Path $definitionTemplatePath -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $assignmentTemplatePath -Force -ErrorAction SilentlyContinue
-#endregion
-
-#region Output Summary
-Write-Host ""
-Write-Header "======================================================================"
-Write-Header "                              SUMMARY                                 "
-Write-Header "======================================================================"
-Write-Host ""
-
-Write-Host "Managing Tenant ID:        $ManagingTenantId"
-Write-Host "Security Group Object ID:  $SecurityGroupObjectId"
-Write-Host ""
-
-Write-Host "Subscriptions Processed:   $($results.SubscriptionsProcessed.Count)"
-Write-Success "  Succeeded: $($results.SubscriptionsSucceeded.Count)"
-if ($results.SubscriptionsFailed.Count -gt 0) {
-    Write-ErrorMsg "  Failed: $($results.SubscriptionsFailed.Count)"
-}
-Write-Host ""
-
-if ($results.SubscriptionsSucceeded.Count -gt 0) {
-    Write-Info "Successfully Delegated Subscriptions:"
-    foreach ($subId in $results.SubscriptionsSucceeded) {
-        Write-Success "  ✓ $subId"
-    }
-    Write-Host ""
-}
-
-if ($results.SubscriptionsFailed.Count -gt 0) {
-    Write-Warning "Failed Subscriptions:"
-    foreach ($subId in $results.SubscriptionsFailed) {
-        Write-ErrorMsg "  ✗ $subId"
-    }
-    Write-Host ""
-    
-    Write-Warning "Errors:"
-    foreach ($error in $results.Errors) {
-        Write-ErrorMsg "  - $error"
-    }
-    Write-Host ""
-}
-
-Write-Info "=== Next Steps ==="
-Write-Host ""
-Write-Host "1. In the MANAGING tenant (Atevet12), verify delegation:"
-Write-Host "   - Go to Azure Portal > 'My customers'"
-Write-Host "   - Or run: Get-AzManagedServicesAssignment"
-Write-Host ""
-Write-Host "2. Configure diagnostic settings to send logs to Atevet12 workspace"
-Write-Host "3. Set up Activity Log collection (Step 3)"
-Write-Host "4. Configure resource diagnostic logs (Step 4)"
-Write-Host ""
-
-# Output as JSON for automation
-Write-Info "=== JSON Output (for automation) ==="
-Write-Host ""
-$jsonOutput = @{
-    managingTenantId = $results.ManagingTenantId
-    securityGroupObjectId = $results.SecurityGroupObjectId
-    subscriptionsSucceeded = $results.SubscriptionsSucceeded
-    subscriptionsFailed = $results.SubscriptionsFailed
-    registrationDefinitionIds = $results.DefinitionIds
-} | ConvertTo-Json -Depth 3
-
-Write-Host $jsonOutput
-Write-Host ""
-#endregion
-
-# Return results
-return $results
-```
+This script automates the Azure Lighthouse onboarding process:
+1. Validates you're connected to the correct (source) tenant
+2. Creates ARM templates for the Registration Definition and Assignment
+3. Deploys the Lighthouse delegation to one or more subscriptions
+4. Verifies the delegation was successful
+5. Provides next steps for verification in the managing tenant
 
 ### Usage Examples
 
@@ -1358,79 +853,108 @@ Successfully Delegated Subscriptions:
 4. Configure resource diagnostic logs (Step 4)
 ```
 
-### Troubleshooting
+### Verification
 
-#### Running in Wrong Tenant
+After running the script, verify that the Lighthouse delegation was successful:
 
-**Error:** `ERROR: You are connected to the MANAGING tenant`
+#### 1. Verify in Source Tenant (Atevet17)
 
-**Solution:**
+Check that the registration assignment was created:
+
 ```powershell
-# Disconnect and reconnect to the SOURCE tenant
-Disconnect-AzAccount
-Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
+# While still connected to the source tenant
+Get-AzManagedServicesDefinition | Format-Table Name, ManagedByTenantId
+
+# List all assignments
+Get-AzManagedServicesAssignment | Format-Table Name, RegistrationDefinitionId
 ```
 
-#### Microsoft.ManagedServices Not Registered
+#### 2. Verify in Managing Tenant (Atevet12)
 
-**Error:** `The subscription is not registered to use namespace 'Microsoft.ManagedServices'`
-
-**Solution:**
-The script automatically registers the provider, but if it fails:
-```powershell
-# Manually register the provider
-Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
-
-# Wait for registration
-Get-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"
-```
-
-#### Permission Denied
-
-**Error:** `The client does not have authorization to perform action`
-
-**Solution:**
-- You need **Owner** role on the subscription to deploy Lighthouse
-- Contact your subscription administrator to grant Owner access
-
-#### Delegation Already Exists
-
-**Error:** `A registration assignment with the same name already exists`
-
-**Solution:**
-```powershell
-# Remove existing delegation first
-$assignments = Get-AzManagedServicesAssignment
-$assignments | Remove-AzManagedServicesAssignment
-
-# Then re-run the deployment
-```
-
-### Verify Delegation in Managing Tenant
-
-After deployment, verify the delegation from the **managing tenant** (Atevet12):
+Switch to the managing tenant and verify you can see the delegated subscriptions:
 
 ```powershell
 # Connect to managing tenant
 Connect-AzAccount -TenantId "<ATEVET12-TENANT-ID>"
 
-# List delegated subscriptions
-Get-AzManagedServicesAssignment
-
-# Or via Azure Portal:
-# Go to "My customers" to see delegated subscriptions
+# List delegated subscriptions (these are from the source tenant)
+Get-AzSubscription | Where-Object { $_.TenantId -ne (Get-AzContext).Tenant.Id } | Format-Table Name, Id, TenantId
 ```
+
+#### 3. Verify via Azure Portal
+
+1. In the **managing tenant** (Atevet12), go to [Azure Portal](https://portal.azure.com)
+2. Search for **"My customers"** in the search bar
+3. You should see the delegated subscriptions from the source tenant listed
+4. Click on a subscription to verify you have the expected access
+
+#### 4. Test Access to Delegated Resources
+
+```powershell
+# While connected to the managing tenant, access resources in the delegated subscription
+Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
+
+# List resources (should work if delegation is successful)
+Get-AzResource | Select-Object Name, ResourceType, ResourceGroupName | Format-Table
+```
+
+### Troubleshooting
+
+| Issue | Possible Cause | Solution |
+|-------|---------------|----------|
+| "ERROR: You are connected to the MANAGING tenant" | Running script from wrong tenant | Run `Disconnect-AzAccount` then `Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"` |
+| "The subscription is not registered to use namespace 'Microsoft.ManagedServices'" | Resource provider not registered | Run Step 0 first, or manually: `Register-AzResourceProvider -ProviderNamespace "Microsoft.ManagedServices"` |
+| "The client does not have authorization to perform action" | Missing Owner role | You need **Owner** role on the subscription. Contact your subscription administrator. |
+| "A registration assignment with the same name already exists" | Previous delegation exists | Remove existing: `Get-AzManagedServicesAssignment \| Remove-AzManagedServicesAssignment` |
+| Delegated subscriptions not visible in "My customers" | Delegation not complete or wrong tenant | Verify you're in the managing tenant; wait 5 minutes for propagation |
+| "Cannot access resources in delegated subscription" | Security group membership issue | Verify your account is a member of the security group created in Step 1 |
+
+#### Detailed Troubleshooting Steps
+
+**If delegation appears successful but you can't access resources:**
+
+1. **Verify security group membership:**
+   ```powershell
+   # Connect to managing tenant
+   Connect-MgGraph -Scopes "Group.Read.All"
+   $group = Get-MgGroup -Filter "displayName eq 'Lighthouse-CrossTenant-Admins'"
+   Get-MgGroupMember -GroupId $group.Id | ForEach-Object { Get-MgUser -UserId $_.Id } | Select-Object DisplayName, UserPrincipalName
+   ```
+
+2. **Check the roles assigned in the delegation:**
+   ```powershell
+   # In the source tenant
+   Get-AzManagedServicesDefinition | Select-Object -ExpandProperty Authorization
+   ```
+
+3. **Verify the delegation is active:**
+   ```powershell
+   # In the source tenant
+   Get-AzManagedServicesAssignment | Select-Object Name, ProvisioningState
+   # ProvisioningState should be "Succeeded"
+   ```
 
 ### Role Definitions Reference
 
-| Role | Role Definition ID | Purpose |
-|------|-------------------|---------|
-| **Reader** | `acdd72a7-3385-48ef-bd42-f606fba81ae7` | Read access to resources |
-| **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Configure diagnostic settings |
-| **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data |
-| **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Query Log Analytics |
-| **Resource Policy Contributor** | `36243c78-bf99-498c-9df9-86d9f8d28608` | Create Azure Policy assignments |
-| **User Access Administrator** | `18d7d88d-d35e-4fb5-a5c3-7773c20a72d9` | Assign roles to policy managed identities |
+The script assigns these roles to the security group for cross-tenant access:
+
+| Role | Role Definition ID | Purpose | When Needed |
+|------|-------------------|---------|-------------|
+| **Reader** | `acdd72a7-3385-48ef-bd42-f606fba81ae7` | Read access to all resources | Always (baseline access) |
+| **Contributor** | `b24988ac-6180-42a0-ab88-20f7382dd24c` | Create/modify resources, configure diagnostic settings | Steps 3-7 (log configuration) |
+| **Monitoring Reader** | `43d0d8ad-25c7-4714-9337-8ba259a9fe05` | Read monitoring data and metrics | Viewing collected logs |
+| **Log Analytics Reader** | `73c42c96-874c-492b-b04d-ab87d138a893` | Query Log Analytics workspaces | Querying collected logs |
+| **Resource Policy Contributor** | `36243c78-bf99-498c-9df9-86d9f8d28608` | Create and manage Azure Policy assignments | Steps 4-5 (policy deployment) |
+| **User Access Administrator** | `18d7d88d-d35e-4fb5-a5c3-7773c20a72d9` | Assign roles to managed identities | Policy remediation tasks |
+
+### Best Practices
+
+1. **Use descriptive names**: Name your registration definition clearly (e.g., "Atevet12 Security Team - Log Collection Access")
+2. **Principle of least privilege**: Only include roles that are necessary for log collection
+3. **Document the delegation**: Keep a record of which subscriptions are delegated and to whom
+4. **Regular audits**: Periodically review delegations using `Get-AzManagedServicesAssignment`
+5. **Security group management**: Use a dedicated security group for Lighthouse access; don't reuse existing groups
+6. **Test before production**: Deploy to a test subscription first to verify the delegation works as expected
 
 ---
 
