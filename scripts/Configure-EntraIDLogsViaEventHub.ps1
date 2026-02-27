@@ -627,26 +627,29 @@ if (-not $SkipFunctionDeployment -and $FunctionAppName) {
         Write-WarningMsg "  Storage Account already exists"
     }
     
-    # Create Function App
+    # Create Function App using Azure CLI (more reliable than Az.Functions module)
     Write-Info "Creating Function App: $FunctionAppName"
     $funcApp = Get-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
     if (-not $funcApp) {
         try {
-            New-AzFunctionApp `
-                -ResourceGroupName $ResourceGroupName `
-                -Name $FunctionAppName `
-                -StorageAccountName $storageAccountName `
-                -Location $Location `
-                -Runtime "Python" `
-                -RuntimeVersion "3.9" `
-                -FunctionsVersion "4" `
-                -OSType "Linux" `
-                -ErrorAction Stop | Out-Null
-            Write-Success "  ✓ Function App created"
+            # Use Azure CLI to create Function App (avoids DateTime parsing issues in Az.Functions module)
+            $cliResult = az functionapp create `
+                --resource-group $ResourceGroupName `
+                --name $FunctionAppName `
+                --storage-account $storageAccountName `
+                --consumption-plan-location $Location `
+                --runtime python `
+                --runtime-version 3.9 `
+                --functions-version 4 `
+                --os-type Linux `
+                --assign-identity "[system]" `
+                --output json 2>&1
             
-            # Enable System-Assigned Managed Identity
-            Update-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -IdentityType SystemAssigned -ErrorAction Stop | Out-Null
-            Write-Success "  ✓ Managed Identity enabled"
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "  ✓ Function App created with Managed Identity"
+            } else {
+                throw "Azure CLI error: $cliResult"
+            }
         } catch {
             Write-WarningMsg "  ⚠ Function App creation failed: $($_.Exception.Message)"
             $results.Errors += "Function App creation failed: $($_.Exception.Message)"
