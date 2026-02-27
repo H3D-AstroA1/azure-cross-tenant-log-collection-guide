@@ -6101,15 +6101,24 @@ Before running this script, you need:
 | **NonInteractiveUserSignInLogs** | Sign-ins by clients on behalf of users | P1/P2 |
 | **ServicePrincipalSignInLogs** | Sign-ins by apps and service principals | P1/P2 |
 | **ManagedIdentitySignInLogs** | Sign-ins by managed identities | P1/P2 |
+| **MicrosoftServicePrincipalSignInLogs** | Microsoft first-party app sign-ins | P1/P2 |
 | **ProvisioningLogs** | User provisioning activities | P1/P2 |
 | **ADFSSignInLogs** | AD FS sign-in logs | P1/P2 |
 | **RiskyUsers** | Users flagged for risk | P2 |
 | **UserRiskEvents** | Risk detection events | P2 |
 | **RiskyServicePrincipals** | Service principals flagged for risk | P2 |
 | **ServicePrincipalRiskEvents** | Service principal risk events | P2 |
-| **EnrichedOffice365AuditLogs** | Enriched Office 365 audit logs | E5 |
 | **MicrosoftGraphActivityLogs** | Microsoft Graph API activity | P1/P2 |
-| **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | P1/P2 |
+| **AzureADGraphActivityLogs** | Azure AD Graph API activity (deprecated) | P1/P2 |
+| **GraphNotificationsActivityLogs** | Graph notification activity | P1/P2 |
+| **NetworkAccessTrafficLogs** | Global Secure Access traffic logs | GSA |
+| **NetworkAccessAlerts** | Network access alerts | GSA |
+| **RemoteNetworkHealthLogs** | Remote network health logs | GSA |
+| **NetworkAccessConnectionEvents** | Network connection events | GSA |
+| **NetworkAccessGenerativeAIInsights** | AI-generated insights | GSA |
+| **EnrichedOffice365AuditLogs** | Enriched Office 365 audit logs | M365 E5 |
+
+> **Note:** Categories marked with "GSA" require Global Secure Access license. Categories will be silently skipped if your tenant doesn't have the required license.
 
 ---
 
