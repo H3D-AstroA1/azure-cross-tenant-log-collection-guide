@@ -508,6 +508,7 @@ if (-not $SkipEventHubCreation) {
             -Name $EventHubName `
             -PartitionCount 4 `
             -RetentionTimeInHour 168 `
+            -CleanupPolicy "Delete" `
             -ErrorAction Stop | Out-Null
         Write-Success "  ✓ Event Hub created"
         # Wait for Event Hub to be fully provisioned
