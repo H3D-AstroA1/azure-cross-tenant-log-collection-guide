@@ -94,6 +94,10 @@
     # Verify existing configuration without making changes
     .\Configure-EntraIDLogsViaEventHub.ps1 -VerifyOnly
 
+.EXAMPLE
+    # Clean up existing resources and start fresh (useful if previous run failed)
+    .\Configure-EntraIDLogsViaEventHub.ps1 -CleanUp
+
 .NOTES
     Author: Cross-Tenant Log Collection Guide
     Requires: Az.Accounts, Az.EventHub, Az.Functions, Az.KeyVault, Az.Monitor, Az.OperationalInsights modules
@@ -150,7 +154,10 @@ param(
     [switch]$SkipDiagnosticSettings,
 
     [Parameter(Mandatory = $false)]
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$CleanUp  # Remove existing Event Hub resources before creating new ones
 )
 
 #region ==================== CONFIGURATION SECTION ====================
@@ -353,6 +360,32 @@ if (-not $SkipEventHubCreation) {
     Write-Info "  Using subscription: $ManagingSubscriptionId"
     Connect-AzAccount -TenantId $ManagingTenantId -Subscription $ManagingSubscriptionId -ErrorAction Stop | Out-Null
     Write-Success "  Connected to managing tenant"
+    
+    # Clean up existing resources if -CleanUp flag is set
+    if ($CleanUp) {
+        Write-Host ""
+        Write-WarningMsg "╔═══════════════════════════════════════════════════════════════════╗"
+        Write-WarningMsg "║  CLEANUP MODE: Removing existing Event Hub resources              ║"
+        Write-WarningMsg "╚═══════════════════════════════════════════════════════════════════╝"
+        Write-Host ""
+        
+        # Check if resource group exists
+        $existingRg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
+        if ($existingRg) {
+            Write-WarningMsg "Removing resource group: $ResourceGroupName"
+            Write-WarningMsg "  This will delete ALL resources in the group (Event Hub, Function App, etc.)"
+            Write-WarningMsg "  Waiting 10 seconds... Press Ctrl+C to cancel"
+            Start-Sleep -Seconds 10
+            
+            Remove-AzResourceGroup -Name $ResourceGroupName -Force -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Resource group and all resources removed"
+            Write-Info "  Waiting 30 seconds for cleanup to complete..."
+            Start-Sleep -Seconds 30
+        } else {
+            Write-Info "  Resource group '$ResourceGroupName' does not exist - nothing to clean up"
+        }
+        Write-Host ""
+    }
     
     # Create Resource Group if not exists
     Write-Info "Creating resource group: $ResourceGroupName"
