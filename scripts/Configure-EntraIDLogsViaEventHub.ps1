@@ -991,12 +991,26 @@ requests>=2.31.0
         Compress-Archive -Path "$tempDir\*" -DestinationPath $zipPath -Force
         Write-Success "  ✓ Function code package created"
         
-        # Deploy using Azure CLI
-        Write-Info "  Deploying function code to $FunctionAppName..."
+        # Remove WEBSITE_RUN_FROM_PACKAGE setting if it exists (conflicts with remote build)
+        Write-Info "  Preparing Function App for deployment..."
+        $null = az functionapp config appsettings delete `
+            --name $FunctionAppName `
+            --resource-group $ResourceGroupName `
+            --setting-names "WEBSITE_RUN_FROM_PACKAGE" `
+            --output none 2>&1
+        
+        # Brief wait to ensure app settings are propagated
+        Write-Info "  Waiting for app settings to propagate..."
+        Start-Sleep -Seconds 5
+        
+        # Deploy using Azure CLI with remote build to install Python dependencies
+        Write-Info "  Deploying function code to $FunctionAppName (with remote build for dependencies)..."
         $deployResult = az functionapp deployment source config-zip `
             --resource-group $ResourceGroupName `
             --name $FunctionAppName `
             --src $zipPath `
+            --build-remote true `
+            --timeout 600 `
             --output json 2>&1
         
         if ($LASTEXITCODE -eq 0) {
@@ -1010,7 +1024,7 @@ requests>=2.31.0
         $results.Errors += "Function deployment failed: $($_.Exception.Message)"
         Write-Host ""
         Write-Info "You can manually deploy the function code later using:"
-        Write-Host "  az functionapp deployment source config-zip --resource-group `"$ResourceGroupName`" --name `"$FunctionAppName`" --src `"<path-to-zip>`""
+        Write-Host "  az functionapp deployment source config-zip --resource-group `"$ResourceGroupName`" --name `"$FunctionAppName`" --src `"<path-to-zip>`" --build-remote true"
     } finally {
         # Cleanup temp files
         if (Test-Path $tempDir) { Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
