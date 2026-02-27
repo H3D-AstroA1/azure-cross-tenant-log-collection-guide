@@ -639,7 +639,7 @@ if (-not $SkipFunctionDeployment -and $FunctionAppName) {
                 --storage-account $storageAccountName `
                 --consumption-plan-location $Location `
                 --runtime python `
-                --runtime-version 3.9 `
+                --runtime-version 3.11 `
                 --functions-version 4 `
                 --os-type Linux `
                 --assign-identity "[system]" `
