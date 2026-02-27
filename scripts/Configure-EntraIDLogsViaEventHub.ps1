@@ -366,23 +366,56 @@ if (-not $SkipEventHubCreation) {
         Write-Host ""
         Write-WarningMsg "╔═══════════════════════════════════════════════════════════════════╗"
         Write-WarningMsg "║  CLEANUP MODE: Removing existing Event Hub resources              ║"
+        Write-WarningMsg "║  (Resource group will NOT be deleted)                             ║"
         Write-WarningMsg "╚═══════════════════════════════════════════════════════════════════╝"
         Write-Host ""
         
-        # Check if resource group exists
-        $existingRg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
-        if ($existingRg) {
-            Write-WarningMsg "Removing resource group: $ResourceGroupName"
-            Write-WarningMsg "  This will delete ALL resources in the group (Event Hub, Function App, etc.)"
-            Write-WarningMsg "  Waiting 10 seconds... Press Ctrl+C to cancel"
-            Start-Sleep -Seconds 10
-            
-            Remove-AzResourceGroup -Name $ResourceGroupName -Force -ErrorAction Stop | Out-Null
-            Write-Success "  ✓ Resource group and all resources removed"
+        $cleanupPerformed = $false
+        
+        # Remove Event Hub Namespace (this also removes Event Hubs, Consumer Groups, and Auth Rules)
+        Write-Info "Checking for existing Event Hub Namespace: $EventHubNamespaceName"
+        $existingEhNamespace = Get-AzEventHubNamespace -ResourceGroupName $ResourceGroupName -Name $EventHubNamespaceName -ErrorAction SilentlyContinue
+        if ($existingEhNamespace) {
+            Write-WarningMsg "  Removing Event Hub Namespace: $EventHubNamespaceName"
+            Remove-AzEventHubNamespace -ResourceGroupName $ResourceGroupName -Name $EventHubNamespaceName -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Event Hub Namespace removed"
+            $cleanupPerformed = $true
+        } else {
+            Write-Info "  Event Hub Namespace not found - skipping"
+        }
+        
+        # Remove Function App if it exists
+        if (-not [string]::IsNullOrWhiteSpace($FunctionAppName)) {
+            Write-Info "Checking for existing Function App: $FunctionAppName"
+            $existingFuncApp = Get-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -ErrorAction SilentlyContinue
+            if ($existingFuncApp) {
+                Write-WarningMsg "  Removing Function App: $FunctionAppName"
+                Remove-AzFunctionApp -ResourceGroupName $ResourceGroupName -Name $FunctionAppName -Force -ErrorAction Stop | Out-Null
+                Write-Success "  ✓ Function App removed"
+                $cleanupPerformed = $true
+            } else {
+                Write-Info "  Function App not found - skipping"
+            }
+        }
+        
+        # Remove Storage Account for Function App (naming convention: stfunc + first 20 chars of function name)
+        $storageAccountName = "stfunc" + ($FunctionAppName -replace '[^a-z0-9]', '').ToLower().Substring(0, [Math]::Min(18, ($FunctionAppName -replace '[^a-z0-9]', '').Length))
+        Write-Info "Checking for existing Storage Account: $storageAccountName"
+        $existingStorage = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -ErrorAction SilentlyContinue
+        if ($existingStorage) {
+            Write-WarningMsg "  Removing Storage Account: $storageAccountName"
+            Remove-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $storageAccountName -Force -ErrorAction Stop | Out-Null
+            Write-Success "  ✓ Storage Account removed"
+            $cleanupPerformed = $true
+        } else {
+            Write-Info "  Storage Account not found - skipping"
+        }
+        
+        if ($cleanupPerformed) {
             Write-Info "  Waiting 30 seconds for cleanup to complete..."
             Start-Sleep -Seconds 30
         } else {
-            Write-Info "  Resource group '$ResourceGroupName' does not exist - nothing to clean up"
+            Write-Info "  No resources found to clean up"
         }
         Write-Host ""
     }
