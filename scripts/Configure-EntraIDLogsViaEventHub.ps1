@@ -420,6 +420,52 @@ if (-not $SkipEventHubCreation) {
         Write-Host ""
     }
     
+    # Register required resource providers
+    Write-Info "Checking and registering required resource providers..."
+    $requiredProviders = @(
+        "Microsoft.EventHub",
+        "Microsoft.Web",           # For Function Apps
+        "Microsoft.Storage"        # For Storage Accounts
+    )
+    
+    foreach ($provider in $requiredProviders) {
+        $providerStatus = Get-AzResourceProvider -ProviderNamespace $provider -ErrorAction SilentlyContinue
+        if ($providerStatus.RegistrationState -ne "Registered") {
+            Write-Info "  Registering provider: $provider"
+            Register-AzResourceProvider -ProviderNamespace $provider -ErrorAction SilentlyContinue | Out-Null
+        } else {
+            Write-Success "  ✓ $provider already registered"
+        }
+    }
+    
+    # Wait for providers to be registered
+    Write-Info "  Waiting for resource providers to be ready..."
+    $maxWaitTime = 120  # 2 minutes max
+    $waitTime = 0
+    $allRegistered = $false
+    
+    while (-not $allRegistered -and $waitTime -lt $maxWaitTime) {
+        $allRegistered = $true
+        foreach ($provider in $requiredProviders) {
+            $providerStatus = Get-AzResourceProvider -ProviderNamespace $provider -ErrorAction SilentlyContinue
+            if ($providerStatus.RegistrationState -ne "Registered") {
+                $allRegistered = $false
+                break
+            }
+        }
+        if (-not $allRegistered) {
+            Start-Sleep -Seconds 10
+            $waitTime += 10
+            Write-Info "  Still waiting for providers... ($waitTime seconds)"
+        }
+    }
+    
+    if ($allRegistered) {
+        Write-Success "  ✓ All resource providers registered"
+    } else {
+        Write-WarningMsg "  Some providers may still be registering. Proceeding anyway..."
+    }
+    
     # Create Resource Group if not exists
     Write-Info "Creating resource group: $ResourceGroupName"
     $rg = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction SilentlyContinue
