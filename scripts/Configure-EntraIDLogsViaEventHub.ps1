@@ -689,22 +689,255 @@ if (-not $SkipFunctionDeployment -and $FunctionAppName) {
         $results.Errors += "Function App settings failed: $($_.Exception.Message)"
     }
     
-    # Output Function code deployment instructions
+    # Deploy Function App code automatically
     Write-Host ""
-    Write-Info "=== Function Code Deployment Required ==="
-    Write-Host ""
-    Write-Host "Deploy the Azure Function code from the 'EntraIDLogsProcessor' folder:"
-    Write-Host ""
-    Write-Host "  cd EntraIDLogsProcessor"
-    Write-Host "  func azure functionapp publish $FunctionAppName --python"
-    Write-Host ""
-    Write-Host "Or use zip deployment:"
-    Write-Host ""
-    Write-Host "  zip -r function.zip ."
-    Write-Host "  az functionapp deployment source config-zip \"
-    Write-Host "      --name `"$FunctionAppName`" \"
-    Write-Host "      --resource-group `"$ResourceGroupName`" \"
-    Write-Host "      --src `"function.zip`""
+    Write-Info "Deploying Azure Function code..."
+    
+    # Create temporary directory for function code
+    $tempDir = Join-Path $env:TEMP "EntraIDLogsProcessor_$(Get-Random)"
+    $functionDir = Join-Path $tempDir "EntraIDLogsProcessor"
+    New-Item -ItemType Directory -Path $functionDir -Force | Out-Null
+    
+    # Create __init__.py (main function code)
+    $initPyContent = @'
+"""
+EntraIDLogsProcessor Azure Function
+Processes Entra ID logs from Event Hub and forwards them to Log Analytics workspace.
+"""
+
+import azure.functions as func
+import logging
+import json
+import hashlib
+import hmac
+import base64
+import datetime
+import requests
+import os
+from typing import List, Dict, Any
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+WORKSPACE_ID = os.environ.get('LOG_ANALYTICS_WORKSPACE_ID', '')
+WORKSPACE_KEY = os.environ.get('LOG_ANALYTICS_WORKSPACE_KEY', '')
+SOURCE_TENANT_NAME = os.environ.get('SOURCE_TENANT_NAME', 'SourceTenant')
+
+LOG_CATEGORY_MAPPING = {
+    'AuditLogs': f'EntraIDAuditLogs_{SOURCE_TENANT_NAME}',
+    'SignInLogs': f'EntraIDSignInLogs_{SOURCE_TENANT_NAME}',
+    'NonInteractiveUserSignInLogs': f'EntraIDNonInteractiveSignInLogs_{SOURCE_TENANT_NAME}',
+    'ServicePrincipalSignInLogs': f'EntraIDServicePrincipalSignInLogs_{SOURCE_TENANT_NAME}',
+    'ManagedIdentitySignInLogs': f'EntraIDManagedIdentitySignInLogs_{SOURCE_TENANT_NAME}',
+    'ProvisioningLogs': f'EntraIDProvisioningLogs_{SOURCE_TENANT_NAME}',
+    'ADFSSignInLogs': f'EntraIDADFSSignInLogs_{SOURCE_TENANT_NAME}',
+    'RiskyUsers': f'EntraIDRiskyUsers_{SOURCE_TENANT_NAME}',
+    'UserRiskEvents': f'EntraIDUserRiskEvents_{SOURCE_TENANT_NAME}',
+    'NetworkAccessTrafficLogs': f'EntraIDNetworkAccessTrafficLogs_{SOURCE_TENANT_NAME}',
+    'RiskyServicePrincipals': f'EntraIDRiskyServicePrincipals_{SOURCE_TENANT_NAME}',
+    'ServicePrincipalRiskEvents': f'EntraIDServicePrincipalRiskEvents_{SOURCE_TENANT_NAME}',
+    'MicrosoftGraphActivityLogs': f'EntraIDMicrosoftGraphActivityLogs_{SOURCE_TENANT_NAME}'
+}
+
+
+def build_signature(customer_id: str, shared_key: str, date: str, content_length: int, method: str, content_type: str, resource: str) -> str:
+    x_headers = f'x-ms-date:{date}'
+    string_to_hash = f"{method}\n{content_length}\n{content_type}\n{x_headers}\n{resource}"
+    bytes_to_hash = bytes(string_to_hash, encoding="utf-8")
+    decoded_key = base64.b64decode(shared_key)
+    encoded_hash = base64.b64encode(
+        hmac.new(decoded_key, bytes_to_hash, digestmod=hashlib.sha256).digest()
+    ).decode()
+    return f"SharedKey {customer_id}:{encoded_hash}"
+
+
+def post_data_to_log_analytics(body: str, log_type: str) -> bool:
+    if not WORKSPACE_ID or not WORKSPACE_KEY:
+        logger.error("WORKSPACE_ID or WORKSPACE_KEY not configured")
+        return False
+    
+    method = 'POST'
+    content_type = 'application/json'
+    resource = '/api/logs'
+    rfc1123date = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
+    content_length = len(body)
+    
+    signature = build_signature(WORKSPACE_ID, WORKSPACE_KEY, rfc1123date, content_length, method, content_type, resource)
+    uri = f"https://{WORKSPACE_ID}.ods.opinsights.azure.com{resource}?api-version=2016-04-01"
+    
+    headers = {
+        'content-type': content_type,
+        'Authorization': signature,
+        'Log-Type': log_type,
+        'x-ms-date': rfc1123date,
+        'time-generated-field': 'TimeGenerated'
+    }
+    
+    try:
+        response = requests.post(uri, data=body, headers=headers, timeout=30)
+        if 200 <= response.status_code <= 299:
+            logger.info(f"Successfully posted {content_length} bytes to {log_type}")
+            return True
+        else:
+            logger.error(f"Failed to post to Log Analytics: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Exception posting to Log Analytics: {str(e)}")
+        return False
+
+
+def parse_event_hub_message(message: str) -> List[Dict[str, Any]]:
+    try:
+        data = json.loads(message)
+        if 'records' in data:
+            return data['records']
+        elif isinstance(data, list):
+            return data
+        else:
+            return [data]
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse Event Hub message: {str(e)}")
+        return []
+
+
+def categorize_logs(records: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    categorized = {}
+    for record in records:
+        category = record.get('category', 'Unknown')
+        record['SourceTenantName'] = SOURCE_TENANT_NAME
+        if 'TimeGenerated' not in record and 'time' in record:
+            record['TimeGenerated'] = record['time']
+        elif 'TimeGenerated' not in record:
+            record['TimeGenerated'] = datetime.datetime.utcnow().isoformat() + 'Z'
+        if category not in categorized:
+            categorized[category] = []
+        categorized[category].append(record)
+    return categorized
+
+
+def main(events: List[func.EventHubEvent]) -> None:
+    logger.info(f"Processing {len(events)} Event Hub events")
+    all_records = []
+    
+    for event in events:
+        try:
+            body = event.get_body().decode('utf-8')
+            records = parse_event_hub_message(body)
+            all_records.extend(records)
+            logger.info(f"Parsed {len(records)} records from event")
+        except Exception as e:
+            logger.error(f"Error processing event: {str(e)}")
+            continue
+    
+    if not all_records:
+        logger.warning("No records to process")
+        return
+    
+    categorized_logs = categorize_logs(all_records)
+    
+    for category, records in categorized_logs.items():
+        table_name = LOG_CATEGORY_MAPPING.get(category, f'EntraIDOther_{SOURCE_TENANT_NAME}')
+        body = json.dumps(records)
+        success = post_data_to_log_analytics(body, table_name)
+        if success:
+            logger.info(f"Successfully sent {len(records)} {category} records to {table_name}")
+        else:
+            logger.error(f"Failed to send {len(records)} {category} records to {table_name}")
+    
+    logger.info(f"Completed processing {len(all_records)} total records")
+'@
+    
+    Set-Content -Path (Join-Path $functionDir "__init__.py") -Value $initPyContent -Encoding UTF8
+    
+    # Create function.json with correct Event Hub name
+    $functionJsonContent = @"
+{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    {
+      "type": "eventHubTrigger",
+      "name": "events",
+      "direction": "in",
+      "eventHubName": "$EventHubName",
+      "connection": "EventHubConnection",
+      "cardinality": "many",
+      "consumerGroup": "`$Default",
+      "dataType": "string"
+    }
+  ]
+}
+"@
+    Set-Content -Path (Join-Path $functionDir "function.json") -Value $functionJsonContent -Encoding UTF8
+    
+    # Create host.json
+    $hostJsonContent = @'
+{
+  "version": "2.0",
+  "logging": {
+    "logLevel": {
+      "default": "Information",
+      "Function": "Information"
+    }
+  },
+  "extensions": {
+    "eventHubs": {
+      "batchCheckpointFrequency": 5,
+      "eventProcessorOptions": {
+        "maxBatchSize": 256,
+        "prefetchCount": 512
+      }
+    }
+  },
+  "functionTimeout": "00:10:00",
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  }
+}
+'@
+    Set-Content -Path (Join-Path $tempDir "host.json") -Value $hostJsonContent -Encoding UTF8
+    
+    # Create requirements.txt
+    $requirementsContent = @'
+azure-functions>=1.17.0
+requests>=2.31.0
+'@
+    Set-Content -Path (Join-Path $tempDir "requirements.txt") -Value $requirementsContent -Encoding UTF8
+    
+    # Create zip file for deployment
+    $zipPath = Join-Path $env:TEMP "function_$(Get-Random).zip"
+    
+    try {
+        # Use Compress-Archive to create zip
+        Compress-Archive -Path "$tempDir\*" -DestinationPath $zipPath -Force
+        Write-Success "  ✓ Function code package created"
+        
+        # Deploy using Azure CLI
+        Write-Info "  Deploying function code to $FunctionAppName..."
+        $deployResult = az functionapp deployment source config-zip `
+            --resource-group $ResourceGroupName `
+            --name $FunctionAppName `
+            --src $zipPath `
+            --output json 2>&1
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "  ✓ Function code deployed successfully"
+            $results.FunctionDeployed = $true
+        } else {
+            throw "Deployment failed: $deployResult"
+        }
+    } catch {
+        Write-WarningMsg "  ⚠ Function deployment failed: $($_.Exception.Message)"
+        $results.Errors += "Function deployment failed: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Info "You can manually deploy the function code later using:"
+        Write-Host "  az functionapp deployment source config-zip --resource-group `"$ResourceGroupName`" --name `"$FunctionAppName`" --src `"<path-to-zip>`""
+    } finally {
+        # Cleanup temp files
+        if (Test-Path $tempDir) { Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue }
+    }
+    
     Write-Host ""
     
 } elseif (-not $FunctionAppName) {
