@@ -71,39 +71,28 @@
     Only verify existing configuration without making changes.
 
 .EXAMPLE
-    .\Configure-EntraIDLogsViaEventHub.ps1 `
-        -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-        -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
-        -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
-        -SourceTenantName "Atevet17" `
-        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
-        -FunctionAppName "func-entra-logs-unique123" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12"
+    # OPTION 1 (RECOMMENDED): Edit the CONFIGURATION SECTION in this script, then run:
+    .\Configure-EntraIDLogsViaEventHub.ps1
 
 .EXAMPLE
-    # Skip Event Hub creation (already exists)
+    # OPTION 2: Pass all parameters on the command line
     .\Configure-EntraIDLogsViaEventHub.ps1 `
         -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
         -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
         -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
         -SourceTenantName "Atevet17" `
-        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
+        -EventHubNamespaceName "eh-ns-entra-logs-atevet17" `
+        -FunctionAppName "func-entra-logs-atevet17" `
         -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12" `
-        -SkipEventHubCreation
+        -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
 
 .EXAMPLE
-    # Verify existing configuration
-    .\Configure-EntraIDLogsViaEventHub.ps1 `
-        -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
-        -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
-        -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
-        -SourceTenantName "Atevet17" `
-        -EventHubNamespaceName "eh-ns-entra-logs-unique123" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/.../workspaces/law-central-atevet12" `
-        -VerifyOnly
+    # Skip Event Hub creation if it already exists
+    .\Configure-EntraIDLogsViaEventHub.ps1 -SkipEventHubCreation
+
+.EXAMPLE
+    # Verify existing configuration without making changes
+    .\Configure-EntraIDLogsViaEventHub.ps1 -VerifyOnly
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
