@@ -6151,11 +6151,46 @@ The Azure Function code files are located at:
 
 #### Running the Automated Script
 
+You have **two options** to run the script:
+
+##### Option 1: Edit the Script Configuration (Recommended for First-Time Users)
+
+1. Open the script file [`scripts/Configure-EntraIDLogsViaEventHub.ps1`](scripts/Configure-EntraIDLogsViaEventHub.ps1)
+2. Find the **CONFIGURATION SECTION** (around line 165)
+3. Fill in your values:
+
+```powershell
+# REQUIRED: Managing Tenant Configuration
+$Config_ManagingTenantId       = "your-managing-tenant-id"
+$Config_ManagingSubscriptionId = "your-subscription-id"
+
+# REQUIRED: Source Tenant Configuration
+$Config_SourceTenantId         = "your-source-tenant-id"
+$Config_SourceTenantName       = "Atevet17"
+
+# REQUIRED: Resource Names
+$Config_EventHubNamespaceName  = "eh-ns-entra-logs-atevet17"
+$Config_FunctionAppName        = "func-entra-logs-atevet17"
+$Config_KeyVaultName           = "kv-central-atevet12"
+
+# REQUIRED: Log Analytics Workspace
+$Config_WorkspaceResourceId    = "/subscriptions/.../workspaces/law-central-atevet12"
+```
+
+4. Save the file and run:
+
+```powershell
+cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
+.\Configure-EntraIDLogsViaEventHub.ps1
+```
+
+##### Option 2: Pass Parameters on Command Line
+
 ```powershell
 # Navigate to the scripts directory
 cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 
-# Run the deployment script
+# Run the deployment script with parameters
 .\Configure-EntraIDLogsViaEventHub.ps1 `
     -ManagingTenantId "<MANAGING-TENANT-ID>" `
     -ManagingSubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
