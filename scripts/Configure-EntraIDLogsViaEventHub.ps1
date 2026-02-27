@@ -194,20 +194,40 @@ $Config_Location               = "westus2"
 $Config_DiagnosticSettingName  = "SendToEventHub"
 
 # OPTIONAL: Log Categories to collect (comment out any you don't need)
+# Note: Some categories require specific licenses or features to be enabled
 $Config_LogCategories = @(
-    "AuditLogs",                    # Directory changes - FREE
-    "SignInLogs",                   # Interactive sign-ins - P1/P2
-    "NonInteractiveUserSignInLogs", # Non-interactive sign-ins - P1/P2
-    "ServicePrincipalSignInLogs",   # App sign-ins - P1/P2
-    "ManagedIdentitySignInLogs",    # Managed identity sign-ins - P1/P2
-    "ProvisioningLogs",             # User provisioning - P1/P2
-    "ADFSSignInLogs",               # AD FS sign-ins - P1/P2
-    "RiskyUsers",                   # Risky users - P2
-    "UserRiskEvents",               # Risk events - P2
-    "RiskyServicePrincipals",       # Risky service principals - P2
-    "ServicePrincipalRiskEvents",   # SP risk events - P2
-    "MicrosoftGraphActivityLogs",   # Graph API activity - P1/P2
-    "NetworkAccessTrafficLogs"      # Global Secure Access - P1/P2
+    # Core Sign-In Logs
+    "AuditLogs",                        # Directory changes - FREE
+    "SignInLogs",                       # Interactive sign-ins - P1/P2
+    "NonInteractiveUserSignInLogs",     # Non-interactive sign-ins - P1/P2
+    "ServicePrincipalSignInLogs",       # App sign-ins - P1/P2
+    "ManagedIdentitySignInLogs",        # Managed identity sign-ins - P1/P2
+    "MicrosoftServicePrincipalSignInLogs", # Microsoft first-party app sign-ins - P1/P2
+    
+    # Provisioning & Federation
+    "ProvisioningLogs",                 # User provisioning - P1/P2
+    "ADFSSignInLogs",                   # AD FS sign-ins - P1/P2
+    
+    # Identity Protection (Requires P2)
+    "RiskyUsers",                       # Risky users - P2
+    "UserRiskEvents",                   # Risk events - P2
+    "RiskyServicePrincipals",           # Risky service principals - P2
+    "ServicePrincipalRiskEvents",       # SP risk events - P2
+    
+    # API Activity Logs
+    "MicrosoftGraphActivityLogs",       # Graph API activity - P1/P2
+    "AzureADGraphActivityLogs",         # Azure AD Graph API (deprecated) - P1/P2
+    "GraphNotificationsActivityLogs",   # Graph notification activity - P1/P2
+    
+    # Global Secure Access / Network Access (Requires GSA license)
+    "NetworkAccessTrafficLogs",         # Network traffic logs - GSA
+    "NetworkAccessAlerts",              # Network access alerts - GSA
+    "RemoteNetworkHealthLogs",          # Remote network health - GSA
+    "NetworkAccessConnectionEvents",    # Connection events - GSA
+    "NetworkAccessGenerativeAIInsights", # AI insights - GSA
+    
+    # Microsoft 365 (Requires M365 integration)
+    "EnrichedOffice365AuditLogs"        # Enriched M365 audit logs - M365
 )
 
 #endregion ================ END CONFIGURATION SECTION =================
@@ -803,19 +823,38 @@ WORKSPACE_KEY = os.environ.get('LOG_ANALYTICS_WORKSPACE_KEY', '')
 SOURCE_TENANT_NAME = os.environ.get('SOURCE_TENANT_NAME', 'SourceTenant')
 
 LOG_CATEGORY_MAPPING = {
+    # Core Sign-In Logs
     'AuditLogs': f'EntraIDAuditLogs_{SOURCE_TENANT_NAME}',
     'SignInLogs': f'EntraIDSignInLogs_{SOURCE_TENANT_NAME}',
     'NonInteractiveUserSignInLogs': f'EntraIDNonInteractiveSignInLogs_{SOURCE_TENANT_NAME}',
     'ServicePrincipalSignInLogs': f'EntraIDServicePrincipalSignInLogs_{SOURCE_TENANT_NAME}',
     'ManagedIdentitySignInLogs': f'EntraIDManagedIdentitySignInLogs_{SOURCE_TENANT_NAME}',
+    'MicrosoftServicePrincipalSignInLogs': f'EntraIDMicrosoftServicePrincipalSignInLogs_{SOURCE_TENANT_NAME}',
+    
+    # Provisioning & Federation
     'ProvisioningLogs': f'EntraIDProvisioningLogs_{SOURCE_TENANT_NAME}',
     'ADFSSignInLogs': f'EntraIDADFSSignInLogs_{SOURCE_TENANT_NAME}',
+    
+    # Identity Protection
     'RiskyUsers': f'EntraIDRiskyUsers_{SOURCE_TENANT_NAME}',
     'UserRiskEvents': f'EntraIDUserRiskEvents_{SOURCE_TENANT_NAME}',
-    'NetworkAccessTrafficLogs': f'EntraIDNetworkAccessTrafficLogs_{SOURCE_TENANT_NAME}',
     'RiskyServicePrincipals': f'EntraIDRiskyServicePrincipals_{SOURCE_TENANT_NAME}',
     'ServicePrincipalRiskEvents': f'EntraIDServicePrincipalRiskEvents_{SOURCE_TENANT_NAME}',
-    'MicrosoftGraphActivityLogs': f'EntraIDMicrosoftGraphActivityLogs_{SOURCE_TENANT_NAME}'
+    
+    # API Activity Logs
+    'MicrosoftGraphActivityLogs': f'EntraIDMicrosoftGraphActivityLogs_{SOURCE_TENANT_NAME}',
+    'AzureADGraphActivityLogs': f'EntraIDAzureADGraphActivityLogs_{SOURCE_TENANT_NAME}',
+    'GraphNotificationsActivityLogs': f'EntraIDGraphNotificationsActivityLogs_{SOURCE_TENANT_NAME}',
+    
+    # Global Secure Access / Network Access
+    'NetworkAccessTrafficLogs': f'EntraIDNetworkAccessTrafficLogs_{SOURCE_TENANT_NAME}',
+    'NetworkAccessAlerts': f'EntraIDNetworkAccessAlerts_{SOURCE_TENANT_NAME}',
+    'RemoteNetworkHealthLogs': f'EntraIDRemoteNetworkHealthLogs_{SOURCE_TENANT_NAME}',
+    'NetworkAccessConnectionEvents': f'EntraIDNetworkAccessConnectionEvents_{SOURCE_TENANT_NAME}',
+    'NetworkAccessGenerativeAIInsights': f'EntraIDNetworkAccessGenerativeAIInsights_{SOURCE_TENANT_NAME}',
+    
+    # Microsoft 365
+    'EnrichedOffice365AuditLogs': f'EntraIDEnrichedOffice365AuditLogs_{SOURCE_TENANT_NAME}'
 }
 
 

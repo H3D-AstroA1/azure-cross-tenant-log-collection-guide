@@ -39,21 +39,40 @@ LOG_ANALYTICS_URI = f"https://{WORKSPACE_ID}.ods.opinsights.azure.com/api/logs?a
 
 # Mapping of Entra ID log categories to custom table names
 LOG_CATEGORY_MAPPING = {
+    # Core Sign-In Logs
     'AuditLogs': f'EntraIDAuditLogs_{SOURCE_TENANT_NAME}_CL',
     'SignInLogs': f'EntraIDSignInLogs_{SOURCE_TENANT_NAME}_CL',
     'NonInteractiveUserSignInLogs': f'EntraIDNonInteractiveSignInLogs_{SOURCE_TENANT_NAME}_CL',
     'ServicePrincipalSignInLogs': f'EntraIDServicePrincipalSignInLogs_{SOURCE_TENANT_NAME}_CL',
     'ManagedIdentitySignInLogs': f'EntraIDManagedIdentitySignInLogs_{SOURCE_TENANT_NAME}_CL',
+    'MicrosoftServicePrincipalSignInLogs': f'EntraIDMicrosoftServicePrincipalSignInLogs_{SOURCE_TENANT_NAME}_CL',
+    
+    # Provisioning & Federation
     'ProvisioningLogs': f'EntraIDProvisioningLogs_{SOURCE_TENANT_NAME}_CL',
     'ADFSSignInLogs': f'EntraIDADFSSignInLogs_{SOURCE_TENANT_NAME}_CL',
+    
+    # Identity Protection
     'RiskyUsers': f'EntraIDRiskyUsers_{SOURCE_TENANT_NAME}_CL',
     'UserRiskEvents': f'EntraIDUserRiskEvents_{SOURCE_TENANT_NAME}_CL',
-    'NetworkAccessTrafficLogs': f'EntraIDNetworkAccessTrafficLogs_{SOURCE_TENANT_NAME}_CL',
     'RiskyServicePrincipals': f'EntraIDRiskyServicePrincipals_{SOURCE_TENANT_NAME}_CL',
     'ServicePrincipalRiskEvents': f'EntraIDServicePrincipalRiskEvents_{SOURCE_TENANT_NAME}_CL',
-    'EnrichedOffice365AuditLogs': f'EntraIDEnrichedOffice365AuditLogs_{SOURCE_TENANT_NAME}_CL',
+    
+    # API Activity Logs
     'MicrosoftGraphActivityLogs': f'EntraIDMicrosoftGraphActivityLogs_{SOURCE_TENANT_NAME}_CL',
+    'AzureADGraphActivityLogs': f'EntraIDAzureADGraphActivityLogs_{SOURCE_TENANT_NAME}_CL',
+    'GraphNotificationsActivityLogs': f'EntraIDGraphNotificationsActivityLogs_{SOURCE_TENANT_NAME}_CL',
+    
+    # Global Secure Access / Network Access
+    'NetworkAccessTrafficLogs': f'EntraIDNetworkAccessTrafficLogs_{SOURCE_TENANT_NAME}_CL',
+    'NetworkAccessAlerts': f'EntraIDNetworkAccessAlerts_{SOURCE_TENANT_NAME}_CL',
     'RemoteNetworkHealthLogs': f'EntraIDRemoteNetworkHealthLogs_{SOURCE_TENANT_NAME}_CL',
+    'NetworkAccessConnectionEvents': f'EntraIDNetworkAccessConnectionEvents_{SOURCE_TENANT_NAME}_CL',
+    'NetworkAccessGenerativeAIInsights': f'EntraIDNetworkAccessGenerativeAIInsights_{SOURCE_TENANT_NAME}_CL',
+    
+    # Microsoft 365
+    'EnrichedOffice365AuditLogs': f'EntraIDEnrichedOffice365AuditLogs_{SOURCE_TENANT_NAME}_CL',
+    
+    # B2C (if applicable)
     'B2CRequestLogs': f'EntraIDB2CRequestLogs_{SOURCE_TENANT_NAME}_CL'
 }
 
