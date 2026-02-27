@@ -293,8 +293,7 @@ if ($VerifyOnly) {
     
     # Connect to managing tenant
     Write-Info "Connecting to managing tenant..."
-    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
-    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    Connect-AzAccount -TenantId $ManagingTenantId -Subscription $ManagingSubscriptionId -ErrorAction Stop | Out-Null
     
     # Check Event Hub
     Write-Info "Checking Event Hub configuration..."
@@ -351,8 +350,8 @@ Write-Host ""
 
 if (-not $SkipEventHubCreation) {
     Write-Info "Connecting to managing tenant: $ManagingTenantId"
-    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
-    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    Write-Info "  Using subscription: $ManagingSubscriptionId"
+    Connect-AzAccount -TenantId $ManagingTenantId -Subscription $ManagingSubscriptionId -ErrorAction Stop | Out-Null
     Write-Success "  Connected to managing tenant"
     
     # Create Resource Group if not exists
@@ -459,8 +458,7 @@ if (-not $SkipEventHubCreation) {
     
     # Still need to get the authorization rule ID for diagnostic settings
     Write-Info "Retrieving existing Event Hub configuration..."
-    Connect-AzAccount -TenantId $ManagingTenantId -ErrorAction Stop | Out-Null
-    Set-AzContext -SubscriptionId $ManagingSubscriptionId -ErrorAction Stop | Out-Null
+    Connect-AzAccount -TenantId $ManagingTenantId -Subscription $ManagingSubscriptionId -ErrorAction Stop | Out-Null
     
     $policyName = "$SourceTenantName-send-policy"
     $authRule = Get-AzEventHubAuthorizationRule -ResourceGroupName $ResourceGroupName -NamespaceName $EventHubNamespaceName -Name $policyName -ErrorAction SilentlyContinue
