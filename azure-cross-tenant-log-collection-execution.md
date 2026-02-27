@@ -6113,7 +6113,28 @@ Before running this script, you need:
 
 ---
 
-### Step 6.1: Deploy Event Hub and Function App (Automated)
+### 🎯 Which Path Should You Follow?
+
+> **For most users, you only need to complete Step 6.1 (Automated) and then skip to Step 6.4 (Verify).**
+
+| Your Situation | Steps to Follow |
+|----------------|-----------------|
+| **First time setup (RECOMMENDED)** | ✅ Step 6.1 → Step 6.4 |
+| **Want manual control over each component** | Step 6.2 → Step 6.3 → Step 6.4 |
+| **Automated script failed** | Step 6.2 → Step 6.3 → Step 6.4 |
+| **Event Hub already exists, need diagnostic settings only** | Step 6.3 → Step 6.4 |
+
+**The automated script (Step 6.1) does EVERYTHING for you:**
+- ✅ Creates Event Hub infrastructure in managing tenant
+- ✅ Deploys Azure Function for log processing
+- ✅ Configures diagnostic settings in source tenant
+- ✅ Stores secrets in Key Vault
+
+---
+
+### Step 6.1: Deploy Event Hub and Function App (Automated) ⭐ RECOMMENDED
+
+> 💡 **This is the recommended approach.** Running this script completes the entire Step 6 configuration automatically. After running this script successfully, skip directly to **Step 6.4** to verify your logs are flowing.
 
 The primary method for deploying the Event Hub infrastructure and Azure Function is using the automated PowerShell script.
 
@@ -6192,6 +6213,8 @@ cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 ---
 
 ### Step 6.2: Manual Deployment (Alternative)
+
+> ⚠️ **SKIP THIS SECTION if you successfully ran Step 6.1.** This section is only for users who want to deploy components manually or if the automated script failed.
 
 If you prefer to deploy components manually or need to customize the deployment, follow these steps.
 
@@ -6388,6 +6411,8 @@ az functionapp deployment source config-zip \
 ---
 
 ### Step 6.3: Configure Entra ID Diagnostic Settings in Source Tenant
+
+> ⚠️ **SKIP THIS SECTION if you successfully ran Step 6.1.** The automated script already configures diagnostic settings. This section is only needed if you used Step 6.2 for manual deployment.
 
 Now configure the source tenant's Entra ID to send logs to the Event Hub.
 
