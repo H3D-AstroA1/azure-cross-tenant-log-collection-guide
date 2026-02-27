@@ -15,6 +15,10 @@
     - Stores connection strings securely in Key Vault
     - Updates tenant tracking in Key Vault
 
+    USAGE OPTIONS:
+    1. Edit the CONFIGURATION section below and run: .\Configure-EntraIDLogsViaEventHub.ps1
+    2. Or pass parameters on command line (parameters override configuration section)
+
 .PARAMETER ManagingTenantId
     The Azure tenant ID (GUID) of the managing tenant (e.g., Atevet12).
 
@@ -108,58 +112,44 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$ManagingTenantId,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$ManagingSubscriptionId,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$SourceTenantId,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$SourceTenantName,
 
     [Parameter(Mandatory = $false)]
-    [string]$ResourceGroupName = "rg-entra-logs-eventhub",
+    [string]$ResourceGroupName,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$EventHubNamespaceName,
 
     [Parameter(Mandatory = $false)]
-    [string]$EventHubName = "eh-entra-id-logs",
+    [string]$EventHubName,
 
     [Parameter(Mandatory = $false)]
     [string]$FunctionAppName,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$KeyVaultName,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$WorkspaceResourceId,
 
     [Parameter(Mandatory = $false)]
-    [string]$Location = "westus2",
+    [string]$Location,
 
     [Parameter(Mandatory = $false)]
-    [string[]]$LogCategories = @(
-        "AuditLogs",
-        "SignInLogs",
-        "NonInteractiveUserSignInLogs",
-        "ServicePrincipalSignInLogs",
-        "ManagedIdentitySignInLogs",
-        "ProvisioningLogs",
-        "ADFSSignInLogs",
-        "RiskyUsers",
-        "UserRiskEvents",
-        "RiskyServicePrincipals",
-        "ServicePrincipalRiskEvents",
-        "MicrosoftGraphActivityLogs",
-        "NetworkAccessTrafficLogs"
-    ),
+    [string[]]$LogCategories,
 
     [Parameter(Mandatory = $false)]
-    [string]$DiagnosticSettingName = "SendToEventHub",
+    [string]$DiagnosticSettingName,
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipEventHubCreation,
@@ -173,6 +163,110 @@ param(
     [Parameter(Mandatory = $false)]
     [switch]$VerifyOnly
 )
+
+#region ==================== CONFIGURATION SECTION ====================
+#
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║  INSTRUCTIONS: Edit the values below with your environment details ║
+# ║  After editing, simply run: .\Configure-EntraIDLogsViaEventHub.ps1 ║
+# ║                                                                     ║
+# ║  Command-line parameters will OVERRIDE these values if provided.   ║
+# ╚═══════════════════════════════════════════════════════════════════╝
+#
+# =====================================================================
+
+# REQUIRED: Managing Tenant Configuration
+$Config_ManagingTenantId       = ""    # e.g., "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+$Config_ManagingSubscriptionId = ""    # e.g., "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
+
+# REQUIRED: Source Tenant Configuration
+$Config_SourceTenantId         = ""    # e.g., "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
+$Config_SourceTenantName       = ""    # e.g., "Atevet17" (friendly name, used in resource naming)
+
+# REQUIRED: Resource Names (must be globally unique for Event Hub and Function App)
+$Config_EventHubNamespaceName  = ""    # e.g., "eh-ns-entra-logs-atevet17"
+$Config_FunctionAppName        = ""    # e.g., "func-entra-logs-atevet17"
+$Config_KeyVaultName           = ""    # e.g., "kv-central-atevet12" (from Step 1)
+
+# REQUIRED: Log Analytics Workspace
+$Config_WorkspaceResourceId    = ""    # e.g., "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+
+# OPTIONAL: Resource Configuration (defaults are usually fine)
+$Config_ResourceGroupName      = "rg-entra-logs-eventhub"
+$Config_EventHubName           = "eh-entra-id-logs"
+$Config_Location               = "westus2"
+$Config_DiagnosticSettingName  = "SendToEventHub"
+
+# OPTIONAL: Log Categories to collect (comment out any you don't need)
+$Config_LogCategories = @(
+    "AuditLogs",                    # Directory changes - FREE
+    "SignInLogs",                   # Interactive sign-ins - P1/P2
+    "NonInteractiveUserSignInLogs", # Non-interactive sign-ins - P1/P2
+    "ServicePrincipalSignInLogs",   # App sign-ins - P1/P2
+    "ManagedIdentitySignInLogs",    # Managed identity sign-ins - P1/P2
+    "ProvisioningLogs",             # User provisioning - P1/P2
+    "ADFSSignInLogs",               # AD FS sign-ins - P1/P2
+    "RiskyUsers",                   # Risky users - P2
+    "UserRiskEvents",               # Risk events - P2
+    "RiskyServicePrincipals",       # Risky service principals - P2
+    "ServicePrincipalRiskEvents",   # SP risk events - P2
+    "MicrosoftGraphActivityLogs",   # Graph API activity - P1/P2
+    "NetworkAccessTrafficLogs"      # Global Secure Access - P1/P2
+)
+
+#endregion ================ END CONFIGURATION SECTION =================
+
+# Apply configuration values if parameters were not provided
+if ([string]::IsNullOrWhiteSpace($ManagingTenantId)) { $ManagingTenantId = $Config_ManagingTenantId }
+if ([string]::IsNullOrWhiteSpace($ManagingSubscriptionId)) { $ManagingSubscriptionId = $Config_ManagingSubscriptionId }
+if ([string]::IsNullOrWhiteSpace($SourceTenantId)) { $SourceTenantId = $Config_SourceTenantId }
+if ([string]::IsNullOrWhiteSpace($SourceTenantName)) { $SourceTenantName = $Config_SourceTenantName }
+if ([string]::IsNullOrWhiteSpace($ResourceGroupName)) { $ResourceGroupName = $Config_ResourceGroupName }
+if ([string]::IsNullOrWhiteSpace($EventHubNamespaceName)) { $EventHubNamespaceName = $Config_EventHubNamespaceName }
+if ([string]::IsNullOrWhiteSpace($EventHubName)) { $EventHubName = $Config_EventHubName }
+if ([string]::IsNullOrWhiteSpace($FunctionAppName)) { $FunctionAppName = $Config_FunctionAppName }
+if ([string]::IsNullOrWhiteSpace($KeyVaultName)) { $KeyVaultName = $Config_KeyVaultName }
+if ([string]::IsNullOrWhiteSpace($WorkspaceResourceId)) { $WorkspaceResourceId = $Config_WorkspaceResourceId }
+if ([string]::IsNullOrWhiteSpace($Location)) { $Location = $Config_Location }
+if ($null -eq $LogCategories -or $LogCategories.Count -eq 0) { $LogCategories = $Config_LogCategories }
+if ([string]::IsNullOrWhiteSpace($DiagnosticSettingName)) { $DiagnosticSettingName = $Config_DiagnosticSettingName }
+
+# Validate required parameters
+$missingParams = @()
+if ([string]::IsNullOrWhiteSpace($ManagingTenantId)) { $missingParams += "ManagingTenantId" }
+if ([string]::IsNullOrWhiteSpace($ManagingSubscriptionId)) { $missingParams += "ManagingSubscriptionId" }
+if ([string]::IsNullOrWhiteSpace($SourceTenantId)) { $missingParams += "SourceTenantId" }
+if ([string]::IsNullOrWhiteSpace($SourceTenantName)) { $missingParams += "SourceTenantName" }
+if ([string]::IsNullOrWhiteSpace($EventHubNamespaceName)) { $missingParams += "EventHubNamespaceName" }
+if ([string]::IsNullOrWhiteSpace($KeyVaultName)) { $missingParams += "KeyVaultName" }
+if ([string]::IsNullOrWhiteSpace($WorkspaceResourceId)) { $missingParams += "WorkspaceResourceId" }
+
+if ($missingParams.Count -gt 0) {
+    Write-Host ""
+    Write-Host "╔═══════════════════════════════════════════════════════════════════╗" -ForegroundColor Red
+    Write-Host "║  ERROR: Missing required configuration values                      ║" -ForegroundColor Red
+    Write-Host "╚═══════════════════════════════════════════════════════════════════╝" -ForegroundColor Red
+    Write-Host ""
+    foreach ($param in $missingParams) {
+        Write-Host "  ✗ $param" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "Please either:" -ForegroundColor Cyan
+    Write-Host "  1. Edit the CONFIGURATION SECTION in this script (lines 165-200)" -ForegroundColor White
+    Write-Host "  2. Or pass the values as command-line parameters" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Example:" -ForegroundColor Cyan
+    Write-Host '  .\Configure-EntraIDLogsViaEventHub.ps1 `' -ForegroundColor Gray
+    Write-Host '      -ManagingTenantId "your-managing-tenant-id" `' -ForegroundColor Gray
+    Write-Host '      -ManagingSubscriptionId "your-subscription-id" `' -ForegroundColor Gray
+    Write-Host '      -SourceTenantId "your-source-tenant-id" `' -ForegroundColor Gray
+    Write-Host '      -SourceTenantName "SourceTenantName" `' -ForegroundColor Gray
+    Write-Host '      -EventHubNamespaceName "eh-ns-entra-logs-unique" `' -ForegroundColor Gray
+    Write-Host '      -KeyVaultName "kv-central-name" `' -ForegroundColor Gray
+    Write-Host '      -WorkspaceResourceId "/subscriptions/.../workspaces/law-name"' -ForegroundColor Gray
+    Write-Host ""
+    exit 1
+}
 
 # Color functions for output
 function Write-Success { param($Message) Write-Host $Message -ForegroundColor Green }
