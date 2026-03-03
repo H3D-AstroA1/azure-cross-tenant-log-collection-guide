@@ -54,19 +54,20 @@ Throughout this guide, we use two key terms:
 │                           EXECUTION ORDER                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   MANAGING Tenant          SOURCE Tenant           MANAGING Tenant      │
-│   ┌─────────────┐         ┌─────────────┐         ┌─────────────┐      │
-│   │   Step 1    │         │   Step 0    │         │  Steps 3-7  │      │
-│   │  Create     │────────►│  Register   │────────►│  Configure  │      │
-│   │  Resources  │         │  Providers  │         │    Logs     │      │
-│   └─────────────┘         └──────┬──────┘         └─────────────┘      │
-│                                  │                                      │
-│                                  ▼                                      │
-│                           ┌─────────────┐                               │
-│                           │   Step 2    │                               │
-│                           │  Lighthouse │                               │
-│                           │  Delegation │                               │
-│                           └─────────────┘                               │
+│   Step 0              Step 1              Step 2           Steps 3-7    │
+│   SOURCE Tenant       MANAGING Tenant     SOURCE Tenant    MANAGING     │
+│                                                                         │
+│   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐  ┌───────────┐ │
+│   │  Register   │    │   Create    │    │   Deploy    │  │ Configure │ │
+│   │  Resource   │───►│  Security   │───►│   Azure     │─►│   Logs    │ │
+│   │  Providers  │    │  Group &    │    │ Lighthouse  │  │ (3,4,5,   │ │
+│   │             │    │  Workspace  │    │ Delegation  │  │  6,7)     │ │
+│   └─────────────┘    └─────────────┘    └─────────────┘  └───────────┘ │
+│                                                                         │
+│   ════════════════════════════════════════════════════════════════════  │
+│   Prerequisites       Setup Central      Enable Cross-    Collect Logs  │
+│   in Source           Logging in         Tenant Access    from Source   │
+│                       Managing                                          │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
