@@ -95,9 +95,52 @@ Throughout this guide, we use two key terms:
 
 ### Software Requirements
 
-- [ ] **PowerShell 7.x** or **Windows PowerShell 5.1**
+- [ ] **PowerShell 7.x** (recommended) or **Windows PowerShell 5.1**
+- [ ] **Azure CLI** - Required for Step 6 (Function App deployment). [Install Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 - [ ] **Az PowerShell Module** - Install with: `Install-Module -Name Az -Repository PSGallery -Force`
 - [ ] **Microsoft.Graph Module** - Install with: `Install-Module Microsoft.Graph -Scope CurrentUser`
+
+### Module Requirements by Step
+
+> 💡 **TIP**: Installing the full `Az` module includes all sub-modules. The table below shows which specific modules are used by each step.
+
+| Step | Script | Required Az Modules | Other Modules |
+|------|--------|---------------------|---------------|
+| **0** | Register-ManagedServices.ps1 | `Az.Accounts`, `Az.Resources` | - |
+| **1** | Prepare-ManagingTenant.ps1 | `Az.Accounts`, `Az.Resources`, `Az.OperationalInsights`, `Az.KeyVault` | `Microsoft.Graph` |
+| **2** | Deploy-AzureLighthouse.ps1 | `Az.Accounts`, `Az.Resources` | - |
+| **3** | Configure-ActivityLogCollection.ps1 | `Az.Accounts`, `Az.Resources`, `Az.Monitor` | - |
+| **4** | Configure-VMDiagnosticLogs.ps1 | `Az.Accounts`, `Az.Resources`, `Az.Compute`, `Az.Monitor`, `Az.PolicyInsights` | - |
+| **5** | Configure-ResourceDiagnosticLogs.ps1 | `Az.Accounts`, `Az.Resources`, `Az.Monitor` | - |
+| **6** | Configure-EntraIDLogsViaEventHub.ps1 | `Az.Accounts`, `Az.EventHub`, `Az.Functions`, `Az.KeyVault`, `Az.Monitor`, `Az.OperationalInsights` | Azure CLI |
+| **7** | Configure-M365AuditLogCollection.ps1 | `Az.Accounts`, `Az.KeyVault`, `Az.Automation`, `Az.Resources` | `Microsoft.Graph` |
+
+### Quick Install Commands
+
+```powershell
+# Install all required modules (run as Administrator)
+
+# Option 1: Install full Az module (recommended - includes all sub-modules)
+Install-Module -Name Az -Repository PSGallery -Force -AllowClobber
+
+# Option 2: Install only required sub-modules (smaller footprint)
+Install-Module -Name Az.Accounts -Repository PSGallery -Force
+Install-Module -Name Az.Resources -Repository PSGallery -Force
+Install-Module -Name Az.OperationalInsights -Repository PSGallery -Force
+Install-Module -Name Az.KeyVault -Repository PSGallery -Force
+Install-Module -Name Az.Monitor -Repository PSGallery -Force
+Install-Module -Name Az.Compute -Repository PSGallery -Force
+Install-Module -Name Az.PolicyInsights -Repository PSGallery -Force
+Install-Module -Name Az.EventHub -Repository PSGallery -Force
+Install-Module -Name Az.Functions -Repository PSGallery -Force
+Install-Module -Name Az.Automation -Repository PSGallery -Force
+
+# Microsoft Graph module (required for Steps 1 and 7)
+Install-Module Microsoft.Graph -Scope CurrentUser -Force
+
+# Verify installations
+Get-Module -ListAvailable Az.Accounts, Az.Resources, Microsoft.Graph | Select-Object Name, Version
+```
 
 ### Information to Gather Before Starting
 
