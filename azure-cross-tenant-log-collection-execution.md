@@ -1,7 +1,5 @@
 # Azure Cross-Tenant Log Collection - Execution Scripts
 
-This document contains PowerShell scripts for automating the Azure cross-tenant log collection setup process. These scripts complement the main guide ([azure-cross-tenant-log-collection-guide.md](azure-cross-tenant-log-collection-guide.md)).
-
 ---
 
 ## Table of Contents
@@ -29,12 +27,12 @@ In a cross-tenant log collection scenario, there are two tenants:
 
 | Tenant | Role | Example | What Runs Here |
 |--------|------|---------|----------------|
-| **Source Tenant** | Customer/Resource Owner | Atevet17 | ✅ **Run these scripts here** |
-| **Managing Tenant** | MSP/Security Team | Atevet12 | Log Analytics Workspace, Sentinel |
+| **Source Tenant** | Customer/Resource Owner | Gameboard1 | ✅ **Run these scripts here** |
+| **Managing Tenant** | MSP/Security Team | Admin1 | Log Analytics Workspace, Sentinel |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        SOURCE TENANT (Atevet17)                         │
+│                        SOURCE TENANT (Gameboard1)                         │
 │                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  📜 Run these scripts here:                                      │   │
@@ -58,7 +56,7 @@ In a cross-tenant log collection scenario, there are two tenants:
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      MANAGING TENANT (Atevet12)                         │
+│                      MANAGING TENANT (Admin1)                         │
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
@@ -84,7 +82,7 @@ When running from the source tenant, you need:
 
 ### Step-by-Step Execution
 
-1. **Authenticate to the SOURCE tenant** (e.g., Atevet17):
+1. **Authenticate to the SOURCE tenant** (e.g., Gameboard1):
    ```powershell
    Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
    ```
@@ -308,7 +306,7 @@ Once all subscriptions show `Registered` status, proceed to:
 
 ## Step 1: Create Security Group and Log Analytics Workspace
 
-> ⚠️ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Atevet12), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
+> ⚠️ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Admin1), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
 
 > **Note:** This step creates the foundational resources in your managing tenant that will be used throughout the rest of the setup process.
 
@@ -317,7 +315,7 @@ This PowerShell script automates the preparation of the managing tenant, creatin
 ### Prerequisites
 
 Before running this script, you need:
-- **Azure account** with access to the managing tenant (Atevet12)
+- **Azure account** with access to the managing tenant (Admin1)
 - **Global Administrator** or **Groups Administrator** role in Microsoft Entra ID (to create security groups)
 - **Owner** or **Contributor** role on the subscription where resources will be created
 - **PowerShell** with the following modules installed:
@@ -357,9 +355,9 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 .\Prepare-ManagingTenant.ps1 `
     -TenantId "<MANAGING-TENANT-ID>" `
     -SubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
-    -SecurityGroupName "Lighthouse-Atevet17-Admins" `
-    -ResourceGroupName "rg-central-logging" `
-    -WorkspaceName "law-central-atevet12" `
+    -SecurityGroupName "Lighthouse-Gameboard1-Admins" `
+    -ResourceGroupName "rg-admin1-central-logging" `
+    -WorkspaceName "law-admin1-central-logging" `
     -Location "eastus"
 ```
 
@@ -403,7 +401,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 ======================================================================
 
 Checking Azure connection...
-Connected as: admin@atevet12.onmicrosoft.com
+Connected as: admin@admin1.onmicrosoft.com
 Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Setting subscription context...
@@ -422,7 +420,7 @@ Adding members to security group...
   [+] Added: analyst@contoso.com
   [~] Already a member: secops@contoso.com
 
-Creating resource group: rg-central-logging
+Creating resource group: rg-admin1-central-logging
   Created resource group in westus2
 
 Creating Log Analytics workspace: law-central-logging
@@ -449,7 +447,7 @@ All resources created successfully!
 Managing Tenant ID:        xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 Subscription ID:           yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
 Security Group Object ID:  aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-Resource Group Name:       rg-central-logging
+Resource Group Name:       rg-admin1-central-logging
 Workspace Name:            law-central-logging
 Workspace Resource ID:     /subscriptions/.../workspaces/law-central-logging
 Location:                  westus2
@@ -524,8 +522,8 @@ Install-Module Microsoft.Graph.Groups -Scope CurrentUser
 
 **Cause:** This typically occurs when trying to add **guest users (B2B users)** to the security group. Guest users have a different UPN format in the host tenant than their home tenant.
 
-For example, a user `username@subdomain.domain.com` invited as a guest to ATEVET12 will have a UPN like:
-`username_subdomain.domain.com#EXT#@ATEVET12.domain.com`
+For example, a user `username@subdomain.domain.com` invited as a guest to ADMIN1 will have a UPN like:
+`username_subdomain.domain.com#EXT#@ADMIN1.domain.com`
 
 **Solutions:**
 
@@ -544,7 +542,7 @@ For example, a user `username@subdomain.domain.com` invited as a guest to ATEVET
 2. **Skip the `-GroupMembers` parameter if users are already in the group**:
    ```powershell
    # If the users are already members of the security group, simply omit the parameter
-   .\Prepare-ManagingTenant.ps1 -TenantId "..." -SubscriptionId "..." -SecurityGroupName "Lighthouse-CrossTenant-Atevet17-Admins-TD"
+   .\Prepare-ManagingTenant.ps1 -TenantId "..." -SubscriptionId "..." -SecurityGroupName "Lighthouse-CrossTenant-Gameboard1-Admins-TD"
    ```
 
 3. **Add members manually via Azure Portal**:
@@ -581,7 +579,7 @@ Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
 **Alternative:** If you cannot update the module, create the Key Vault manually via Azure Portal:
 1. Go to **Azure Portal** → **Create a resource** → **Key Vault**
 2. Select your subscription and resource group
-3. Enter the Key Vault name (e.g., `kv-central-logging-for-atevet17-TD`)
+3. Enter the Key Vault name (e.g., `kv-admin1-logging`)
 4. Select the region (e.g., `westus2`)
 5. Under **Access configuration**, select **Azure role-based access control (recommended)**
 6. Click **Review + create** → **Create**
@@ -621,7 +619,7 @@ Get-Module -ListAvailable Az.KeyVault | Select-Object Name, Version
    .\Prepare-ManagingTenant.ps1 `
        -TenantId "..." `
        -SubscriptionId "..." `
-       -KeyVaultName "kv-central-atevet12-prod"
+       -KeyVaultName "kv-admin1-logging"
    ```
 
 4. **If you created the vault in another tenant, delete it there first:**
@@ -662,14 +660,14 @@ Get-MgGroupMember -GroupId $group.Id | ForEach-Object {
 
 ```powershell
 # Check the workspace exists
-Get-AzOperationalInsightsWorkspace -ResourceGroupName "rg-central-logging" -Name "law-central-logging"
+Get-AzOperationalInsightsWorkspace -ResourceGroupName "rg-admin1-central-logging" -Name "law-central-logging"
 ```
 
 #### 3. Verify Key Vault
 
 ```powershell
 # Check the Key Vault exists
-Get-AzKeyVault -VaultName "kv-central-logging" -ResourceGroupName "rg-central-logging"
+Get-AzKeyVault -VaultName "kv-central-logging" -ResourceGroupName "rg-admin1-central-logging"
 ```
 
 ### Important Values to Save
@@ -692,7 +690,7 @@ Once all resources are created successfully, proceed to:
 
 ## Step 2: Deploy Azure Lighthouse
 
-> ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (Atevet17). Azure Lighthouse delegation is deployed FROM the customer tenant TO grant access to the managing tenant.
+> ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (Gameboard1). Azure Lighthouse delegation is deployed FROM the customer tenant TO grant access to the managing tenant.
 
 Azure Lighthouse enables cross-tenant management by creating a delegation from the source tenant (where resources exist) to the managing tenant (where your security team operates). This is the foundation for all subsequent log collection steps.
 
@@ -714,7 +712,7 @@ Before running this script, you need:
 |-------------|-----------------|---------|
 | **Managing Tenant ID** | From Step 1 output | `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` |
 | **Security Group Object ID** | From Step 1 output | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
-| **Owner role** | On source subscription(s) in Atevet17 | Required to deploy Lighthouse |
+| **Owner role** | On source subscription(s) in Gameboard1 | Required to deploy Lighthouse |
 | **Microsoft.ManagedServices registered** | Run Step 0 first | Provider must be registered |
 
 ### Script: `Deploy-AzureLighthouse.ps1`
@@ -733,12 +731,12 @@ This script automates the Azure Lighthouse onboarding process:
 #### Basic Usage (Single Subscription)
 
 ```powershell
-# Connect to the SOURCE tenant (Atevet17) first
+# Connect to the SOURCE tenant (Gameboard1) first
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 # Deploy Lighthouse delegation
 .\Deploy-AzureLighthouse.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
     -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>"
 ```
 
@@ -747,7 +745,7 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Deploy to multiple subscriptions
 .\Deploy-AzureLighthouse.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
     -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
 ```
@@ -757,10 +755,10 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # Custom definition name and without Contributor role
 .\Deploy-AzureLighthouse.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
     -SecurityGroupObjectId "<SECURITY-GROUP-OBJECT-ID>" `
-    -SecurityGroupDisplayName "Lighthouse-Atevet17-Admins" `
-    -RegistrationDefinitionName "Atevet12 Log Collection Delegation" `
+    -SecurityGroupDisplayName "Lighthouse-Gameboard1-Admins" `
+    -RegistrationDefinitionName "Admin1 Log Collection Delegation" `
     -IncludeContributorRole $false
 ```
 
@@ -769,8 +767,8 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```powershell
 # If you saved the output from Step 1
 $step1Output = .\Prepare-ManagingTenant.ps1 `
-    -TenantId "<ATEVET12-TENANT-ID>" `
-    -SubscriptionId "<ATEVET12-SUBSCRIPTION-ID>"
+    -TenantId "<ADMIN1-TENANT-ID>" `
+    -SubscriptionId "<ADMIN1-SUBSCRIPTION-ID>"
 
 # Switch to source tenant
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
@@ -789,7 +787,7 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ======================================================================
 
 Checking Azure connection...
-Connected as: admin@atevet17.onmicrosoft.com
+Connected as: admin@gameboard1.onmicrosoft.com
 Current Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Confirmed: Running in source tenant (not managing tenant)
@@ -844,11 +842,11 @@ Successfully Delegated Subscriptions:
 
 === Next Steps ===
 
-1. In the MANAGING tenant (Atevet12), verify delegation:
+1. In the MANAGING tenant (Admin1), verify delegation:
    - Go to Azure Portal > 'My customers'
    - Or run: Get-AzManagedServicesAssignment
 
-2. Configure diagnostic settings to send logs to Atevet12 workspace
+2. Configure diagnostic settings to send logs to Admin1 workspace
 3. Set up Activity Log collection (Step 3)
 4. Configure resource diagnostic logs (Step 4)
 ```
@@ -857,7 +855,7 @@ Successfully Delegated Subscriptions:
 
 After running the script, verify that the Lighthouse delegation was successful:
 
-#### 1. Verify in Source Tenant (Atevet17)
+#### 1. Verify in Source Tenant (Gameboard1)
 
 Check that the registration assignment was created:
 
@@ -869,13 +867,13 @@ Get-AzManagedServicesDefinition | Format-Table Name, ManagedByTenantId
 Get-AzManagedServicesAssignment | Format-Table Name, RegistrationDefinitionId
 ```
 
-#### 2. Verify in Managing Tenant (Atevet12)
+#### 2. Verify in Managing Tenant (Admin1)
 
 Switch to the managing tenant and verify you can see the delegated subscriptions:
 
 ```powershell
 # Connect to managing tenant
-Connect-AzAccount -TenantId "<ATEVET12-TENANT-ID>"
+Connect-AzAccount -TenantId "<ADMIN1-TENANT-ID>"
 
 # List delegated subscriptions (these are from the source tenant)
 Get-AzSubscription | Where-Object { $_.TenantId -ne (Get-AzContext).Tenant.Id } | Format-Table Name, Id, TenantId
@@ -883,7 +881,7 @@ Get-AzSubscription | Where-Object { $_.TenantId -ne (Get-AzContext).Tenant.Id } 
 
 #### 3. Verify via Azure Portal
 
-1. In the **managing tenant** (Atevet12), go to [Azure Portal](https://portal.azure.com)
+1. In the **managing tenant** (Admin1), go to [Azure Portal](https://portal.azure.com)
 2. Search for **"My customers"** in the search bar
 3. You should see the delegated subscriptions from the source tenant listed
 4. Click on a subscription to verify you have the expected access
@@ -949,7 +947,7 @@ The script assigns these roles to the security group for cross-tenant access:
 
 ### Best Practices
 
-1. **Use descriptive names**: Name your registration definition clearly (e.g., "Atevet12 Security Team - Log Collection Access")
+1. **Use descriptive names**: Name your registration definition clearly (e.g., "Admin1 Security Team - Log Collection Access")
 2. **Principle of least privilege**: Only include roles that are necessary for log collection
 3. **Document the delegation**: Keep a record of which subscriptions are delegated and to whom
 4. **Regular audits**: Periodically review delegations using `Get-AzManagedServicesAssignment`
@@ -960,7 +958,7 @@ The script assigns these roles to the security group for cross-tenant access:
 
 ## Step 3: Configure Activity Log Collection
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on the delegated subscriptions in the source tenant to send Activity Logs to the Log Analytics workspace in the managing tenant.
+> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Admin1) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on the delegated subscriptions in the source tenant to send Activity Logs to the Log Analytics workspace in the managing tenant.
 
 Activity Logs capture control plane operations (who did what, when, and on which resources). This script automates the configuration of Activity Log diagnostic settings across one or more delegated subscriptions.
 
@@ -996,7 +994,7 @@ This script automates the configuration of Activity Log diagnostic settings for 
 #### Basic Usage (Single Subscription)
 
 ```powershell
-# Connect to the managing tenant (Atevet12) first
+# Connect to the managing tenant (Admin1) first
 Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 
 # Set context to a delegated subscription
@@ -1004,7 +1002,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 
 # Configure Activity Log collection
 .\Configure-ActivityLogCollection.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 #### Multiple Subscriptions
@@ -1012,7 +1010,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Configure multiple delegated subscriptions
 .\Configure-ActivityLogCollection.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
 ```
 
@@ -1021,7 +1019,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Use a custom name for the diagnostic setting
 .\Configure-ActivityLogCollection.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -DiagnosticSettingName "SendActivityLogsToAtevet12"
 ```
 
@@ -1030,7 +1028,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Enable only specific log categories
 .\Configure-ActivityLogCollection.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -EnableAdministrative $true `
     -EnableSecurity $true `
     -EnableServiceHealth $false `
@@ -1046,8 +1044,8 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # If you saved the output from Step 1
 $step1Output = .\Prepare-ManagingTenant.ps1 `
-    -TenantId "<ATEVET12-TENANT-ID>" `
-    -SubscriptionId "<ATEVET12-SUBSCRIPTION-ID>"
+    -TenantId "<ADMIN1-TENANT-ID>" `
+    -SubscriptionId "<ADMIN1-SUBSCRIPTION-ID>"
 
 # Use the workspace resource ID from Step 1
 .\Configure-ActivityLogCollection.ps1 `
@@ -1063,12 +1061,12 @@ $step1Output = .\Prepare-ManagingTenant.ps1 `
 ======================================================================
 
 Checking Azure connection...
-Connected as: admin@atevet12.onmicrosoft.com
+Connected as: admin@admin1.onmicrosoft.com
 Current Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Validating workspace resource ID...
-  Workspace Name: law-central-atevet12
-  Resource Group: rg-central-logging
+  Workspace Name: law-admin1-central-logging
+  Resource Group: rg-admin1-central-logging
   Subscription: yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy
 
 Subscriptions to configure: 2
@@ -1097,16 +1095,16 @@ Verifying diagnostic settings configuration...
 
   ✓ Verified: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
     Enabled categories: Administrative, Security, ServiceHealth, Alert, Recommendation, Policy, Autoscale, ResourceHealth
-    Workspace: /subscriptions/.../workspaces/law-central-atevet12
+    Workspace: /subscriptions/.../workspaces/law-admin1-central-logging
   ✓ Verified: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
     Enabled categories: Administrative, Security, ServiceHealth, Alert, Recommendation, Policy, Autoscale, ResourceHealth
-    Workspace: /subscriptions/.../workspaces/law-central-atevet12
+    Workspace: /subscriptions/.../workspaces/law-admin1-central-logging
 
 ======================================================================
                               SUMMARY
 ======================================================================
 
-Workspace Resource ID:     /subscriptions/.../workspaces/law-central-atevet12
+Workspace Resource ID:     /subscriptions/.../workspaces/law-admin1-central-logging
 Diagnostic Setting Name:   SendActivityLogsToLogAnalytics
 Categories Enabled:        Administrative, Security, ServiceHealth, Alert, Recommendation, Policy, Autoscale, ResourceHealth
 
@@ -1149,7 +1147,7 @@ Ensure the workspace resource ID follows this format:
 
 You can get the workspace resource ID from Step 1 output or by running:
 ```powershell
-$workspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName "rg-central-logging" -Name "law-central-atevet12"
+$workspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName "rg-admin1-central-logging" -Name "law-admin1-central-logging"
 $workspace.ResourceId
 ```
 
@@ -1257,7 +1255,7 @@ AzureActivity
 
 ## Step 4: Configure Virtual Machine Diagnostic Logs
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete.
+> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Admin1) after Azure Lighthouse delegation is complete.
 
 Virtual Machine diagnostic logs capture performance metrics, Windows Event Logs, and Linux Syslog data. This step configures the Azure Monitor Agent (AMA) and Data Collection Rules (DCR) for VMs.
 
@@ -1275,7 +1273,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 **Step 2: Run the script with your workspace resource ID**
 ```powershell
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SourceTenantId "<SOURCE-TENANT-ID>"
 ```
 
@@ -1296,7 +1294,7 @@ That's it! The script handles everything automatically.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                        SOURCE TENANT (Atevet17)                         │
+│                        SOURCE TENANT (Gameboard1)                         │
 │                                                                         │
 │  ┌──────────────┐     ┌──────────────┐     ┌──────────────────────┐    │
 │  │     VMs      │────►│     DCR      │────►│  Azure Monitor Agent │    │
@@ -1314,7 +1312,7 @@ That's it! The script handles everything automatically.
                                │ Data flows cross-tenant
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      MANAGING TENANT (Atevet12)                         │
+│                      MANAGING TENANT (Admin1)                         │
 │                                                                         │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
 │  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
@@ -1369,7 +1367,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 
 # Configure VM diagnostic logs
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 #### Multiple Subscriptions
@@ -1377,7 +1375,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Configure VMs across multiple delegated subscriptions
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
 ```
 
@@ -1387,7 +1385,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 # Skip Azure Policy deployment - only configure running VMs manually
 # Use this if you don't want automatic agent installation on stopped/new VMs
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -DeployPolicy $false
 ```
 
@@ -1396,7 +1394,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Skip DCR creation if you already have a Data Collection Rule
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SkipDCRCreation `
     -DataCollectionRuleName "existing-dcr-name"
 ```
@@ -1407,7 +1405,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 # Skip both policy deployment AND DCR creation
 # Only install agents and create DCR associations for running VMs
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -DeployPolicy $false `
     -SkipDCRCreation
 ```
@@ -1417,8 +1415,8 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Use a custom name for the Data Collection Rule
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
-    -DataCollectionRuleName "dcr-cross-tenant-vm-logs-atevet17"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
+    -DataCollectionRuleName "dcr-cross-tenant-vm-logs-gameboard1"
 ```
 
 #### Skip Agent Installation (Agents Already Installed)
@@ -1426,7 +1424,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 ```powershell
 # Skip agent installation if Azure Monitor Agent is already deployed
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SkipAgentInstallation
 ```
 
@@ -1451,13 +1449,13 @@ When Azure Policy is deployed, it creates managed identities in the **source ten
 ```powershell
 # Option 1: Provide the source tenant ID upfront (no prompts)
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SourceTenantId "<SOURCE-TENANT-ID>"
 
 # Option 2: Let the script prompt for the source tenant ID (if not provided)
 # The script will detect tenant IDs from policy assignments or prompt you
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 #### Manual Role Assignment (If Automatic Assignment Fails)
@@ -1479,8 +1477,8 @@ In some cases, you may need to run the role assignment manually:
 .\Run-AssignRolesAsSourceAdmin.ps1 `
     -TenantId "<SOURCE-TENANT-ID>" `
     -SubscriptionIds @("<SOURCE-SUBSCRIPTION-ID>") `
-    -PolicyAssignmentPrefix "vm-monitoring-atevet17" `
-    -DataCollectionRuleName "dcr-vmlogs-for-atevet17"
+    -PolicyAssignmentPrefix "vm-monitoring-gameboard1" `
+    -DataCollectionRuleName "dcr-vmlogs-for-gameboard1"
 
 # Skip remediation task creation
 .\Run-AssignRolesAsSourceAdmin.ps1 `
@@ -1569,14 +1567,14 @@ The script implements a **Master DCR pattern** for centralized governance and di
 # 1. Source DCR in source tenant (for Azure Policy)
 # 2. Master DCR in managing tenant (backup/template)
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 **Skip Master DCR creation:**
 ```powershell
 # Skip creating the Master DCR (only create source tenant DCR)
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SkipMasterDCR
 ```
 
@@ -1584,7 +1582,7 @@ The script implements a **Master DCR pattern** for centralized governance and di
 ```powershell
 # Specify a custom resource group for the Master DCR
 .\Configure-VMDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -MasterDCRResourceGroup "rg-dcr-templates"
 ```
 
@@ -1593,7 +1591,7 @@ The script implements a **Master DCR pattern** for centralized governance and di
 # If a source tenant DCR was deleted or modified, restore it from the Master DCR
 .\Configure-VMDiagnosticLogs.ps1 `
     -SyncDCRFromMaster `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SubscriptionIds @("source-sub-1", "source-sub-2")
 ```
 
@@ -1649,12 +1647,12 @@ Successfully synced DCRs:
 ======================================================================
 
 Checking Azure connection...
-Connected as: admin@atevet12.onmicrosoft.com
+Connected as: admin@admin1.onmicrosoft.com
 Current Tenant: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 Validating workspace resource ID...
-  Workspace Name: law-central-atevet12
-  Resource Group: rg-central-logging
+  Workspace Name: law-admin1-central-logging
+  Resource Group: rg-admin1-central-logging
 
 Subscriptions to configure: 2
   - aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
@@ -1830,7 +1828,7 @@ This is expected in cross-tenant scenarios. The script automatically calls the h
 
 ## Step 5: Configure Azure Resource Diagnostic Logs
 
-> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Atevet12) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on Azure resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
+> ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Admin1) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on Azure resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
 
 > **Note:** Virtual Machine diagnostic logs are covered in **Step 4**. This step focuses on Azure PaaS resources like Key Vault, Storage Accounts, SQL Databases, etc.
 
@@ -1886,7 +1884,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 
 # Configure diagnostic settings for all supported resource types
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 #### Specific Resource Types Only
@@ -1894,7 +1892,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 ```powershell
 # Configure only Key Vault and Storage accounts
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 ```
 
@@ -1903,7 +1901,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 ```powershell
 # Configure across multiple delegated subscriptions
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SubscriptionIds @("sub-id-1", "sub-id-2", "sub-id-3")
 ```
 
@@ -1912,7 +1910,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 ```powershell
 # Configure existing resources only (skip Azure Policy deployment)
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SkipPolicy
 ```
 
@@ -1921,7 +1919,7 @@ Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 ```powershell
 # Use a custom name for the diagnostic setting
 .\Configure-ResourceDiagnosticLogs.ps1 `
-    -WorkspaceResourceId "/subscriptions/<ATEVET12-SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -DiagnosticSettingName "CrossTenantLogs"
 ```
 
@@ -2059,7 +2057,7 @@ The Event Hub method works because:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              SOURCE TENANT (Atevet17)                                │
+│                              SOURCE TENANT (Gameboard1)                                │
 │                                                                                      │
 │  ┌────────────────────────────────────────────────────────────────────────────────┐ │
 │  │                         Microsoft Entra ID                                      │ │
@@ -2080,11 +2078,11 @@ The Event Hub method works because:
                                         │ (SAS Token Authentication)
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              MANAGING TENANT (Atevet12)                              │
+│                              MANAGING TENANT (Admin1)                              │
 │                                                                                      │
 │  ┌────────────────────────────────────────────────────────────────────────────────┐ │
 │  │                        Event Hub Namespace                                      │ │
-│  │                    (eh-namespace-central-atevet12)                              │ │
+│  │                    (eh-namespace-central-admin1)                              │ │
 │  │                                                                                  │ │
 │  │  ┌──────────────────────────────────────────────────────────────────────────┐  │ │
 │  │  │                         eh-entra-id-logs                                  │  │ │
@@ -2106,7 +2104,7 @@ The Event Hub method works because:
 │                                        ▼                                              │
 │  ┌────────────────────────────────────────────────────────────────────────────────┐ │
 │  │                      Log Analytics Workspace                                    │ │
-│  │                    (law-central-atevet12)                                       │ │
+│  │                    (law-admin1-central-logging)                                       │ │
 │  │                                                                                  │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │ │
 │  │  │EntraIDSignIn │  │EntraIDAudit  │  │EntraIDRisky  │  │EntraIDProvi- │        │ │
@@ -2120,8 +2118,8 @@ The Event Hub method works because:
 
 | Tenant | Role | What Happens |
 |--------|------|--------------|
-| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Creates Event Hub, Function App, stores secrets in Key Vault |
-| **Source Tenant (Atevet17)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure Entra ID diagnostic settings |
+| **Managing Tenant (Admin1)** | ✅ **Run script here** | Creates Event Hub, Function App, stores secrets in Key Vault |
+| **Source Tenant (Gameboard1)** | ✅ **Authenticate here** | Script prompts for source tenant auth to configure Entra ID diagnostic settings |
 
 ### Prerequisites
 
@@ -2217,15 +2215,15 @@ $Config_ManagingSubscriptionId = "your-subscription-id"
 
 # REQUIRED: Source Tenant Configuration
 $Config_SourceTenantId         = "your-source-tenant-id"
-$Config_SourceTenantName       = "Atevet17"
+$Config_SourceTenantName       = "Gameboard1"
 
 # REQUIRED: Resource Names
-$Config_EventHubNamespaceName  = "eh-ns-entra-logs-atevet17"
-$Config_FunctionAppName        = "func-entra-logs-atevet17"
-$Config_KeyVaultName           = "kv-central-atevet12"
+$Config_EventHubNamespaceName  = "eh-ns-entra-logs-gameboard1"
+$Config_FunctionAppName        = "func-entra-logs-gameboard1"
+$Config_KeyVaultName           = "kv-admin1-logging"
 
 # REQUIRED: Log Analytics Workspace
-$Config_WorkspaceResourceId    = "/subscriptions/.../workspaces/law-central-atevet12"
+$Config_WorkspaceResourceId    = "/subscriptions/.../workspaces/law-admin1-central-logging"
 ```
 
 4. Save the file and run:
@@ -2246,10 +2244,10 @@ cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
     -ManagingTenantId "<MANAGING-TENANT-ID>" `
     -ManagingSubscriptionId "<MANAGING-SUBSCRIPTION-ID>" `
     -SourceTenantId "<SOURCE-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -EventHubNamespaceName "eh-ns-entra-logs-atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -SourceTenantName "Gameboard1" `
+    -EventHubNamespaceName "eh-ns-entra-logs-gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -Location "westus2" `
     -Verbose
 ```
@@ -2258,9 +2256,9 @@ cd "C:\path\to\azure-cross-tenant-log-collection-guide\scripts"
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `ManagingTenantId` | Yes | Tenant ID of the managing tenant (Atevet12) |
+| `ManagingTenantId` | Yes | Tenant ID of the managing tenant (Admin1) |
 | `ManagingSubscriptionId` | Yes | Subscription ID in the managing tenant |
-| `SourceTenantId` | Yes | Tenant ID of the source tenant (Atevet17) |
+| `SourceTenantId` | Yes | Tenant ID of the source tenant (Gameboard1) |
 | `SourceTenantName` | Yes | Friendly name for the source tenant (used in table names) |
 | `EventHubNamespaceName` | Yes | Name for the Event Hub namespace |
 | `KeyVaultName` | Yes | Name of the Key Vault to store secrets |
@@ -2319,7 +2317,7 @@ If you prefer to deploy components manually or need to customize the deployment,
 #### Create Event Hub Namespace (Azure CLI)
 
 ```bash
-# Login to managing tenant (Atevet12)
+# Login to managing tenant (Admin1)
 az login --tenant "<MANAGING-TENANT-ID>"
 az account set --subscription "<MANAGING-SUBSCRIPTION-ID>"
 
@@ -2372,7 +2370,7 @@ az eventhubs namespace authorization-rule keys list \
 #### Create Event Hub Namespace (PowerShell)
 
 ```powershell
-# Login to managing tenant (Atevet12)
+# Login to managing tenant (Admin1)
 Connect-AzAccount -TenantId "<MANAGING-TENANT-ID>"
 Set-AzContext -SubscriptionId "<MANAGING-SUBSCRIPTION-ID>"
 
@@ -2466,13 +2464,13 @@ EH_CONNECTION=$(az eventhubs namespace authorization-rule keys list \
 
 # Get Log Analytics Workspace details
 WORKSPACE_ID=$(az monitor log-analytics workspace show \
-    --resource-group "rg-central-logging" \
-    --workspace-name "law-central-atevet12" \
+    --resource-group "rg-admin1-central-logging" \
+    --workspace-name "law-admin1-central-logging" \
     --query "customerId" --output tsv)
 
 WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
-    --resource-group "rg-central-logging" \
-    --workspace-name "law-central-atevet12" \
+    --resource-group "rg-admin1-central-logging" \
+    --workspace-name "law-admin1-central-logging" \
     --query "primarySharedKey" --output tsv)
 
 # Configure app settings
@@ -2483,7 +2481,7 @@ az functionapp config appsettings set \
         "EventHubConnectionString=$EH_CONNECTION" \
         "WORKSPACE_ID=$WORKSPACE_ID" \
         "WORKSPACE_KEY=$WORKSPACE_KEY" \
-        "SOURCE_TENANT_NAME=Atevet17"
+        "SOURCE_TENANT_NAME=Gameboard1"
 ```
 
 #### Deploy Function Code
@@ -2519,7 +2517,7 @@ Now configure the source tenant's Entra ID to send logs to the Event Hub.
 First, get the authorization rule resource ID from the managing tenant:
 
 ```bash
-# In managing tenant (Atevet12)
+# In managing tenant (Admin1)
 az eventhubs namespace authorization-rule show \
     --name "source-tenant-send-policy" \
     --namespace-name "eh-ns-entra-logs-<unique-suffix>" \
@@ -2536,7 +2534,7 @@ az eventhubs namespace authorization-rule show \
 #### Configure Diagnostic Settings via Azure CLI
 
 ```bash
-# Login to source tenant (Atevet17) as Global Administrator
+# Login to source tenant (Gameboard1) as Global Administrator
 az login --tenant "<SOURCE-TENANT-ID>"
 
 # Set the Event Hub authorization rule ID from managing tenant
@@ -2564,7 +2562,7 @@ az monitor diagnostic-settings create \
 #### Configure Diagnostic Settings via PowerShell
 
 ```powershell
-# Login to source tenant (Atevet17) as Global Administrator
+# Login to source tenant (Gameboard1) as Global Administrator
 Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 # Variables
@@ -2819,8 +2817,8 @@ Microsoft 365 audit logs capture activities across Exchange Online, SharePoint O
 
 | Tenant | Role | What Happens |
 |--------|------|--------------|
-| **Managing Tenant (Atevet12)** | ✅ **Run script here** | Creates multi-tenant app, stores credentials in Key Vault |
-| **Source Tenant (Atevet17)** | ✅ **Admin consent required** | Script authenticates and grants permissions automatically |
+| **Managing Tenant (Admin1)** | ✅ **Run script here** | Creates multi-tenant app, stores credentials in Key Vault |
+| **Source Tenant (Gameboard1)** | ✅ **Admin consent required** | Script authenticates and grants permissions automatically |
 
 ### Prerequisites
 
@@ -2864,16 +2862,16 @@ This script automates the entire setup process:
 #### Full Setup (First Source Tenant)
 
 ```powershell
-# Run from MANAGING TENANT (Atevet12) as Global Administrator
+# Run from MANAGING TENANT (Admin1) as Global Administrator
 # This creates the app and configures the first source tenant
 # The script will prompt for authentication to both tenants with clear instructions
 
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+    -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+    -SourceTenantName "Gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 ```
 
 #### Using Device Code Authentication
@@ -2882,11 +2880,11 @@ This script automates the entire setup process:
 # Use device code authentication if browser authentication fails
 # This opens https://microsoft.com/devicelogin where you enter a code
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+    -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+    -SourceTenantName "Gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -UseDeviceCode
 ```
 
@@ -2895,11 +2893,11 @@ This script automates the entire setup process:
 ```powershell
 # Skip app creation when adding additional source tenants
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
     -SourceTenantId "<ATEVET18-TENANT-ID>" `
     -SourceTenantName "Atevet18" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -SkipAppCreation
 ```
 
@@ -2908,11 +2906,11 @@ This script automates the entire setup process:
 ```powershell
 # Configure only Exchange and SharePoint audit logs
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+    -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+    -SourceTenantName "Gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -ContentTypes @("Audit.Exchange", "Audit.SharePoint")
 ```
 
@@ -2921,11 +2919,11 @@ This script automates the entire setup process:
 ```powershell
 # Check current configuration without making changes
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+    -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+    -SourceTenantName "Gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -VerifyOnly
 ```
 
@@ -2934,11 +2932,11 @@ This script automates the entire setup process:
 ```powershell
 # Customize automation account name, location, and schedule interval
 .\Configure-M365AuditLogCollection.ps1 `
-    -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-    -SourceTenantId "<ATEVET17-TENANT-ID>" `
-    -SourceTenantName "Atevet17" `
-    -KeyVaultName "kv-central-atevet12" `
-    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+    -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+    -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+    -SourceTenantName "Gameboard1" `
+    -KeyVaultName "kv-admin1-logging" `
+    -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
     -AutomationAccountName "aa-m365-collector-custom" `
     -Location "westus2" `
     -ScheduleIntervalMinutes 60
@@ -2995,7 +2993,7 @@ CONFIGURATION COMPLETE
 ✓ App Registration: M365-AuditLog-Collector
 ✓ Permissions: ActivityFeed.Read, ActivityFeed.ReadDlp, ServiceHealth.Read
 ✓ Subscriptions: 5/5 enabled
-✓ Credentials stored in Key Vault: kv-central-atevet12
+✓ Credentials stored in Key Vault: kv-admin1-logging
 
 Next steps:
 1. Wait 5-10 minutes for the first scheduled runbook execution (or run manually)
@@ -3166,21 +3164,5 @@ M365AuditLogs_CL
 | **DLP-Specific Issues** | |
 | DLP.All subscription enabled but no DLP events | Verify DLP policies exist in the source tenant: `Get-DlpCompliancePolicy` in Exchange Online PowerShell |
 | Need to check DLP license status | Connect to Exchange Online: `Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com` then run `Get-DlpCompliancePolicy` |
-
----
-
-### Next Steps
-
-After completing Step 7:
-- **Step 8**: Configure Microsoft Sentinel analytics rules for cross-tenant detection
-- **Step 9**: Set up workbooks and dashboards for unified visibility
-- **Step 10**: Implement alerting and incident response workflows
-
-## Additional Resources
-
-- [Main Guide: Azure Cross-Tenant Log Collection](azure-cross-tenant-log-collection-guide.md)
-- [Azure PowerShell Documentation](https://docs.microsoft.com/en-us/powershell/azure/)
-- [Az.Resources Module](https://docs.microsoft.com/en-us/powershell/module/az.resources/)
-- [Azure Cloud Shell](https://docs.microsoft.com/en-us/azure/cloud-shell/overview)
 
 ---
