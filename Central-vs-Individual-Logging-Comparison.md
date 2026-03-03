@@ -24,7 +24,7 @@
 
 ## Executive Summary
 
-When managing multiple Azure tenants—such as simulation game boards, organisations face a critical architectural decision: **centralise logs into a single workspace** or **keep logs distributed across individual tenants**.
+When managing multiple Azure tenants such as simulation game boards, organisations face a critical architectural decision: **centralise logs into a single workspace** or **keep logs distributed across individual tenants**.
 
 This document provides a comprehensive comparison to support that decision, including a detailed attack scenario demonstrating why central logging is essential for threat detection.
 
@@ -39,7 +39,7 @@ With individual tenant logging, each simulation game board maintains its own Log
 | Scenario | Individual Logging | Central Logging |
 |----------|-------------------|-----------------|
 | **Analyst workflow** | Must switch between N workspaces | Single workspace for all tenants |
-| **Cross-tenant attacks** | Invisible — fragments in separate workspaces | Visible — full attack chain in one place |
+| **Cross-tenant attacks** | Invisible - fragments in separate workspaces | Visible - full attack chain in one place |
 | **Correlation capability** | Manual, after-the-fact | Real-time, automated |
 | **Time to detect** | Hours to days (if ever) | Minutes |
 
