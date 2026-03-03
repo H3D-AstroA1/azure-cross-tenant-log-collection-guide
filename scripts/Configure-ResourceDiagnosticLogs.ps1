@@ -45,13 +45,13 @@
     managed identities. Use this when the managing tenant cannot assign roles via Lighthouse.
 
 .EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 .EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -ResourceTypes @("Microsoft.KeyVault/vaults", "Microsoft.Storage/storageAccounts")
 
 .EXAMPLE
-    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SkipPolicy
+    .\Configure-ResourceDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -SkipPolicy
 
 .EXAMPLE
     # SOURCE TENANT ADMIN: Assign roles to policy managed identities

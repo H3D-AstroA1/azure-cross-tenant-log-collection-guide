@@ -91,13 +91,13 @@
     Default: .\Run-AssignRolesAsSourceAdmin.ps1
 
 .EXAMPLE
-    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 .EXAMPLE
-    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SubscriptionIds @("sub-id-1", "sub-id-2")
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -SubscriptionIds @("sub-id-1", "sub-id-2")
 
 .EXAMPLE
-    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -DeployPolicy $false
+    .\Configure-VMDiagnosticLogs.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -DeployPolicy $false
 
 .EXAMPLE
     # SOURCE TENANT ADMIN: Assign roles to policy managed identities
@@ -119,10 +119,10 @@ param(
     [string[]]$SubscriptionIds,
 
     [Parameter(Mandatory = $false)]
-    [string]$DataCollectionRuleName = "dcr-vmlogs-for-atevet17",
+    [string]$DataCollectionRuleName = "dcr-vmlogs-for-gameboard1",
 
     [Parameter(Mandatory = $false)]
-    [string]$ResourceGroupName = "rg-monitoring-adaptgbmgthd",
+    [string]$ResourceGroupName = "law-gameboard1-central-logging",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
@@ -131,7 +131,7 @@ param(
     [bool]$DeployPolicy = $true,
 
     [Parameter(Mandatory = $false)]
-    [string]$PolicyAssignmentPrefix = "vm-monitoring-atevet17-adaptgbmgthd",
+    [string]$PolicyAssignmentPrefix = "vm-monitoring-gameboard1-admin1",
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipAgentInstallation,
@@ -158,7 +158,7 @@ param(
     [string]$RoleAssignmentScriptPath = ".\Run-AssignRolesAsSourceAdmin.ps1",
 
     [Parameter(Mandatory = $false)]
-    [string]$MasterDCRResourceGroup = "rg-atevet17-central-logging",
+    [string]$MasterDCRResourceGroup = "law-admin1-central-logging",
 
     [Parameter(Mandatory = $false)]
     [switch]$SkipMasterDCR,

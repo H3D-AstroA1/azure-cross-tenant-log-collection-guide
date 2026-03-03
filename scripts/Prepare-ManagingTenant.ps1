@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     This script is used as Step 1 in the Azure Cross-Tenant Log Collection setup.
-    It creates the necessary resources in the managing tenant (Atevet12):
+    It creates the necessary resources in the managing tenant (ADMIN1):
     - Security group for delegated access
     - Resource group for centralized logging
     - Log Analytics workspace to receive logs
@@ -24,10 +24,10 @@
     The subscription ID where the Log Analytics workspace and Key Vault will be created.
 
 .PARAMETER SecurityGroupName
-    Name of the security group to create. Default: "Lighthouse-CrossTenant-Admins"
+    Name of the security group to create. Default: "Gameboard1-Admins"
 
 .PARAMETER SecurityGroupDescription
-    Description for the security group. Default: "Users with delegated access to customer tenants"
+    Description for the security group. Default: "Users with delegated access to source tenants (Gameboard1)"
 
 .PARAMETER ResourceGroupName
     Name of the resource group to create. Default: "rg-central-logging"
@@ -57,7 +57,7 @@
     .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy"
 
 .EXAMPLE
-    .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -SecurityGroupName "Lighthouse-Atevet17-Admins" -WorkspaceName "law-central-atevet12"
+    .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -SecurityGroupName "Gameboard1-Admins" -WorkspaceName "law-central-admin1"
 
 .EXAMPLE
     .\Prepare-ManagingTenant.ps1 -TenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" -SubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" -GroupMembers @("admin@contoso.com", "analyst@contoso.com")
@@ -76,19 +76,19 @@ param(
     [string]$SubscriptionId,
 
     [Parameter(Mandatory = $false)]
-    [string]$SecurityGroupName = "Atevet17-Management-Group",
+    [string]$SecurityGroupName = "Gameboard1-Admins",
 
     [Parameter(Mandatory = $false)]
-    [string]$SecurityGroupDescription = "Atevet17 Management Group",
+    [string]$SecurityGroupDescription = "Users with delegated access to source tenants (Gameboard1)",
 
     [Parameter(Mandatory = $false)]
-    [string]$ResourceGroupName = "rg-atevet17-central-logging",
+    [string]$ResourceGroupName = "rg-admin1-central-logging",
 
     [Parameter(Mandatory = $false)]
-    [string]$WorkspaceName = "law-atevet17-central-logging",
+    [string]$WorkspaceName = "law-admin1-central-logging",
 
     [Parameter(Mandatory = $false)]
-    [string]$KeyVaultName = "kv-atevet17-logging",
+    [string]$KeyVaultName = "kv-admin1-logging",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",

@@ -33,7 +33,7 @@
     The Tenant ID of the source tenant (where M365 audit logs originate).
 
 .PARAMETER SourceTenantName
-    A friendly name for the source tenant (e.g., "Atevet17").
+    A friendly name for the source tenant (e.g., "Gameboard1").
     Used for identification in logs and Key Vault secrets.
 
 .PARAMETER KeyVaultName
@@ -87,30 +87,30 @@
 .EXAMPLE
     # Full setup: Configure M365 audit log collection for a new source tenant
     .\Configure-M365AuditLogCollection.ps1 `
-        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-        -SourceTenantId "<ATEVET17-TENANT-ID>" `
-        -SourceTenantName "Atevet17" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+        -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+        -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+        -SourceTenantName "Gameboard1" `
+        -KeyVaultName "kv-admin1-logging" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 .EXAMPLE
     # Add another source tenant (skip app creation, reuse existing app)
     .\Configure-M365AuditLogCollection.ps1 `
-        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-        -SourceTenantId "<ATEVET18-TENANT-ID>" `
-        -SourceTenantName "Atevet18" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+        -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+        -SourceTenantId "<GAMEBOARD2-TENANT-ID>" `
+        -SourceTenantName "Gameboard2" `
+        -KeyVaultName "kv-admin1-logging" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
         -SkipAppCreation
 
 .EXAMPLE
     # Configure with specific content types only
     .\Configure-M365AuditLogCollection.ps1 `
-        -ManagingTenantId "<ATEVET12-TENANT-ID>" `
-        -SourceTenantId "<ATEVET17-TENANT-ID>" `
-        -SourceTenantName "Atevet17" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" `
+        -ManagingTenantId "<ADMIN1-TENANT-ID>" `
+        -SourceTenantId "<GAMEBOARD1-TENANT-ID>" `
+        -SourceTenantName "Gameboard1" `
+        -KeyVaultName "kv-admin1-logging" `
+        -WorkspaceResourceId "/subscriptions/<SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
         -ContentTypes @("Audit.Exchange", "Audit.SharePoint")
 
 .NOTES

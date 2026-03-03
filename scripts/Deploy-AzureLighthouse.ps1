@@ -5,7 +5,7 @@
 .DESCRIPTION
     This script is used as Step 2 in the Azure Cross-Tenant Log Collection setup.
     It deploys Azure Lighthouse registration definitions and assignments to delegate
-    access from the source tenant (Atevet17) to the managing tenant (Atevet12).
+    access from the source tenant (GAMEBOARD1) to the managing tenant (ADMIN1).
     
     The script:
     - Creates ARM template files for registration definition and assignment
@@ -15,13 +15,13 @@
     - Verifies the delegation was successful
 
 .PARAMETER ManagingTenantId
-    The Azure tenant ID (GUID) of the managing tenant (Atevet12).
+    The Azure tenant ID (GUID) of the managing tenant (ADMIN1).
 
 .PARAMETER SecurityGroupObjectId
     The Object ID of the security group in the managing tenant that will have delegated access.
 
 .PARAMETER SecurityGroupDisplayName
-    Display name for the security group. Default: "Lighthouse-CrossTenant-Admins"
+    Display name for the security group. Default: "Gameboard1-Admins"
 
 .PARAMETER SubscriptionIds
     Array of subscription IDs in the source tenant to delegate. If not provided, uses current subscription.
@@ -54,7 +54,7 @@
 .NOTES
     Author: Cross-Tenant Log Collection Guide
     Requires: Az.Accounts, Az.Resources modules
-    Must be run in the SOURCE/CUSTOMER tenant (Atevet17)
+    Must be run in the SOURCE/CUSTOMER tenant (GAMEBOARD1)
 #>
 
 [CmdletBinding()]
@@ -66,13 +66,13 @@ param(
     [string]$SecurityGroupObjectId,
 
     [Parameter(Mandatory = $false)]
-    [string]$SecurityGroupDisplayName = "Atevet17-Management-Group",
+    [string]$SecurityGroupDisplayName = "Gameboard1-Admins",
 
     [Parameter(Mandatory = $false)]
     [string[]]$SubscriptionIds,
 
     [Parameter(Mandatory = $false)]
-    [string]$RegistrationDefinitionName = "Atevet17-adaptgbmgthdfeb26 Logs Delegation",
+    [string]$RegistrationDefinitionName = "Gameboard1 Logs Delegation",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
@@ -246,7 +246,7 @@ $definitionTemplate = @{
         managedByTenantId = @{
             type = "string"
             metadata = @{
-                description = "Tenant ID of the managing tenant (Atevet12)"
+                description = "Tenant ID of the managing tenant (Admin1)"
             }
         }
         registrationDefinitionName = @{
@@ -540,11 +540,11 @@ if ($results.SubscriptionsFailed.Count -gt 0) {
 
 Write-Info "=== Next Steps ==="
 Write-Host ""
-Write-Host "1. In the MANAGING tenant (Atevet12), verify delegation:"
+Write-Host "1. In the MANAGING tenant (Admin1), verify delegation:"
 Write-Host "   - Go to Azure Portal > 'My customers'"
 Write-Host "   - Or run: Get-AzManagedServicesAssignment"
 Write-Host ""
-Write-Host "2. Configure diagnostic settings to send logs to Atevet12 workspace"
+Write-Host "2. Configure diagnostic settings to send logs to Admin1 workspace"
 Write-Host "3. Set up Activity Log collection (Step 3)"
 Write-Host "4. Configure resource diagnostic logs (Step 4)"
 Write-Host ""

@@ -20,13 +20,13 @@
     2. Or pass parameters on command line (parameters override configuration section)
 
 .PARAMETER ManagingTenantId
-    The Azure tenant ID (GUID) of the managing tenant (e.g., Atevet12).
+    The Azure tenant ID (GUID) of the managing tenant (e.g., Admin1).
 
 .PARAMETER ManagingSubscriptionId
     The subscription ID in the managing tenant where Event Hub and Function will be created.
 
 .PARAMETER SourceTenantId
-    The Azure tenant ID (GUID) of the source tenant (e.g., Atevet17).
+    The Azure tenant ID (GUID) of the source tenant (e.g., Gameboard1).
 
 .PARAMETER SourceTenantName
     A friendly name for the source tenant (used for tracking and naming).
@@ -80,11 +80,11 @@
         -ManagingTenantId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" `
         -ManagingSubscriptionId "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy" `
         -SourceTenantId "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz" `
-        -SourceTenantName "Atevet17" `
-        -EventHubNamespaceName "eh-ns-entra-logs-atevet17" `
-        -FunctionAppName "func-entra-logs-atevet17" `
-        -KeyVaultName "kv-central-atevet12" `
-        -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+        -SourceTenantName "Gameboard1" `
+        -EventHubNamespaceName "eh-ns-entra-logs-gameboard1" `
+        -FunctionAppName "func-entra-logs-gameboard1" `
+        -KeyVaultName "kv-admin1-logging" `
+        -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 .EXAMPLE
     # Skip Event Hub creation if it already exists
@@ -177,18 +177,18 @@ $Config_ManagingSubscriptionId = ""    # e.g., "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyy
 
 # REQUIRED: Source Tenant Configuration
 $Config_SourceTenantId         = ""    # e.g., "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"
-$Config_SourceTenantName       = ""    # e.g., "Atevet17" (friendly name, used in resource naming)
+$Config_SourceTenantName       = ""    # e.g., "Gameboard1" (friendly name, used in resource naming)
 
 # REQUIRED: Resource Names (must be globally unique for Event Hub and Function App)
-$Config_EventHubNamespaceName  = ""    # e.g., "eh-ns-entra-logs-atevet17"
-$Config_FunctionAppName        = ""    # e.g., "func-entra-logs-atevet17"
-$Config_KeyVaultName           = ""    # e.g., "kv-central-atevet12" (from Step 1)
+$Config_EventHubNamespaceName  = ""    # e.g., "eh-ns-entra-logs-gameboard1"
+$Config_FunctionAppName        = ""    # e.g., "func-entra-logs-gameboard1"
+$Config_KeyVaultName           = ""    # e.g., "kv-central-gameboard1" (from Step 1)
 
 # REQUIRED: Log Analytics Workspace
-$Config_WorkspaceResourceId    = ""    # e.g., "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+$Config_WorkspaceResourceId    = ""    # e.g., "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 # OPTIONAL: Resource Configuration (defaults are usually fine)
-$Config_ResourceGroupName      = "rg-entra-logs-eventhub"
+$Config_ResourceGroupName      = "rg-admin1-central-logging"
 $Config_EventHubName           = "eh-entra-id-logs"
 $Config_Location               = "westus2"
 $Config_DiagnosticSettingName  = "SendToEventHub"

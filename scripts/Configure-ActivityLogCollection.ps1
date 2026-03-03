@@ -21,7 +21,7 @@
     Array of subscription IDs to configure. If not provided, uses current subscription.
 
 .PARAMETER DiagnosticSettingName
-    Name for the diagnostic setting. Default: "SendActivityLogsToLogAnalytics"
+    Name for the diagnostic setting. Default: "SendLogsToAdmin1"
 
 .PARAMETER Location
     Azure region for the deployment. Default: "westus2"
@@ -54,13 +54,13 @@
     Skip the verification step after deployment.
 
 .EXAMPLE
-    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12"
+    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging"
 
 .EXAMPLE
-    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -SubscriptionIds @("sub-id-1", "sub-id-2")
+    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -SubscriptionIds @("sub-id-1", "sub-id-2")
 
 .EXAMPLE
-    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-central-atevet12" -DiagnosticSettingName "SendToAtevet12"
+    .\Configure-ActivityLogCollection.ps1 -WorkspaceResourceId "/subscriptions/xxx/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" -DiagnosticSettingName "SendLogsToAdmin1"
 
 .NOTES
     Author: Cross-Tenant Log Collection Guide
@@ -77,7 +77,7 @@ param(
     [string[]]$SubscriptionIds,
 
     [Parameter(Mandatory = $false)]
-    [string]$DiagnosticSettingName = "SendLogsToadaptgbmgthdfeb26",
+    [string]$DiagnosticSettingName = "SendLogsToAdmin1",
 
     [Parameter(Mandatory = $false)]
     [string]$Location = "westus2",
