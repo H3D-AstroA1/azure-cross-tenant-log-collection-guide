@@ -1,5 +1,28 @@
 # Telemetry Collection from Simulation Infrastructure
 
+> **Document Version**: v5 | **Last Updated**: 2026-03-03 | **Status**: Approved
+>
+> **Executive Summary**: This document outlines a hybrid telemetry collection architecture for gathering logs from distributed simulation game boards (Azure tenants) into a central Admin Center. The recommended approach combines Azure Lighthouse for Azure resource logs, Event Hub + Azure Function for Entra ID logs, and the Office 365 Management API for M365 audit logs—ensuring complete coverage while maintaining a read-only, non-intrusive posture.
+
+---
+
+## Table of Contents
+
+- [Problem Statement](#problem-statement)
+- [Proposed Solution](#proposed-solution)
+- [Method Comparison Summary](#method-comparison-summary)
+- [Recommended Approach for Simulation Scenarios](#recommended-approach-for-simulation-scenarios)
+  - [Component 1: Azure Lighthouse + Log Analytics Delegation](#component-1-azure-lighthouse--log-analytics-delegation-primary)
+  - [Component 2: Entra ID Logs](#component-2-entra-id-logs-supplementary--required)
+  - [Component 3: M365 Audit Logs](#component-3-m365-audit-logs-supplementary--required)
+  - [Hybrid Approach Summary](#hybrid-approach-summary)
+- [Contingency Option](#contingency-option--continuous-export-via-event-hub-for-azure-resource-logs)
+- [Next Steps](#next-steps)
+- [Implementation Reference](#implementation-reference)
+- [Appendices](#appendix-a--detailed-comparison-table)
+
+---
+
 ## Problem Statement
 
 ### Background
@@ -97,6 +120,8 @@ The table below provides a quick-reference comparison of the three available met
 | SOC analytics without data transfer | Sentinel Multi-Tenant |
 | **Complete telemetry coverage (Azure + Entra ID + M365)** | **Hybrid Approach** (see below) |
 
+> **Important Note on Entra ID Logs**: For Entra ID logs specifically, the Event Hub method is **required** due to cross-tenant API limitations (`LinkedAuthorizationFailed` errors with direct Log Analytics configuration). This applies even when using the Lighthouse + DCR approach for Azure resource logs. See [Component 2: Entra ID Logs](#component-2-entra-id-logs-supplementary--required) for details.
+
 ---
 
 ## Recommended Approach for Simulation Scenarios
@@ -111,7 +136,7 @@ Based on the analysis of available methods and the specific requirements of simu
 
 The following matrix illustrates which collection method is required for each log type:
 
-| Log Type | Azure Lighthouse + DCR | Direct Diagnostic Settings | Office 365 Management API |
+| Log Type | Azure Lighthouse + DCR | Event Hub + Azure Function | Office 365 Management API |
 |----------|:----------------------:|:--------------------------:|:-------------------------:|
 | Azure Activity Logs | ✅ Supported | — | — |
 | Azure Resource Logs | ✅ Supported | — | — |
@@ -119,7 +144,7 @@ The following matrix illustrates which collection method is required for each lo
 | **Entra ID Logs** | ❌ Not Supported | ✅ Required | — |
 | **M365 Audit Logs** | ❌ Not Supported | — | ✅ Required |
 
-**Key Insight**: Lighthouse operates at the Azure subscription/resource level and cannot access tenant-level services (Entra ID) or non-Azure services (Microsoft 365).
+**Key Insight**: Lighthouse operates at the Azure subscription/resource level and cannot access tenant-level services (Entra ID) or non-Azure services (Microsoft 365). For Entra ID logs, Event Hub + Azure Function is required due to cross-tenant API limitations.
 
 ---
 
@@ -157,11 +182,41 @@ This component serves as the foundation of the hybrid approach, enabling direct,
 | **Authentication Boundary** | Requires Global Administrator in the source tenant |
 | **API Separation** | Entra ID diagnostic settings are not accessible via Azure Resource Manager delegation |
 
+**Why Event Hub Instead of Direct Log Analytics:**
+
+> ⚠️ **Important Implementation Note**: Direct cross-tenant Log Analytics diagnostic settings for Entra ID fail with `LinkedAuthorizationFailed` errors due to Azure API limitations. The execution guide uses **Event Hub + Azure Function** as the recommended transport mechanism.
+
+| Method | Result | Reason |
+|--------|--------|--------|
+| Direct REST API | ❌ FAILS | `LinkedAuthorizationFailed` |
+| ARM Templates | ❌ FAILS | `LinkedAuthorizationFailed` |
+| Lighthouse Delegation | ❌ FAILS | Lighthouse doesn't cover Entra ID |
+| Azure Portal (Manual) | ✅ Works | Requires manual configuration |
+| **Event Hub** | ✅ **Works** | **Fully automated, SAS token auth** |
+
+The Event Hub method works because:
+- Entra ID diagnostic settings **can** send logs to an Event Hub using a connection string
+- SAS token authentication bypasses cross-tenant authorization issues
+- An Azure Function in the managing tenant processes and forwards logs to Log Analytics
+
 **Collection Mechanism:**
-1. Authenticate as Global Administrator in the source tenant (one-time)
-2. Configure Entra ID Diagnostic Settings to send logs to Tenant B workspace
-3. Logs flow automatically via Azure's native cross-tenant diagnostic settings capability
-4. No ongoing automation required, this is a push-based, fire-and-forget configuration
+
+1. **In Managing Tenant (Tenant B):**
+   - Create Event Hub Namespace with Standard SKU
+   - Create Event Hub for Entra ID logs (e.g., `eh-entra-id-logs`)
+   - Create Send-only authorization rule for source tenant
+   - Deploy Azure Function App to process events
+   - Configure Function to forward logs to Log Analytics workspace
+
+2. **In Source Tenant (Tenant A):**
+   - Authenticate as Global Administrator (one-time)
+   - Configure Entra ID Diagnostic Settings to stream logs to Event Hub
+   - Use Event Hub connection string (SAS token) for authentication
+
+3. **Data Flow:**
+   - Entra ID → Event Hub (via SAS token) → Azure Function → Log Analytics
+   - Near real-time streaming with sub-second latency
+   - Fully automated after initial setup
 
 **Available Log Categories:**
 
@@ -222,7 +277,7 @@ The following table summarizes the complete telemetry collection architecture:
 | 1 | Azure Activity Logs | Lighthouse + Diagnostic Settings | Push (auto) | One-time setup |
 | 2 | Azure Resource Logs | Lighthouse + Diagnostic Settings | Push (auto) | One-time setup |
 | 3 | VM Telemetry | Lighthouse + AMA + DCR | Push (auto) | One-time setup |
-| 4 | **Entra ID Logs** | Direct Diagnostic Settings | Push (auto) | One-time setup (Global Admin) |
+| 4 | **Entra ID Logs** | Event Hub + Azure Function | Push (auto) | One-time setup (Global Admin) + Event Hub infrastructure |
 | 5 | **M365 Audit Logs** | Office 365 Management API | Pull (scheduled) | Ongoing (Runbook) |
 
 ---
@@ -232,11 +287,11 @@ The following table summarizes the complete telemetry collection architecture:
 | Benefit | How It's Achieved |
 |---------|-------------------|
 | **Complete Coverage** | All Azure, Entra ID, and M365 logs collected through appropriate mechanisms |
-| **Native Ingestion** | AMA + DCR for Azure logs eliminates need for Event Hub infrastructure |
-| **Push-Based Where Possible** | Azure and Entra ID logs flow automatically after one-time configuration |
+| **Native Ingestion** | AMA + DCR for Azure logs; Event Hub + Function for Entra ID logs |
+| **Push-Based Where Possible** | Azure logs flow via diagnostic settings; Entra ID logs stream via Event Hub after one-time configuration |
 | **Pull-Based Only Where Required** | M365 logs use scheduled runbook (Microsoft architectural limitation) |
 | **Read-Only Posture** | Non-intrusive to simulation tenants; minimal configuration changes |
-| **Strong Security** | RBAC + PIM for Azure; Managed Identity where possible; Key Vault for M365 credentials |
+| **Strong Security** | RBAC + PIM for Azure; SAS tokens for Event Hub; Key Vault for credentials |
 | **Tenant Isolation** | Clear custody boundaries; telemetry tagged by source tenant |
 | **Scalable & Auditable** | Aligned with Azure Monitor best practices; full audit trails |
 
@@ -244,21 +299,25 @@ The following table summarizes the complete telemetry collection architecture:
 
 ### Conclusion
 
-The hybrid approach represents the optimal balance between security, completeness, operational simplicity, and compliance. By combining Azure Lighthouse for resource-level logs, direct diagnostic settings for Entra ID, and the Office 365 Management API for M365 workloads, this architecture ensures **complete telemetry coverage** while maintaining the read-only, non-intrusive posture required for simulation environments.
+The hybrid approach represents the optimal balance between security, completeness, operational simplicity, and compliance. By combining Azure Lighthouse for resource-level logs, Event Hub + Azure Function for Entra ID logs, and the Office 365 Management API for M365 workloads, this architecture ensures **complete telemetry coverage** while maintaining the read-only, non-intrusive posture required for simulation environments.
+
+> **Note**: The Event Hub method for Entra ID logs is a technical necessity due to Azure API limitations (`LinkedAuthorizationFailed` errors with direct cross-tenant Log Analytics configuration), not a preference. This approach has been validated in the execution guide and provides reliable, automated log collection.
 
 ---
 
-## Contingency Option – Continuous Export via Event Hub
+## Contingency Option – Continuous Export via Event Hub (for Azure Resource Logs)
 
-While the hybrid approach (Lighthouse + Direct Diagnostic Settings + M365 API) is the recommended primary approach for simulation telemetry ingestion, Continuous Export via Event Hub should be retained as a secondary contingency option to address specific edge cases where the primary methods may have limitations.
+While the hybrid approach (Lighthouse + Event Hub for Entra ID + M365 API) is the recommended primary approach for simulation telemetry ingestion, Continuous Export via Event Hub for **Azure resource logs** (not Entra ID) should be retained as a secondary contingency option to address specific edge cases where Lighthouse delegation may have limitations.
+
+> **Clarification**: Event Hub is the **primary method** for Entra ID logs (due to API limitations). This contingency section refers to using Event Hub for **Azure resource logs** as an alternative to Lighthouse.
 
 This model serves as a fallback mechanism to:
 
-- Provide coverage for log types or sources that cannot be collected via the primary methods
-- Support high volume or near real time streaming scenarios where push based Event Hub ingestion may be operationally preferable
+- Provide coverage for Azure resource logs when Lighthouse delegation is not available
+- Support high-volume or near-real-time streaming scenarios where push-based Event Hub ingestion may be operationally preferable
 - Ensure comprehensive telemetry coverage across all simulation scenarios by maintaining an alternative ingestion path
 
-The Event Hub–based approach should not be treated as the default but preserved as an on-demand exception path to ensure robustness, flexibility, and completeness of the overall telemetry architecture.
+The Event Hub–based approach for Azure resource logs should not be treated as the default but preserved as an on-demand exception path to ensure robustness, flexibility, and completeness of the overall telemetry architecture.
 
 ---
 
@@ -291,12 +350,19 @@ The Event Hub–based approach should not be treated as the default but preserve
 - Validate Azure Monitor Agent (AMA) compatibility and deployment mechanisms
 - Confirm no tenant configuration changes beyond standard AMA enablement
 
-### 4. Configure Entra ID Log Collection
+### 4. Configure Entra ID Log Collection (via Event Hub)
 
-- Obtain Global Administrator credentials for source tenant
-- Configure Entra ID Diagnostic Settings to send logs to Tenant B workspace
-- Validate log categories based on available licenses (P1/P2)
-- Verify logs appear in SigninLogs, AuditLogs tables
+- **In Managing Tenant (Tenant B):**
+  - Create Event Hub Namespace and Event Hub
+  - Deploy Azure Function App for log processing
+  - Store Event Hub connection string in Key Vault
+- **In Source Tenant (Tenant A):**
+  - Obtain Global Administrator credentials
+  - Configure Entra ID Diagnostic Settings to stream to Event Hub
+  - Validate log categories based on available licenses (P1/P2)
+- **Verification:**
+  - Check Event Hub metrics for incoming messages
+  - Verify logs appear in Log Analytics custom tables (EntraIDSignInLogs_CL, EntraIDAuditLogs_CL)
 
 ### 5. Configure M365 Audit Log Collection
 
@@ -309,8 +375,8 @@ The Event Hub–based approach should not be treated as the default but preserve
 
 ### 6. Validate Security & Isolation Controls
 
-- Ensure read only operational posture
-- Confirm no cross tenant data commingling
+- Ensure read-only operational posture
+- Confirm no cross-tenant data commingling
 - Validate audit logs and access traceability in Tenant B
 
 ### 7. Optional – Sentinel Enablement (Post Ingestion)
@@ -334,7 +400,7 @@ For detailed implementation scripts and step-by-step guidance, refer to:
   - Step 3: Activity Log collection
   - Step 4: VM diagnostic logs (AMA + DCR)
   - Step 5: Azure Resource diagnostic logs
-  - Step 6: Entra ID logs (Direct Diagnostic Settings)
+  - Step 6: Entra ID logs (Event Hub + Azure Function)
   - Step 7: M365 Audit logs (Office 365 Management API)
 
 ---
@@ -364,7 +430,7 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 ## Appendix B – Hybrid Approach Architecture Diagram
 
-> **Scope**: High-level overview showing ALL three collection methods (Lighthouse, Direct Diagnostic Settings, M365 API) and how they combine to provide complete telemetry coverage. See Appendix C for detailed Lighthouse-specific flow.
+> **Scope**: High-level overview showing ALL three collection methods (Lighthouse, Event Hub for Entra ID, M365 API) and how they combine to provide complete telemetry coverage. See Appendix C for detailed Lighthouse-specific flow.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -378,42 +444,51 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 │           │                    │                    │                            │
 │           │ Diagnostic         │ AMA + DCR         │ Diagnostic                  │
 │           │ Settings           │                    │ Settings                    │
-│           │                    │                    │ (Global Admin)              │
+│           │                    │                    │ → Event Hub (SAS)          │
 │           │                    │                    │                            │
-│  ┌────────┴────────────────────┴────────────────────┴────────┐                  │
-│  │              Azure Lighthouse Delegation                   │                  │
-│  │              (Subscription/Resource Level)                 │                  │
-│  └────────────────────────────┬───────────────────────────────┘                  │
-│                               │                                                  │
-│  ┌────────────────────────────┴───────────────────────────────┐                  │
-│  │                    M365 Services                            │                  │
-│  │  (Exchange, SharePoint, Teams, OneDrive)                   │                  │
-│  │  → Office 365 Management API (separate from Azure)         │                  │
-│  └────────────────────────────┬───────────────────────────────┘                  │
+│  ┌────────┴────────────────────┴────────┐          │                            │
+│  │              Azure Lighthouse         │          │                            │
+│  │              Delegation               │          │                            │
+│  │       (Subscription/Resource Level)   │          │                            │
+│  └────────────────────────────┬──────────┘          │                            │
+│                               │                     │                            │
+│  ┌────────────────────────────┴─────────────────────┴────────┐                  │
+│  │                    M365 Services                           │                  │
+│  │  (Exchange, SharePoint, Teams, OneDrive)                  │                  │
+│  │  → Office 365 Management API (separate from Azure)        │                  │
+│  └────────────────────────────┬──────────────────────────────┘                  │
 │                               │                                                  │
 └───────────────────────────────┼──────────────────────────────────────────────────┘
                                 │
                                 │ Logs flow via:
-                                │ • Lighthouse (Azure logs)
-                                │ • Direct Diagnostic Settings (Entra ID)
-                                │ • Office 365 Management API (M365)
+                                │ • Lighthouse (Azure resource logs)
+                                │ • Event Hub + Azure Function (Entra ID logs)
+                                │ • Office 365 Management API (M365 logs)
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                           TENANT B (Admin Center)                                │
 │                                                                                  │
 │  ┌──────────────────────────────────────────────────────────────────────────┐   │
+│  │                    Event Hub Namespace                                    │   │
+│  │                    (eh-ns-entra-logs)                                    │   │
+│  │                           │                                               │   │
+│  │                    Azure Function                                         │   │
+│  │                    (Event Hub Trigger)                                    │   │
+│  └──────────────────────────────────────────────────────────────────────────┘   │
+│                                      │                                           │
+│  ┌──────────────────────────────────────────────────────────────────────────┐   │
 │  │                    Log Analytics Workspace                                │   │
 │  │                                                                           │   │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │   │
-│  │  │ AzureActivity│  │    Perf     │  │ SigninLogs  │  │M365AuditLogs│      │   │
-│  │  │             │  │   Event     │  │  AuditLogs  │  │    _CL      │      │   │
-│  │  │             │  │   Syslog    │  │             │  │             │      │   │
+│  │  │ AzureActivity│  │    Perf     │  │EntraID      │  │M365AuditLogs│      │   │
+│  │  │             │  │   Event     │  │SignInLogs_CL│  │    _CL      │      │   │
+│  │  │             │  │   Syslog    │  │AuditLogs_CL │  │             │      │   │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘      │   │
 │  │       ▲                 ▲                ▲                ▲               │   │
 │  │       │                 │                │                │               │   │
-│  │   Lighthouse        Lighthouse       Direct DS      Automation           │   │
-│  │   + Diag Settings   + AMA + DCR     (Global Admin)   Runbook             │   │
+│  │   Lighthouse        Lighthouse       Event Hub +     Automation           │   │
+│  │   + Diag Settings   + AMA + DCR     Function App     Runbook             │   │
 │  └──────────────────────────────────────────────────────────────────────────┘   │
 │                                      │                                           │
 │                                      ▼                                           │
@@ -804,8 +879,9 @@ For detailed implementation scripts and step-by-step guidance, refer to:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| v3 | - | Original document |
+| v3 | — | Original document |
 | v4 | 2026-01-13 | Added Entra ID and M365 log collection requirements; clarified that no single method covers all log types; updated recommended approach to hybrid model |
-| v4.1 | 2026-01-13 | Added Appendix A (Hybrid Approach Architecture Diagram) and Appendix B (Event Hub Detailed Flow Diagram) |
-| v4.2 | 2026-01-13 | Added Appendix B (Azure Lighthouse Detailed Flow), Appendix C (Microsoft Sentinel Multi-Tenant with role clarification), renumbered Event Hub to Appendix D |
-| v4.3 | 2026-01-13 | Added Appendix A (Detailed Comparison Table), renumbered all appendices (A→B, B→C, C→D, D→E) |
+| v4.1 | 2026-01-13 | Added Hybrid Approach Architecture Diagram and Event Hub Detailed Flow Diagram |
+| v4.2 | 2026-01-13 | Added Azure Lighthouse Detailed Flow and Microsoft Sentinel Multi-Tenant diagrams with role clarification |
+| v4.3 | 2026-01-13 | Added Detailed Comparison Table (Appendix A); reorganised appendices (A–E) |
+| v5 | 2026-03-03 | **Major Update**: Updated Entra ID log collection to use Event Hub + Azure Function method (due to `LinkedAuthorizationFailed` API limitation); aligned with execution guide implementation; updated architecture diagrams; updated Hybrid Approach Summary table; updated Next Steps and Implementation Reference sections; added Executive Summary and Table of Contents |
