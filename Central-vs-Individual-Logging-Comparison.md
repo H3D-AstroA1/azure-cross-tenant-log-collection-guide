@@ -30,51 +30,16 @@ This document provides a comprehensive comparison to support that decision, incl
 
 ## The Challenge: Multi-Tenant Visibility
 
-```mermaid
-flowchart TB
-    subgraph Problem["❌ Individual Tenant Logging"]
-        direction TB
-        T1A[("Tenant A<br/>Workspace")]
-        T1B[("Tenant B<br/>Workspace")]
-        T1C[("Tenant C<br/>Workspace")]
-        T1D[("Tenant D<br/>Workspace")]
-        
-        SOC1["Security Analyst"]
-        
-        SOC1 -.->|"Switch context"| T1A
-        SOC1 -.->|"Switch context"| T1B
-        SOC1 -.->|"Switch context"| T1C
-        SOC1 -.->|"Switch context"| T1D
-        
-        Attack1["🔴 Attacker moves<br/>A → B → C"]
-        Attack1 -.->|"Invisible"| SOC1
-    end
-    
-    subgraph Solution["✅ Central Log Ingestion"]
-        direction TB
-        T2A["Tenant A"]
-        T2B["Tenant B"]
-        T2C["Tenant C"]
-        T2D["Tenant D"]
-        
-        Central[("Central<br/>Workspace")]
-        
-        T2A -->|"Logs"| Central
-        T2B -->|"Logs"| Central
-        T2C -->|"Logs"| Central
-        T2D -->|"Logs"| Central
-        
-        SOC2["Security Analyst"]
-        Central -->|"Single view"| SOC2
-        
-        Attack2["🔴 Attacker moves<br/>A → B → C"]
-        Attack2 -->|"Detected!"| SOC2
-    end
-    
-    Problem -.->|"Transform to"| Solution
-```
+With individual tenant logging, each simulation game board maintains its own Log Analytics workspace. This creates a fundamental visibility problem:
 
-**The core problem**: With individual tenant logging, cross-tenant attacks are invisible. An attacker moving laterally between tenants leaves traces in multiple workspaces that no single analyst can correlate in real-time.
+| Scenario | Individual Logging | Central Logging |
+|----------|-------------------|-----------------|
+| **Analyst workflow** | Must switch between N workspaces | Single workspace for all tenants |
+| **Cross-tenant attacks** | Invisible — fragments in separate workspaces | Visible — full attack chain in one place |
+| **Correlation capability** | Manual, after-the-fact | Real-time, automated |
+| **Time to detect** | Hours to days (if ever) | Minutes |
+
+**The core problem**: An attacker moving laterally between tenants leaves traces in multiple workspaces that no single analyst can correlate in real-time. See the [Attack Scenario](#attack-scenario-why-central-logging-matters) section for a detailed demonstration.
 
 ---
 
