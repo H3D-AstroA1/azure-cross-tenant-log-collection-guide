@@ -160,19 +160,18 @@ In a cross-tenant log collection scenario, there are two tenants and **three dif
 | **Source Tenant** | Customer/Resource Owner | Gameboard1 | Log sources (Azure resources, Entra ID, M365) |
 | **Managing Tenant** | MSP/Security Team | Admin1 | Log Analytics Workspace, Sentinel, Event Hub, Automation |
 
-| Log Source | Transport Method | Steps | Authentication |
-|------------|------------------|-------|----------------|
-| **Azure Resources** (Activity, VM, Resource logs) | Azure Lighthouse | Steps 3, 4, 5 | Diagnostic Settings |
-| **Entra ID** (Sign-in, Audit, Risk logs) | Event Hub | Step 6 | SAS Token |
-| **Microsoft 365** (Exchange, SharePoint, Teams) | O365 Management API | Step 7 | OAuth App Registration |
+| Step | Log Source | Transport Method | Run Script From | Authentication |
+|------|------------|------------------|-----------------|----------------|
+| **0, 2** | (Setup) | Azure Lighthouse | SOURCE Tenant | Owner role |
+| **3, 4, 5** | Azure Resources (Activity, VM, Resource logs) | Lighthouse Delegation | MANAGING Tenant | Diagnostic Settings |
+| **6** | Entra ID (Sign-in, Audit, Risk logs) | Event Hub | MANAGING Tenant* | SAS Token |
+| **7** | Microsoft 365 (Exchange, SharePoint, Teams) | O365 Management API | MANAGING Tenant* | OAuth App Registration |
+
+> ℹ️ **NOTE**: Steps marked with * require authentication to **both** tenants during script execution.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────┐
 │                              SOURCE TENANT (Gameboard1)                              │
-│                                                                                      │
-│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
-│  │  📜 Scripts to run here: Register-ManagedServices.ps1, Deploy-AzureLighthouse  │ │
-│  └────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                      │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
 │  │  Azure Resources │  │    Entra ID      │  │  Microsoft 365   │                   │
