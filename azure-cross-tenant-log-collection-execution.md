@@ -6,17 +6,16 @@
 
 1. [Quick Reference Card](#quick-reference-card)
 2. [Prerequisites Checklist](#prerequisites-checklist)
-3. [Cost Estimation](#cost-estimation)
-4. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
-5. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
-6. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
-7. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
-8. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-9. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
-10. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
-11. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
-12. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
-13. [Glossary of Terms](#glossary-of-terms)
+3. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
+4. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
+5. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
+6. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
+7. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
+8. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
+9. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+10. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
+11. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+12. [Glossary of Terms](#glossary-of-terms)
 
 ---
 
@@ -111,39 +110,6 @@ Fill in these values before you begin:
 | MANAGING Subscription ID | `________________________` | Azure Portal > Subscriptions |
 | SOURCE Subscription ID(s) | `________________________` | Azure Portal > Subscriptions |
 | Desired Azure Region | `________________________` | e.g., "eastus", "westus2", "uksouth" |
-
----
-
-## Cost Estimation
-
-> ℹ️ **NOTE**: Costs vary based on log volume, retention settings, and Azure region. These are estimates for planning purposes.
-
-### Component Costs
-
-| Component | Unit Cost | Typical Monthly Volume | Estimated Monthly Cost |
-|-----------|-----------|------------------------|------------------------|
-| **Log Analytics Workspace** | ~$2.76/GB ingested | Varies | Primary cost driver |
-| **Activity Logs** | Included in LAW | < 1 GB/subscription | ~$3/subscription |
-| **VM Diagnostic Logs** | Included in LAW | 1-5 GB/VM | ~$3-14/VM |
-| **Resource Diagnostic Logs** | Included in LAW | Varies by resource | Depends on activity |
-| **Event Hub (Entra ID logs)** | ~$22/month base | N/A | ~$22 + throughput |
-| **Azure Function** | ~$0.20/million executions | Low | < $1/month |
-
-### Scenario-Based Estimates
-
-| Scenario | Description | Estimated Monthly Cost |
-|----------|-------------|------------------------|
-| **Small** | 1 subscription, 5 VMs, basic logs | $50 - $100 |
-| **Medium** | 3 subscriptions, 20 VMs, all log types | $200 - $400 |
-| **Large** | 10+ subscriptions, 100+ VMs, full monitoring | $500 - $1,500+ |
-
-### Cost Optimization Tips
-
-1. **Adjust retention periods** - Default is 30 days; reduce for non-critical logs
-2. **Use Basic Logs tier** - For high-volume, low-query logs (up to 70% savings)
-3. **Filter log categories** - Only enable categories you need
-4. **Monitor ingestion** - Set up cost alerts in Azure Cost Management
-5. **Archive to Storage** - For long-term retention at lower cost
 
 ---
 
