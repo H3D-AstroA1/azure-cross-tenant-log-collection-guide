@@ -251,33 +251,4 @@ This document provides a comprehensive view of the cross-tenant log collection s
 
 ---
 
-## Mermaid Diagram (for GitHub/VS Code Preview)
-
-If you have Mermaid rendering enabled, the following diagram will display:
-
-```mermaid
-flowchart TB
-    subgraph SOURCE["SOURCE TENANT"]
-        AzRes["Azure Resources<br/>VMs, Storage, Key Vault"]
-        EntraID["Entra ID<br/>Sign-in, Audit Logs"]
-        M365["Microsoft 365<br/>Exchange, SharePoint, Teams"]
-    end
-    
-    subgraph MANAGING["MANAGING TENANT"]
-        LH["Azure Lighthouse<br/>Delegated Access"]
-        EH["Event Hub<br/>+ Azure Function"]
-        Auto["Automation Account<br/>M365 Collector"]
-        LAW["Log Analytics<br/>Workspace"]
-        Sentinel["Microsoft Sentinel"]
-    end
-    
-    AzRes -->|"Steps 3,4,5<br/>Lighthouse"| LAW
-    EntraID -->|"Step 6<br/>Event Hub"| EH
-    EH --> LAW
-    M365 -->|"Step 7<br/>O365 API"| Auto
-    Auto --> LAW
-    LAW --> Sentinel
-    LH -.->|"Enables"| AzRes
-```
-
-> **Note:** To view Mermaid diagrams in VS Code, install the "Markdown Preview Mermaid Support" extension (`Ctrl+Shift+X`, search for "bierner.markdown-mermaid").
+> **Note:** For a detailed Mermaid diagram version, see [architecture-diagram-mermaid.md](architecture-diagram-mermaid.md).
