@@ -1,6 +1,6 @@
 # Telemetry Collection from Simulation Infrastructure
 
-> **Executive Summary**: This document outlines a hybrid telemetry collection architecture for gathering logs from distributed simulation game boards (Azure tenants) into a central Admin Center. The recommended approach combines Azure Lighthouse for Azure resource logs, Event Hub + Azure Function for Entra ID logs, and the Office 365 Management API for M365 audit logs—ensuring complete coverage while maintaining a read-only, non-intrusive posture.
+> **Executive Summary**: This document outlines a hybrid telemetry collection architecture for gathering logs from distributed simulation game boards (Azure tenants) into a central Admin Center. The recommended approach combines Azure Lighthouse for Azure resource logs, Event Hub + Azure Function for Entra ID logs, and the Office 365 Management API for M365 audit logs, ensuring complete coverage while maintaining a read-only, non-intrusive posture.
 
 ---
 
