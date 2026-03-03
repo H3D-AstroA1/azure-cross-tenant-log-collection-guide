@@ -2,20 +2,60 @@
 
 ---
 
+## Overview
+
+### What This Guide Achieves
+
+This guide provides step-by-step instructions and PowerShell scripts to **collect all raw logs from source Azure tenants (Gameboards) and centralize them in an Admin tenant** for security monitoring and analysis using Microsoft Sentinel.
+
+### The Scenario
+
+In a multi-tenant environment, you may have:
+- **Multiple source tenants** (e.g., "Gameboard1", "Gameboard2") containing Azure resources, users, and Microsoft 365 services
+- **One managing tenant** (e.g., "Admin1") where your security operations team monitors all activity
+
+This guide enables you to collect logs from all source tenants into a single Log Analytics workspace in the managing tenant, providing:
+- **Centralized visibility** across all tenants
+- **Unified security monitoring** with Microsoft Sentinel
+- **Consistent alerting and response** from one location
+
+### Log Types Collected
+
+| Log Type | Source | Collection Method | Step |
+|----------|--------|-------------------|------|
+| **Activity Logs** | Azure subscription operations | Diagnostic Settings via Lighthouse | Step 3 |
+| **VM Diagnostic Logs** | Windows/Linux virtual machines | Azure Monitor Agent + DCR | Step 4 |
+| **Resource Diagnostic Logs** | PaaS resources (Key Vault, Storage, etc.) | Diagnostic Settings via Lighthouse | Step 5 |
+| **Entra ID Logs** | Sign-ins, audit events, risk detections | Event Hub + Azure Function | Step 6 |
+| **Microsoft 365 Logs** | Exchange, SharePoint, Teams audit events | O365 Management API + Automation | Step 7 |
+
+### Recommended Solutions Used
+
+This guide uses Microsoft's recommended approaches for cross-tenant log collection:
+
+1. **Azure Lighthouse** - Enables delegated access to source tenant subscriptions without requiring separate credentials
+2. **Azure Event Hub** - Provides a secure, scalable mechanism for streaming Entra ID logs across tenant boundaries
+3. **Office 365 Management API** - The official API for collecting Microsoft 365 audit logs programmatically
+4. **Azure Monitor Agent (AMA)** - The modern, recommended agent for VM log collection (replaces legacy MMA/OMS agents)
+5. **Data Collection Rules (DCR)** - Provides flexible, centralized configuration for what data to collect from VMs
+
+---
+
 ## Table of Contents
 
-1. [Quick Reference Card](#quick-reference-card)
-2. [Prerequisites Checklist](#prerequisites-checklist)
-3. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
-4. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
-5. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
-6. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
-7. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-8. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
-9. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
-10. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
-11. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
-12. [Glossary of Terms](#glossary-of-terms)
+1. [Overview](#overview)
+2. [Quick Reference Card](#quick-reference-card)
+3. [Prerequisites Checklist](#prerequisites-checklist)
+4. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
+5. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
+6. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
+7. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
+8. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
+9. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
+10. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+11. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
+12. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+13. [Glossary of Terms](#glossary-of-terms)
 
 ---
 
