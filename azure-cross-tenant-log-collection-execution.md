@@ -153,47 +153,71 @@ Fill in these values before you begin:
 
 ### Cross-Tenant Architecture Overview
 
-In a cross-tenant log collection scenario, there are two tenants:
+In a cross-tenant log collection scenario, there are two tenants and **three different log collection methods**:
 
-| Tenant | Role | Example | What Runs Here |
-|--------|------|---------|----------------|
-| **Source Tenant** | Customer/Resource Owner | Gameboard1 | ✅ **Run these scripts here** |
-| **Managing Tenant** | MSP/Security Team | Admin1 | Log Analytics Workspace, Sentinel |
+| Tenant | Role | Example | What Happens Here |
+|--------|------|---------|-------------------|
+| **Source Tenant** | Customer/Resource Owner | Gameboard1 | Log sources (Azure resources, Entra ID, M365) |
+| **Managing Tenant** | MSP/Security Team | Admin1 | Log Analytics Workspace, Sentinel, Event Hub, Automation |
+
+| Log Source | Transport Method | Steps | Authentication |
+|------------|------------------|-------|----------------|
+| **Azure Resources** (Activity, VM, Resource logs) | Azure Lighthouse | Steps 3, 4, 5 | Diagnostic Settings |
+| **Entra ID** (Sign-in, Audit, Risk logs) | Event Hub | Step 6 | SAS Token |
+| **Microsoft 365** (Exchange, SharePoint, Teams) | O365 Management API | Step 7 | OAuth App Registration |
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        SOURCE TENANT (Gameboard1)                         │
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │  📜 Run these scripts here:                                      │   │
-│  │     • Register-ManagedServices.ps1                               │   │
-│  │     • Azure Lighthouse ARM template deployment                   │   │
-│  │     • Diagnostic settings configuration                          │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                  │
-│  │ Subscription │  │ Subscription │  │ Subscription │                  │
-│  │      A       │  │      B       │  │      C       │                  │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                  │
-│         │                 │                 │                           │
-│         └─────────────────┼─────────────────┘                           │
-│                           │                                             │
-│                           │ Logs flow via                               │
-│                           │ Azure Lighthouse                            │
-│                           ▼                                             │
-└─────────────────────────────────────────────────────────────────────────┘
-                            │
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      MANAGING TENANT (Admin1)                         │
-│                                                                         │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  Log Analytics Workspace  ──────►  Microsoft Sentinel            │  │
-│  │  (Receives logs)                   (Security monitoring)         │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              SOURCE TENANT (Gameboard1)                              │
+│                                                                                      │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │  📜 Scripts to run here: Register-ManagedServices.ps1, Deploy-AzureLighthouse  │ │
+│  └────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                      │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
+│  │  Azure Resources │  │    Entra ID      │  │  Microsoft 365   │                   │
+│  │  (VMs, Storage,  │  │  (Sign-ins,      │  │  (Exchange,      │                   │
+│  │   Key Vault...)  │  │   Audit logs)    │  │   SharePoint)    │                   │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘                   │
+│           │                     │                     │                              │
+│           │ Steps 3-5           │ Step 6              │ Step 7                       │
+│           │ Lighthouse          │ Event Hub           │ O365 API                     │
+│           ▼                     ▼                     ▼                              │
+└───────────┼─────────────────────┼─────────────────────┼──────────────────────────────┘
+            │                     │                     │
+            │ Diagnostic          │ SAS Token           │ OAuth +
+            │ Settings            │ Connection          │ App Registration
+            │                     │                     │
+            ▼                     ▼                     ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              MANAGING TENANT (Admin1)                               │
+│                                                                                      │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │
+│  │  Lighthouse      │  │   Event Hub      │  │  Automation      │                   │
+│  │  Delegation      │  │   + Function     │  │  Account         │                   │
+│  │  (Cross-tenant   │  │   (Processes     │  │  (Polls M365     │                   │
+│  │   access)        │  │    Entra logs)   │  │   audit logs)    │                   │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘                   │
+│           │                     │                     │                              │
+│           └─────────────────────┴──────────┬──────────┘                              │
+│                                            │                                         │
+│                                            ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                      Log Analytics Workspace                                    │ │
+│  │                                                                                  │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │ │
+│  │  │ AzureActivity│  │    Perf      │  │ SigninLogs   │  │M365AuditLogs │        │ │
+│  │  │ AzureDiag... │  │   Event      │  │ AuditLogs    │  │    _CL       │        │ │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘        │ │
+│  └────────────────────────────────────────────────────────────────────────────────┘ │
+│                                            │                                         │
+│                                            ▼                                         │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐ │
+│  │                         Microsoft Sentinel                                      │ │
+│  │                    (Security monitoring & alerting)                             │ │
+│  └────────────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Why Run from the Source Tenant?
