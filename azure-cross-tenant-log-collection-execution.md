@@ -149,7 +149,7 @@ Fill in these values before you begin:
 
 ## Important: Where to Run These Scripts
 
-> ⚠️ **CRITICAL**: These scripts must be run from the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
+> ⚠️ **CRITICAL**: Pay attention to which tenant each script runs from. The table below shows the correct tenant for each step.
 
 ### Cross-Tenant Architecture Overview
 
@@ -217,65 +217,6 @@ In a cross-tenant log collection scenario, there are two tenants and **three dif
 │  └────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                      │
 └─────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Why Run from the Source Tenant?
-
-The `Register-ManagedServices.ps1` script registers the `Microsoft.ManagedServices` resource provider on subscriptions. This is a **prerequisite for Azure Lighthouse** and must be done on the **source tenant's subscriptions** (where the resources exist).
-
-### Authentication Requirements
-
-When running from the source tenant, you need:
-
-| Requirement | Details |
-|-------------|---------|
-| **Role** | Owner or Contributor on the source subscriptions |
-| **Permission** | `Microsoft.ManagedServices/register/action` |
-| **Authentication** | Azure PowerShell (`Connect-AzAccount`) |
-
-### Step-by-Step Execution
-
-1. **Authenticate to the SOURCE tenant** (e.g., Gameboard1):
-   ```powershell
-   Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
-   ```
-
-2. **Verify you're in the correct tenant**:
-   ```powershell
-   (Get-AzContext).Tenant.Id
-   ```
-
-3. **Run the script**:
-   ```powershell
-   .\Register-ManagedServices.ps1 -TenantId "<SOURCE-TENANT-ID>"
-   ```
-
----
-
-## Prerequisites
-
-### Azure Cloud Shell (Recommended)
-
-The Az PowerShell module is **pre-installed** in Azure Cloud Shell. No additional setup required!
-
-1. Go to [Azure Portal](https://portal.azure.com)
-2. Click the Cloud Shell icon (>_) in the top navigation bar
-3. Select **PowerShell** as your shell type
-4. You're ready to run the scripts!
-
-### Local PowerShell Setup
-
-For running scripts locally:
-
-```powershell
-# Check if Az module is installed
-Get-Module -ListAvailable Az.Accounts
-
-# Install if needed (run as Administrator)
-Install-Module -Name Az -Repository PSGallery -Force
-
-# Connect to Azure
-Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 ```
 
 ---
