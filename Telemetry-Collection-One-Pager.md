@@ -6,7 +6,17 @@
 
 ## Executive Summary
 
-This document summarises the hybrid telemetry collection architecture for gathering logs from distributed simulation game boards (Azure tenants) into a central Admin Center. The recommended approach combines **Azure Lighthouse** for Azure resource logs, **Event Hub + Azure Function** for Entra ID logs, and the **Office 365 Management API** for M365 audit logs—ensuring complete coverage while maintaining a read-only, non-intrusive posture.
+This document summarises the hybrid telemetry collection architecture for gathering logs from distributed simulation game boards (Azure tenants) into a central Admin Center.
+
+### Recommended Approach
+
+| Log Type | Recommended Method | Why |
+|----------|-------------------|-----|
+| **Azure Resource Logs** | Azure Lighthouse + DCR | Enterprise-grade governance, RBAC, native ingestion |
+| **Entra ID Logs** | Event Hub + Azure Function | Required due to `LinkedAuthorizationFailed` API limitation |
+| **M365 Audit Logs** | Office 365 Management API | Only supported method for M365 workloads |
+
+This hybrid approach ensures **complete coverage** while maintaining a **read-only, non-intrusive posture**.
 
 ---
 
@@ -147,9 +157,16 @@ The Event Hub method works because:
 | Complexity | Low | Medium | High |
 | Security | Medium | High | Very High |
 | Ingests to Tenant B | ✅ | ✅ | ❌ |
-| Best For | Speed / Entra ID logs | Governance / Azure logs | SOC Analytics |
+| Best For | Entra ID logs | Azure resource logs | SOC Analytics (no ingestion) |
 
-> **Recommendation**: Use **Lighthouse + DCR** for Azure resource logs and **Event Hub** for Entra ID logs (required due to API limitations).
+### ✅ Recommendation Summary
+
+| Log Type | Use This Method | Reason |
+|----------|-----------------|--------|
+| Azure Activity/Resource Logs | **Lighthouse + DCR** | Enterprise governance, RBAC, native ingestion |
+| VM Telemetry | **Lighthouse + AMA + DCR** | Scalable, no intermediate infrastructure |
+| Entra ID Logs | **Event Hub + Azure Function** | **Required** – direct methods fail with `LinkedAuthorizationFailed` |
+| M365 Audit Logs | **Office 365 Management API** | Only supported method for M365 workloads |
 
 ---
 
