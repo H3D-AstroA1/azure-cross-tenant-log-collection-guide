@@ -12,6 +12,10 @@
 - [Central Log Ingestion](#central-log-ingestion)
 - [Individual Tenant Logging](#individual-tenant-logging)
 - [Attack Scenario: Why Central Logging Matters](#attack-scenario-why-central-logging-matters)
+  - [Scenario 1: Individual Tenant Logging](#scenario-1-individual-tenant-logging-attack-goes-undetected)
+  - [Scenario 2: Central Log Ingestion](#scenario-2-central-log-ingestion-attack-detected-and-stopped)
+  - [The Detection Difference](#the-detection-difference)
+  - [Key Correlation Queries](#key-correlation-queries-only-possible-with-central-logging)
 - [Decision Framework](#decision-framework)
 - [Recommendation](#-recommendation-central-log-ingestion)
 - [Implementation Path](#implementation-path)
@@ -20,7 +24,7 @@
 
 ## Executive Summary
 
-When managing multiple Azure tenants—such as simulation game boards—organisations face a critical architectural decision: **centralise logs into a single workspace** or **keep logs distributed across individual tenants**.
+When managing multiple Azure tenants—such as simulation game boards, organisations face a critical architectural decision: **centralise logs into a single workspace** or **keep logs distributed across individual tenants**.
 
 This document provides a comprehensive comparison to support that decision, including a detailed attack scenario demonstrating why central logging is essential for threat detection.
 
@@ -251,6 +255,8 @@ sequenceDiagram
 ---
 
 ### The Detection Difference
+
+The following diagram illustrates the fundamental architectural difference between the two approaches and why central logging enables detection while individual logging leaves analysts blind to cross-tenant attacks.
 
 ```mermaid
 flowchart TB
