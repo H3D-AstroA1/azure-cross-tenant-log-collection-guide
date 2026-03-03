@@ -144,7 +144,34 @@ This provides the benefits of central visibility while maintaining clear custody
 | Best for operational efficiency | ✅ | ❌ |
 | Best for tenant autonomy | ❌ | ✅ |
 
-**For simulation environments requiring centralised analysis and threat detection, central log ingestion is the recommended approach.**
+---
+
+## ✅ Recommendation: Central Log Ingestion
+
+**For simulation environments, security research, and multi-tenant operations, central log ingestion is the clear choice.**
+
+### Why Central Logging Wins
+
+| Capability | With Central Logging | Without Central Logging |
+|------------|---------------------|------------------------|
+| **Detect cross-tenant attacks** | ✅ Single query correlates activity across all tenants | ❌ Manual correlation across N workspaces |
+| **Respond to incidents** | ✅ Full context in one location; faster MTTR | ❌ Context scattered; slower response |
+| **Maintain consistent security** | ✅ One set of detection rules for all tenants | ❌ N sets of rules to maintain and sync |
+| **Scale operations** | ✅ Adding tenants doesn't multiply workload | ❌ Each tenant adds operational overhead |
+| **Demonstrate compliance** | ✅ Single audit point; unified reporting | ❌ Multiple audit trails to consolidate |
+
+### The Bottom Line
+
+> **Without central log ingestion, you cannot effectively:**
+> - Detect lateral movement between simulation tenants
+> - Correlate identity events (Entra ID) with resource activity (Azure)
+> - Maintain a unified security posture across all game boards
+> - Respond to incidents with full cross-tenant context
+> - Scale security operations as the number of tenants grows
+
+**Central log ingestion transforms fragmented telemetry into actionable intelligence.** The initial setup complexity is a one-time investment that pays dividends in operational efficiency, security effectiveness, and incident response capability.
+
+For simulation game boards where understanding attacker behaviour across tenant boundaries is critical, **there is no viable alternative to central log ingestion**.
 
 ---
 
