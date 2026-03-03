@@ -4,16 +4,146 @@
 
 ## Table of Contents
 
-1. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
-2. [Prerequisites](#prerequisites)
-3. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
-4. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
-5. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
-6. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
-7. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
-8. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
-9. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
-10. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+1. [Quick Reference Card](#quick-reference-card)
+2. [Prerequisites Checklist](#prerequisites-checklist)
+3. [Cost Estimation](#cost-estimation)
+4. [Important: Where to Run These Scripts](#important-where-to-run-these-scripts)
+5. [Step 0: Register Resource Providers](#step-0-register-resource-providers)
+6. [Step 1: Create Security Group and Log Analytics Workspace](#step-1-create-security-group-and-log-analytics-workspace)
+7. [Step 2: Deploy Azure Lighthouse](#step-2-deploy-azure-lighthouse)
+8. [Step 3: Configure Activity Log Collection](#step-3-configure-activity-log-collection)
+9. [Step 4: Configure Virtual Machine Diagnostic Logs](#step-4-configure-virtual-machine-diagnostic-logs)
+10. [Step 5: Configure Azure Resource Diagnostic Logs](#step-5-configure-azure-resource-diagnostic-logs)
+11. [Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub](#step-6-configure-microsoft-entra-id-azure-ad-logs-via-event-hub)
+12. [Step 7: Configure Microsoft 365 Audit Logs](#step-7-configure-microsoft-365-audit-logs)
+13. [Glossary of Terms](#glossary-of-terms)
+
+---
+
+## Quick Reference Card
+
+> 💡 **TIP**: Use this card as a quick reference for which tenant to run each step in.
+
+### Step-by-Step Summary
+
+| Step | Description | Run From | Role Required | Estimated Time |
+|------|-------------|----------|---------------|----------------|
+| **Step 0** | Register Resource Providers | SOURCE Tenant | Owner on subscriptions | 5-10 min |
+| **Step 1** | Create Security Group & Workspace | MANAGING Tenant | Global Admin + Contributor | 10-15 min |
+| **Step 2** | Deploy Azure Lighthouse | SOURCE Tenant | Owner on subscriptions | 10-15 min |
+| **Step 3** | Configure Activity Logs | MANAGING Tenant | Contributor (via Lighthouse) | 5-10 min |
+| **Step 4** | Configure VM Diagnostic Logs | MANAGING Tenant | Contributor (via Lighthouse) | 15-30 min |
+| **Step 5** | Configure Resource Diagnostic Logs | MANAGING Tenant | Contributor (via Lighthouse) | 10-20 min |
+| **Step 6** | Configure Entra ID Logs | MANAGING Tenant* | Global Admin in BOTH tenants | 20-30 min |
+| **Step 7** | Configure M365 Audit Logs | MANAGING Tenant* | Global Admin in BOTH tenants | 15-20 min |
+
+> *Steps 6 and 7 require authentication to **both** tenants during script execution.
+
+### Tenant Terminology
+
+Throughout this guide, we use two key terms:
+
+| Term | Also Called | Description | Example |
+|------|-------------|-------------|---------|
+| **SOURCE Tenant** | Customer Tenant | The tenant where resources exist that you want to collect logs from | "Gameboard1" |
+| **MANAGING Tenant** | MSP Tenant, Admin Tenant | The tenant that receives and monitors logs (where Sentinel runs) | "Admin1" |
+
+### Execution Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           EXECUTION ORDER                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   MANAGING Tenant          SOURCE Tenant           MANAGING Tenant      │
+│   ┌─────────────┐         ┌─────────────┐         ┌─────────────┐      │
+│   │   Step 1    │         │   Step 0    │         │  Steps 3-7  │      │
+│   │  Create     │────────►│  Register   │────────►│  Configure  │      │
+│   │  Resources  │         │  Providers  │         │    Logs     │      │
+│   └─────────────┘         └──────┬──────┘         └─────────────┘      │
+│                                  │                                      │
+│                                  ▼                                      │
+│                           ┌─────────────┐                               │
+│                           │   Step 2    │                               │
+│                           │  Lighthouse │                               │
+│                           │  Delegation │                               │
+│                           └─────────────┘                               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Prerequisites Checklist
+
+> ℹ️ **NOTE**: Complete this checklist before starting. Missing prerequisites are the most common cause of script failures.
+
+### Azure Subscriptions & Roles
+
+- [ ] **Owner** role on SOURCE tenant subscription(s)
+- [ ] **Contributor** role on MANAGING tenant subscription
+- [ ] **Global Administrator** role in MANAGING tenant Entra ID (for Steps 1, 6, 7)
+- [ ] **Global Administrator** role in SOURCE tenant Entra ID (for Steps 6, 7)
+- [ ] **Groups Administrator** role in MANAGING tenant (alternative to Global Admin for Step 1)
+
+### Licenses Required
+
+| License | Required For | Minimum Tier |
+|---------|--------------|--------------|
+| Microsoft Entra ID P1/P2 | Step 6 (Sign-in logs) | P1 for basic, P2 for risk events |
+| Microsoft 365 | Step 7 (M365 audit logs) | Any M365 license |
+| Azure Subscription | All steps | Pay-as-you-go or higher |
+
+### Software Requirements
+
+- [ ] **PowerShell 7.x** or **Windows PowerShell 5.1**
+- [ ] **Az PowerShell Module** - Install with: `Install-Module -Name Az -Repository PSGallery -Force`
+- [ ] **Microsoft.Graph Module** - Install with: `Install-Module Microsoft.Graph -Scope CurrentUser`
+
+### Information to Gather Before Starting
+
+Fill in these values before you begin:
+
+| Information | Your Value | Where to Find It |
+|-------------|------------|------------------|
+| SOURCE Tenant ID | `________________________` | Azure Portal > Entra ID > Overview |
+| MANAGING Tenant ID | `________________________` | Azure Portal > Entra ID > Overview |
+| MANAGING Subscription ID | `________________________` | Azure Portal > Subscriptions |
+| SOURCE Subscription ID(s) | `________________________` | Azure Portal > Subscriptions |
+| Desired Azure Region | `________________________` | e.g., "eastus", "westus2", "uksouth" |
+
+---
+
+## Cost Estimation
+
+> ℹ️ **NOTE**: Costs vary based on log volume, retention settings, and Azure region. These are estimates for planning purposes.
+
+### Component Costs
+
+| Component | Unit Cost | Typical Monthly Volume | Estimated Monthly Cost |
+|-----------|-----------|------------------------|------------------------|
+| **Log Analytics Workspace** | ~$2.76/GB ingested | Varies | Primary cost driver |
+| **Activity Logs** | Included in LAW | < 1 GB/subscription | ~$3/subscription |
+| **VM Diagnostic Logs** | Included in LAW | 1-5 GB/VM | ~$3-14/VM |
+| **Resource Diagnostic Logs** | Included in LAW | Varies by resource | Depends on activity |
+| **Event Hub (Entra ID logs)** | ~$22/month base | N/A | ~$22 + throughput |
+| **Azure Function** | ~$0.20/million executions | Low | < $1/month |
+
+### Scenario-Based Estimates
+
+| Scenario | Description | Estimated Monthly Cost |
+|----------|-------------|------------------------|
+| **Small** | 1 subscription, 5 VMs, basic logs | $50 - $100 |
+| **Medium** | 3 subscriptions, 20 VMs, all log types | $200 - $400 |
+| **Large** | 10+ subscriptions, 100+ VMs, full monitoring | $500 - $1,500+ |
+
+### Cost Optimization Tips
+
+1. **Adjust retention periods** - Default is 30 days; reduce for non-critical logs
+2. **Use Basic Logs tier** - For high-volume, low-query logs (up to 70% savings)
+3. **Filter log categories** - Only enable categories you need
+4. **Monitor ingestion** - Set up cost alerts in Azure Cost Management
+5. **Archive to Storage** - For long-term retention at lower cost
 
 ---
 
@@ -131,7 +261,7 @@ Connect-AzAccount -TenantId "<SOURCE-TENANT-ID>"
 
 > ⚠️ **IMPORTANT**: This script must be run in the **SOURCE/CUSTOMER TENANT** (the tenant where the resources exist that you want to collect logs from).
 
-> ✅ **RECOMMENDED for Azure Cloud Shell** - The Az PowerShell module is pre-installed, no additional setup required!
+> 💡 **TIP**: Azure Cloud Shell is recommended - the Az PowerShell module is pre-installed, no additional setup required!
 
 This PowerShell script checks and registers the `Microsoft.ManagedServices` resource provider across all subscriptions in a tenant. This registration is a **prerequisite for Azure Lighthouse** - without it, the Lighthouse delegation deployment will fail.
 
@@ -308,7 +438,7 @@ Once all subscriptions show `Registered` status, proceed to:
 
 > ⚠️ **IMPORTANT**: This script must be run in the **MANAGING TENANT** (Admin1), not the source tenant. This is where you create the security group and Log Analytics workspace that will receive logs from the source tenant.
 
-> **Note:** This step creates the foundational resources in your managing tenant that will be used throughout the rest of the setup process.
+> ℹ️ **NOTE**: This step creates the foundational resources in your managing tenant that will be used throughout the rest of the setup process.
 
 This PowerShell script automates the preparation of the managing tenant, creating all the resources needed to receive and store logs from source tenants via Azure Lighthouse.
 
@@ -1020,7 +1150,7 @@ Set-AzContext -SubscriptionId "<DELEGATED-SUBSCRIPTION-ID>"
 # Use a custom name for the diagnostic setting
 .\Configure-ActivityLogCollection.ps1 `
     -WorkspaceResourceId "/subscriptions/<ADMIN1-SUB-ID>/resourceGroups/rg-admin1-central-logging/providers/Microsoft.OperationalInsights/workspaces/law-admin1-central-logging" `
-    -DiagnosticSettingName "SendActivityLogsToAtevet12"
+    -DiagnosticSettingName "SendActivityLogsToAdmin1"
 ```
 
 #### Selective Log Categories
@@ -1290,6 +1420,30 @@ That's it! The script handles everything automatically.
 
 ---
 
+### 🎯 Which Path Should You Follow?
+
+> 💡 **TIP**: For most users, you only need to run the Quick Start command above and skip to the **Verification** section at the end of Step 4.
+
+| Your Situation | What to Do |
+|----------------|------------|
+| **First time setup (RECOMMENDED)** | ✅ Run Quick Start → Skip to Verification |
+| **VMs already have Azure Monitor Agent** | Use `-SkipAgentInstallation` parameter |
+| **Don't want Azure Policy for new VMs** | Use `-DeployPolicy $false` parameter |
+| **DCR already exists** | Use `-SkipDCRCreation` parameter |
+| **Need to restore DCR from backup** | Use `-SyncDCRFromMaster` parameter |
+| **Policy role assignment failed** | Run `Run-AssignRolesAsSourceAdmin.ps1` manually |
+
+**The Quick Start command does EVERYTHING for you:**
+- ✅ Creates Data Collection Rule (DCR) in source tenant
+- ✅ Installs Azure Monitor Agent on running VMs
+- ✅ Deploys Azure Policy for stopped/new VMs
+- ✅ Assigns roles to policy managed identities
+- ✅ Creates remediation tasks
+
+> ℹ️ **NOTE**: The sections below (What This Step Does, Prerequisites, Scripts, Usage Examples, Advanced Configuration) provide detailed information for users who need to customize their deployment or troubleshoot issues. **Most users can skip directly to the Verification section.**
+
+---
+
 ### What This Step Does
 
 ```
@@ -1352,7 +1506,7 @@ This step uses two PowerShell scripts that work together:
 | [`Configure-VMDiagnosticLogs.ps1`](scripts/Configure-VMDiagnosticLogs.ps1) | Main script - configures DCR, AMA, and Azure Policy | ✅ Yes - run this one |
 | [`Run-AssignRolesAsSourceAdmin.ps1`](scripts/Run-AssignRolesAsSourceAdmin.ps1) | Helper script - assigns roles to policy identities | ❌ No - called automatically |
 
-> **Note:** The main script automatically calls the helper script after deploying Azure Policy. You don't need to run them separately.
+> ℹ️ **NOTE**: The main script automatically calls the helper script after deploying Azure Policy. You don't need to run them separately.
 
 ### Usage Examples
 
@@ -1830,7 +1984,7 @@ This is expected in cross-tenant scenarios. The script automatically calls the h
 
 > ⚠️ **IMPORTANT**: This script should be run from the **MANAGING TENANT** (Admin1) after Azure Lighthouse delegation is complete. The script configures diagnostic settings on Azure resources in the delegated subscriptions to send logs to the Log Analytics workspace in the managing tenant.
 
-> **Note:** Virtual Machine diagnostic logs are covered in **Step 4**. This step focuses on Azure PaaS resources like Key Vault, Storage Accounts, SQL Databases, etc.
+> ℹ️ **NOTE**: Virtual Machine diagnostic logs are covered in **Step 4**. This step focuses on Azure PaaS resources like Key Vault, Storage Accounts, SQL Databases, etc.
 
 Resource diagnostic logs capture data plane operations for Azure resources (e.g., Key Vault access, Storage operations, SQL queries). This script automates the configuration of diagnostic settings across multiple resource types using the `allLogs` category group for comprehensive coverage.
 
@@ -2018,13 +2172,18 @@ Invoke-AzOperationalInsightsQuery -WorkspaceId $workspaceId -Query $query
 5. **Retention settings**: Configure appropriate retention periods in the Log Analytics workspace
 6. **Cross-tenant visibility**: Use Azure Lighthouse to manage diagnostic settings across tenants from a single location
 
+### Next Steps
+
+Once resource diagnostic logs are configured, proceed to:
+- **Step 6**: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub
+
 ---
 
 
 
 ## Step 6: Configure Microsoft Entra ID (Azure AD) Logs via Event Hub
 
-> 🚨 **IMPORTANT: EVENT HUB METHOD FOR CROSS-TENANT ENTRA ID LOGS**
+> ⚠️ **IMPORTANT**: This step uses **Azure Event Hub** for cross-tenant Entra ID log collection.
 >
 > Due to limitations with the Lighthouse method for Entra ID log ingestion to the managing tenant, this step uses **Azure Event Hub** as the transport mechanism. The Event Hub method provides:
 > - ✅ **Full automation support** - No manual Portal configuration required
@@ -2104,7 +2263,7 @@ The Event Hub method works because:
 │                                        ▼                                              │
 │  ┌────────────────────────────────────────────────────────────────────────────────┐ │
 │  │                      Log Analytics Workspace                                    │ │
-│  │                    (law-admin1-central-logging)                                       │ │
+│  │                    (law-admin1-central-logging)                                 │ │
 │  │                                                                                  │ │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │ │
 │  │  │EntraIDSignIn │  │EntraIDAudit  │  │EntraIDRisky  │  │EntraIDProvi- │        │ │
@@ -2158,7 +2317,7 @@ Before running this script, you need:
 | **NetworkAccessGenerativeAIInsights** | AI-generated insights | GSA |
 | **EnrichedOffice365AuditLogs** | Enriched Office 365 audit logs | M365 E5 |
 
-> **Note:** Categories marked with "GSA" require Global Secure Access license. Categories will be silently skipped if your tenant doesn't have the required license.
+> ℹ️ **NOTE**: Categories marked with "GSA" require Global Secure Access license. Categories will be silently skipped if your tenant doesn't have the required license.
 
 ---
 
@@ -2183,7 +2342,7 @@ Before running this script, you need:
 
 ### Step 6.1: Deploy Event Hub and Function App (Automated) ⭐ RECOMMENDED
 
-> 💡 **This is the recommended approach.** Running this script completes the entire Step 6 configuration automatically. After running this script successfully, skip directly to **Step 6.4** to verify your logs are flowing.
+> 💡 **TIP**: This is the recommended approach. Running this script completes the entire Step 6 configuration automatically. After running this script successfully, skip directly to **Step 6.4** to verify your logs are flowing.
 
 The primary method for deploying the Event Hub infrastructure and Azure Function is using the automated PowerShell script.
 
@@ -3164,5 +3323,91 @@ M365AuditLogs_CL
 | **DLP-Specific Issues** | |
 | DLP.All subscription enabled but no DLP events | Verify DLP policies exist in the source tenant: `Get-DlpCompliancePolicy` in Exchange Online PowerShell |
 | Need to check DLP license status | Connect to Exchange Online: `Connect-ExchangeOnline -UserPrincipalName admin@tenant.onmicrosoft.com` then run `Get-DlpCompliancePolicy` |
+
+---
+
+## Glossary of Terms
+
+> ℹ️ **NOTE**: This glossary defines technical terms used throughout this guide. If you're new to Azure, review these definitions before starting.
+
+### Azure & Identity Terms
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **Entra ID** | Microsoft Entra ID | Microsoft's cloud-based identity and access management service (formerly Azure Active Directory / Azure AD) |
+| **Tenant** | Azure AD Tenant | A dedicated instance of Entra ID representing an organization |
+| **Subscription** | Azure Subscription | A billing container for Azure resources; one tenant can have multiple subscriptions |
+| **Resource Group** | Resource Group | A logical container for Azure resources that share the same lifecycle |
+| **RBAC** | Role-Based Access Control | Azure's authorization system for managing access to resources |
+| **Service Principal** | Service Principal | An identity used by applications or services to access Azure resources |
+| **Managed Identity** | Managed Identity | An automatically managed identity in Entra ID for Azure resources |
+
+### Monitoring & Logging Terms
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **LAW** | Log Analytics Workspace | Central repository for collecting and analyzing log data in Azure |
+| **AMA** | Azure Monitor Agent | Software installed on VMs to collect logs, metrics, and performance data |
+| **DCR** | Data Collection Rule | Configuration that defines what data to collect from VMs and where to send it |
+| **DCE** | Data Collection Endpoint | Network endpoint that receives data from Azure Monitor Agent |
+| **KQL** | Kusto Query Language | Query language used to search and analyze data in Log Analytics |
+| **Diagnostic Settings** | Diagnostic Settings | Configuration that routes Azure resource logs to destinations like Log Analytics |
+
+### Cross-Tenant & Delegation Terms
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **Azure Lighthouse** | Azure Lighthouse | Service enabling cross-tenant management with delegated access |
+| **MSP** | Managed Service Provider | Organization that manages IT services for customers |
+| **Delegation** | Resource Delegation | Granting access to resources in one tenant to users in another tenant |
+| **Registration Definition** | Lighthouse Registration Definition | Defines what permissions are granted via Lighthouse |
+| **Registration Assignment** | Lighthouse Registration Assignment | Applies a registration definition to a specific scope |
+
+### Authentication & Security Terms
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **SAS** | Shared Access Signature | Token-based authentication for Azure Storage and Event Hub |
+| **WAM** | Windows Account Manager | Windows authentication broker that manages sign-in |
+| **UPN** | User Principal Name | User's sign-in name, typically in email format (user@domain.com) |
+| **MFA** | Multi-Factor Authentication | Security requiring multiple verification methods |
+| **B2B** | Business-to-Business | Guest user collaboration between organizations |
+
+### Infrastructure Terms
+
+| Term | Full Name | Description |
+|------|-----------|-------------|
+| **ARM** | Azure Resource Manager | Azure's deployment and management layer |
+| **Event Hub** | Azure Event Hub | Big data streaming platform for event ingestion |
+| **Function App** | Azure Function App | Serverless compute service for running code on-demand |
+| **Key Vault** | Azure Key Vault | Secure storage for secrets, keys, and certificates |
+| **NSG** | Network Security Group | Firewall rules for Azure virtual networks |
+
+### Azure Role Definitions
+
+| Role | Permissions | When Needed |
+|------|-------------|-------------|
+| **Owner** | Full access including role assignments | Steps 0, 2 (SOURCE tenant) |
+| **Contributor** | Create and manage resources, but not assign roles | Steps 3-5 (via Lighthouse) |
+| **Reader** | View resources only | Baseline access |
+| **Monitoring Contributor** | Create and manage monitoring configurations | Alternative to Contributor for Steps 3-5 |
+| **Global Administrator** | Full access to Entra ID | Steps 1, 6, 7 |
+| **Groups Administrator** | Create and manage groups in Entra ID | Alternative to Global Admin for Step 1 |
+| **Resource Policy Contributor** | Create and manage Azure Policy | Step 4 (policy deployment) |
+| **User Access Administrator** | Manage user access to resources | Step 4 (policy remediation) |
+
+### Common Abbreviations in This Guide
+
+| Abbreviation | Meaning |
+|--------------|---------|
+| **VM** | Virtual Machine |
+| **RG** | Resource Group |
+| **Sub** | Subscription |
+| **P1/P2** | Entra ID Premium 1 / Premium 2 license tiers |
+| **M365** | Microsoft 365 |
+| **DLP** | Data Loss Prevention |
+| **API** | Application Programming Interface |
+| **CLI** | Command Line Interface |
+| **TU** | Throughput Unit (Event Hub capacity) |
 
 ---
