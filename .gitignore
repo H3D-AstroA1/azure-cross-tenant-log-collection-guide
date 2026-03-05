@@ -1,28 +1,899 @@
-# Sensitive files
+# ============================================================================
+# AZURE CROSS-TENANT LOG COLLECTION GUIDE - GITIGNORE
+# ============================================================================
+# This file specifies which files Git should ignore (not track).
+# This is important for security and to avoid committing unnecessary files.
+#
+# SECURITY NOTICE: This file is designed to prevent accidental commits of
+# sensitive data. Always review staged files before committing!
+#
+# Last updated: 2026-03-05
+# ============================================================================
+
+# ============================================================================
+# 🔐 SENSITIVE FILES - NEVER COMMIT THESE!
+# ============================================================================
+# These patterns catch common sensitive file types. If you create a new
+# sensitive file type, add it here immediately!
+
+# Terraform variables with actual values (contains secrets)
+terraform.tfvars
+*.tfvars
+!terraform.tfvars.example
+!*.tfvars.example
+
+# Environment files (may contain API keys, passwords, connection strings)
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
 *.env
 *.env.local
 *.local.settings.json
+local.settings.json
+!.env.example
+!.env.template
+
+# Secrets and credentials files
 secrets.json
+secrets.yaml
+secrets.yml
+**/secrets/
+credentials.json
+credentials.yaml
+service-account*.json
 
-# Python
-__pycache__/
-*.pyc
-.venv/
-venv/
+# Azure-specific sensitive files
+azure.json
+azureauth.json
+.azure/
+azure-credentials.json
+serviceprincipal.json
 
-# Logs
+# AWS credentials (in case of multi-cloud)
+.aws/
+aws-credentials
+credentials.csv
+
+# Google Cloud credentials
+*.json.enc
+gcloud-service-key.json
+google-credentials.json
+
+# Generic credential patterns
+*.secret
+*.secrets
+*secret*.json
+*secret*.yaml
+*secret*.yml
+*password*
+*credential*
+*credentials*
+*.pem
+*.key
+*.crt
+*.cer
+*.pfx
+*.p12
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.ppk
+
+# API keys and tokens
+*api_key*
+*apikey*
+*api-key*
+*.token
+*access_token*
+*auth_token*
+*bearer_token*
+
+# Connection strings
+*connection_string*
+*connectionstring*
+
+# ============================================================================
+# 🏗️ TERRAFORM FILES
+# ============================================================================
+
+# Terraform state files (contain sensitive infrastructure data)
+# CRITICAL: State files contain all resource attributes including secrets!
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+terraform.tfstate.d/
+
+# Terraform plan files (may contain sensitive planned changes)
+*.tfplan
+*.plan
+tfplan
+tfplan.out
+plan.out
+plan.json
+show.json
+
+# Terraform working directories
+.terraform/
+.terraform.lock.hcl
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Override files (for local customization)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform Cloud/Enterprise
+.terraformrc
+terraform.rc
+
+# OpenTofu (Terraform fork)
+.opentofu/
+
+# ============================================================================
+# ☁️ AZURE - BICEP, ARM, AND AZURE CLI
+# ============================================================================
+
+# Azure CLI configuration and credentials
+.azure/
+azure.json
+azureauth.json
+azure-credentials.json
+serviceprincipal.json
+.azureauth
+
+# Azure CLI login state
+accessTokens.json
+azureProfile.json
+
+# Bicep compiled output (ARM JSON generated from Bicep)
+# Keep .bicep source files, ignore compiled ARM JSON if generated
+*.generated.json
+*-compiled.json
+bicep-output/
+
+# Bicep parameter files with actual values (may contain secrets)
+*.parameters.json
+!*.parameters.example.json
+!*.parameters.template.json
+main.parameters.*.json
+!main.parameters.example.json
+
+# ARM template parameter files with actual values
+azuredeploy.parameters.json
+!azuredeploy.parameters.example.json
+*.arm.parameters.json
+
+# Azure deployment outputs (may contain sensitive resource info)
+deployment-output*.json
+arm-output*.json
+bicep-output*.json
+
+# Azure Resource Manager deployment history
+.arm/
+.bicep/
+
+# Azure Functions local settings (contains connection strings)
+local.settings.json
+!local.settings.example.json
+!local.settings.template.json
+
+# Azure Static Web Apps
+staticwebapp.config.local.json
+
+# Azure Key Vault references (may expose vault names)
+keyvault-references.json
+
+# Azure Service Principal files
+sp-credentials.json
+app-registration.json
+
+# Azure Managed Identity
+managed-identity.json
+
+# Azure Storage connection strings and keys
+storage-connection.json
+storage-keys.json
+
+# Azure Cosmos DB keys
+cosmosdb-keys.json
+cosmosdb-connection.json
+
+# Azure SQL connection strings
+sql-connection.json
+database-connection.json
+
+# Azure Event Hub / Service Bus connection strings
+eventhub-connection.json
+servicebus-connection.json
+
+# Azure DevOps
+.azure-pipelines-local/
+azure-pipelines.local.yml
+pipeline-variables.json
+!pipeline-variables.example.json
+
+# Azure Deployment Environments
+.ade/
+
+# Azure Developer CLI (azd)
+.azure/
+.azd/
+azure.yaml.local
+
+# Azure Bicep modules cache
+.bicep-cache/
+
+# Terragrunt
+.terragrunt-cache/
+terragrunt-debug.tfvars.json
+
+# ============================================================================
+# 📜 POWERSHELL / SCRIPTS
+# ============================================================================
+
+# PowerShell logs and history
 *.log
 logs/
+*.transcript
+PSReadLine/
 
-# OS
+# Script output files
+output/
+results/
+reports/
+
+# ============================================================================
+# 💻 IDE AND EDITOR FILES
+# ============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains IDEs (IntelliJ, PyCharm, Rider, WebStorm, etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+
+# Vim
+*.swp
+*.swo
+*.swn
+*~
+Session.vim
+Sessionx.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Atom
+.atom/
+
+# Zed
+.zed/
+
+# Notepad++
+*.npp
+
+# ============================================================================
+# 🖥️ OPERATING SYSTEM FILES
+# ============================================================================
+
+# macOS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+Icon?
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+[Dd]esktop.ini
 
-# Office temp files and documents
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# 📁 TEMPORARY AND BACKUP FILES
+# ============================================================================
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+
+# ============================================================================
+# 🐍 PYTHON
+# ============================================================================
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env/
+virtualenv/
+.virtualenv/
+.python-version
+.pyenv/
+pyenv.cfg
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.pyc
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+pytestdebug.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+profile_default/
+ipython_config.py
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# ============================================================================
+# 📦 BUILD AND OUTPUT DIRECTORIES
+# ============================================================================
+
+# Build output
+build/
+dist/
+out/
+bin/
+obj/
+target/
+
+# Node.js (if any tooling uses it)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+.pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ============================================================================
+# 📚 DOCUMENTATION BUILD
+# ============================================================================
+
+# Generated documentation
+docs/_build/
+site/
+_site/
+public/
+.docusaurus/
+.next/
+.nuxt/
+
+# ============================================================================
+# 🧪 TESTING
+# ============================================================================
+
+# Test output
+coverage/
+.coverage
+*.cover
+test-results/
+TestResults/
+.nyc_output/
+
+# ============================================================================
+# 📦 ARCHIVES AND BINARIES
+# ============================================================================
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+*.bz2
+*.xz
+
+# Executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ============================================================================
+# 📄 OFFICE TEMPORARY FILES AND DOCUMENTS
+# ============================================================================
+
+# Office temp files (Word, Excel, PowerPoint lock files)
 ~$*
-*.docx
-*.pdf
+*.~*
 
-# Claude and GitHub
+# Office documents (avoid committing binary docs - use markdown instead)
+*.docx
+*.xlsx
+*.pptx
+*.pdf
+*.doc
+*.xls
+*.ppt
+
+# ============================================================================
+# 🤖 AI AND DEVELOPMENT TOOLS
+# ============================================================================
+
+# Claude AI
+.claude/
 .claude
-.github
+.claudeignore
+
+# GitHub Copilot
+.copilot/
+
+# Cursor AI
+.cursor/
+.cursorignore
+.cursorrules
+
+# Codeium
+.codeium/
+
+# Tabnine
+.tabnine/
+
+# Amazon CodeWhisperer
+.aws/codewhisperer/
+
+# Windsurf
+.windsurf/
+
+# Aider
+.aider*
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v3/
+
+# Continue.dev
+.continue/
+
+# ============================================================================
+# 🔧 CI/CD AND DEVOPS
+# ============================================================================
+
+# GitHub (uncomment if you want to exclude)
+.github/
+
+# GitLab
+# .gitlab/
+# .gitlab-ci-local/
+
+# Azure DevOps
+# .azure-pipelines/
+
+# Jenkins
+# Jenkinsfile.local
+
+# ============================================================================
+# 🐳 CONTAINERS
+# ============================================================================
+
+# Docker
+.docker/
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+.kube/
+
+# Helm
+charts/*.tgz
+
+# ============================================================================
+# 📊 DIAGNOSTIC AND DEBUG FILES
+# ============================================================================
+
+# Diagnostic files
+diagnostics.json
+debug.log
+*.debug
+*.trace
+
+# Profiling
+*.prof
+*.profile
+profile.json
+
+# Core dumps
+core
+core.*
+*.core
+
+# ============================================================================
+# 🔒 SECURITY SCANNING
+# ============================================================================
+
+# Security scan results (may contain vulnerability details)
+.snyk/
+.checkov/
+.tfsec/
+.trivy/
+security-report*.json
+vulnerability-report*.json
+scan-results/
+
+# ============================================================================
+# 📝 NOTES AND PERSONAL FILES
+# ============================================================================
+
+# Personal notes (may contain sensitive info)
+notes.txt
+notes.md
+TODO.txt
+TODO.md
+NOTES.md
+personal/
+private/
+scratch/
+sandbox/
+
+# ============================================================================
+# ⚠️ CATCH-ALL PATTERNS FOR COMMON SENSITIVE NAMING
+# ============================================================================
+# These are broad patterns - be careful they don't catch legitimate files
+
+# Files with "private" in the name
+*private*
+*PRIVATE*
+
+# Files with "internal" in the name (uncomment if needed)
+# *internal*
+
+# Backup patterns from various tools
+*.bkp
+*-backup
+*_backup
+*.backup.*
+
+# ============================================================================
+# 📊 MICROSOFT 365 / SHAREPOINT / GRAPH API
+# ============================================================================
+
+# PnP PowerShell
+.pnp/
+pnp-connection.json
+pnp-tokens.json
+PnP.PowerShell/
+
+# Microsoft Graph API
+graph-tokens.json
+graph-credentials.json
+.msgraph/
+
+# SharePoint migration files
+migration-report*.json
+migration-log*.txt
+sharepoint-export/
+sharepoint-backup/
+
+# SharePoint site templates and packages
+*.sppkg
+*.wsp
+!*.sppkg.example
+
+# Microsoft 365 CLI
+.cli-m365/
+m365-tokens.json
+
+# Microsoft Authentication Library (MSAL) cache
+msal_token_cache.*
+.msal/
+TokenCache.dat
+
+# Azure AD / Entra ID app registrations
+aad-app-manifest.json
+!aad-app-manifest.example.json
+entra-app-registration.json
+
+# Microsoft Teams
+teams-manifest.local.json
+
+# Power Platform
+.powerplatform/
+solution-settings.json
+
+# ============================================================================
+# 💻 POWERSHELL SPECIFIC
+# ============================================================================
+
+# PowerShell modules (should be installed, not committed)
+Modules/
+PSModules/
+
+# PowerShell profiles (may contain sensitive aliases/functions)
+*_profile.ps1
+Microsoft.PowerShell_profile.ps1
+Microsoft.VSCode_profile.ps1
+
+# PowerShell history (may contain sensitive commands)
+ConsoleHost_history.txt
+PSReadLine/
+
+# PowerShell transcripts
+*-transcript.txt
+*.transcript
+
+# PowerShell Desired State Configuration
+*.mof
+DscMetaConfigs/
+
+# ============================================================================
+# 🗄️ DATABASE AND CACHE FILES
+# ============================================================================
+
+# SQLite databases (may be used for local caching)
+*.db
+*.sqlite
+*.sqlite3
+*.db3
+
+# LevelDB
+*.ldb
+
+# Redis dump
+dump.rdb
+
+# ============================================================================
+# 🌐 NETWORK AND PROXY CONFIGURATIONS
+# ============================================================================
+
+# Proxy configurations (may contain credentials)
+proxy.json
+proxy-config.json
+.proxy
+
+# VPN configurations
+*.ovpn
+vpn-config.*
+
+# ============================================================================
+# 📈 MONITORING AND TELEMETRY
+# ============================================================================
+
+# Application Insights
+applicationinsights.json
+ai-connection.json
+
+# OpenTelemetry
+otel-config.json
+
+# ============================================================================
+# 🔍 LINTING AND FORMATTING
+# ============================================================================
+
+# ESLint
+.eslintcache
+
+# Prettier
+.prettiercache
+
+# PSScriptAnalyzer
+PSScriptAnalyzerSettings.local.psd1
+
+# ============================================================================
+# 🎮 API CLIENTS AND TESTING TOOLS
+# ============================================================================
+
+# Postman
+postman_environment*.json
+!postman_environment.example.json
+postman_globals.json
+
+# Insomnia
+insomnia-workspace*.json
+
+# Bruno (API client)
+.bruno/
+
+# HTTPie
+.httpie/
+
+# REST Client (VS Code extension)
+*.http.local
+*.rest.local
+
+# ============================================================================
+# 🎯 PROJECT-SPECIFIC IGNORES (Azure Cross-Tenant Log Collection)
+# ============================================================================
+# These are specific to this project. Before adding new entries here,
+# consider if they should be added to the main sections above instead.
+# ============================================================================
+
+# Azure Lighthouse deployment outputs
+lighthouse-output*.json
+delegation-*.json
+
+# Cross-tenant configuration files with actual tenant IDs
+tenant-config.json
+tenant-mapping.json
+source-tenants.json
+!*-example.json
+!*-template.json
+
+# Log Analytics workspace connection details
+workspace-config.json
+workspace-keys.json
+law-connection.json
+
+# Event Hub connection strings and configurations
+eventhub-config.json
+eventhub-keys.json
+
+# Diagnostic settings exports
+diagnostic-settings-export*.json
+
+# PowerShell script outputs
+scripts/output/
+scripts/logs/
+scripts/*.output.json
+*-execution-log.txt
+
+# Azure Function deployment packages
+scripts/EntraIDLogsProcessor/bin/
+scripts/EntraIDLogsProcessor/obj/
+scripts/EntraIDLogsProcessor/.python_packages/
+scripts/EntraIDLogsProcessor/getting_started.md
+
+# M365 audit log exports
+audit-logs/
+m365-audit-export/
+
+# Activity log exports
+activity-logs/
+activity-log-export/
+
+# VM diagnostic log exports
+vm-diagnostics/
+vm-logs/
+
+# Entra ID log exports
+entra-logs/
+entra-id-export/
+
+# Test configurations
+test-*.json
+*-test.json
+test/
+
+# Local development overrides
+*.local.json
+*.dev.json
+
+# Screenshots and recordings (for documentation)
+screenshots/
+recordings/
+
+# Backup copies of scripts
+scripts/*.bak
+scripts/*.backup
+*.ps1.bak
+
+# ============================================================================
+# END OF GITIGNORE
+# ============================================================================
+# Add any additional project-specific ignores below this line.
+# ============================================================================
